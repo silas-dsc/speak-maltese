@@ -247,8 +247,13 @@ def main() -> int:
 
     # Drop proper nouns. A word that is almost always capitalised is a name or a
     # place, and a learner's frequency list should rank vocabulary, not people.
+    # 0.75 was too blunt: `gvern`, `ministru` and `partit` are ordinary nouns that
+    # happen to be capitalised in news copy. A real name is capitalised nearly
+    # always, so require that, plus a floor on how often it appears lowercase.
     names = [w for w, total in TOTALS.items()
-             if total >= 15 and CASED[w] / total >= 0.75 and w in counts]
+             if total >= 15 and w in counts
+             and CASED[w] / total >= 0.92
+             and (total - CASED[w]) < 40]
     for w in names:
         counts.pop(w, None)
     print(f"  dropped {len(names)} proper nouns "

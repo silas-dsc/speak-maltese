@@ -1,104 +1,103 @@
 # PROPOSAL ONLY — frequency is not the same as usefulness.
 # `jekk jogħġbok` is rare in print and essential in a café; keep it tier 1.
 id	mt	en	tier_now	tier_proposed	corpus_rank
-v006	intom	you (pl)	1	2	967
+v006	intom	you (pl)	1	2	923
 v008	u	and	1	4	
-v016	iva	yes	1	2	662
-v017	le	no	1	2	438
-v018	forsi	maybe	1	2	313
-v032	ħdejn	next to	1	2	914
+v016	iva	yes	1	2	642
+v017	le	no	1	2	430
+v018	forsi	maybe	1	2	309
+v032	ħdejn	next to	1	2	877
 v036	x'	what	1	4	
-v041	liema	which	1	2	387
-v043	għandi	I have	1	2	373
+v041	liema	which	1	2	382
+v043	għandi	I have	1	2	368
 v044	m'għandix	I don't have	1	4	
-v045	nkun	I am / I will be	1	3	1299
-v046	irrid	I want	1	3	1647
-v047	nixtieq	I would like	1	2	1016
-v048	nista'	I can	1	2	963
-v049	naf	I know	1	2	577
-v050	nifhem	I understand	1	3	1967
-v051	nitkellem	I speak	1	3	2805
-v052	ngħid	I say	1	2	583
-v053	immur	I go	1	2	1068
-v054	niġi	I come	1	4	3716
-v055	nagħmel	I do / I make	1	2	697
-v056	nara	I see	1	2	1001
-v057	nisma'	I hear / I listen	1	4	3046
-v058	nieħu	I take	1	3	1485
-v059	nagħti	I give	1	3	2579
+v045	nkun	I am / I will be	1	3	1226
+v046	irrid	I want	1	3	1550
+v047	nixtieq	I would like	1	2	964
+v048	nista'	I can	1	2	919
+v049	naf	I know	1	2	562
+v050	nifhem	I understand	1	3	1846
+v051	nitkellem	I speak	1	3	2609
+v052	ngħid	I say	1	2	568
+v053	immur	I go	1	2	1013
+v054	niġi	I come	1	4	3425
+v055	nagħmel	I do / I make	1	2	675
+v056	nara	I see	1	2	952
+v057	nisma'	I hear / I listen	1	3	2826
+v058	nieħu	I take	1	3	1403
+v059	nagħti	I give	1	3	2405
 v060	niekol	I eat	1	4	
 v061	nixrob	I drink	1	4	
-v062	naħdem	I work	1	3	2463
-v063	noqgħod	I live / I stay	1	3	2969
+v062	naħdem	I work	1	3	2301
+v063	noqgħod	I live / I stay	1	3	2759
 v064	nitgħallem	I learn	1	4	
-v065	naħseb	I think	1	2	539
-v066	nħobb	I love / I like	1	4	3326
+v065	naħseb	I think	1	2	525
+v066	nħobb	I love / I like	1	4	3068
 v067	jogħġobni	I like it	1	4	
-v071	għada	tomorrow	1	2	572
-v072	ilbieraħ	yesterday	1	2	1126
+v071	għada	tomorrow	1	2	557
+v072	ilbieraħ	yesterday	1	2	1065
 v085	il-	the	1	4	
-v087	ħażin	bad	1	2	431
-v089	żgħir	small	1	2	855
-v090	sabiħ	beautiful / nice	1	2	1021
-v100	sew	right / OK	1	2	376
-v101	raġel	man / husband	2	1	190
-v102	mara	woman / wife	2	1	227
-v105	tfal	children	2	1	142
-v108	ħu	brother	2	1	21
-v109	oħt	sister	2	4	3243
-v110	iben	son	2	3	1234
-v111	bint	daughter	2	4	4720
-v112	familja	family	2	1	187
-v113	nannu	grandfather	2	4	4576
-v114	nanna	grandmother	2	4	3563
-v116	dar	house / home	2	1	128
-v118	kċina	kitchen	2	3	2637
-v119	banju	bathroom	2	4	3635
-v121	tieqa	window	2	4	3093
-v123	siġġu	chair	2	3	2213
-v124	sodda	bed	2	3	2252
-v125	triq	street / road	2	1	173
-v126	belt	city / town	2	1	196
-v128	skola	school	2	3	1773
-v129	xogħol	work	2	1	91
-v131	ħanut	shop	2	3	1781
-v133	knisja	church	2	1	132
-v134	sptar	hospital	2	4	3376
-v139	ħobż	bread	2	3	1464
-v140	kafè	coffee	2	3	1989
+v087	ħażin	bad	1	2	423
+v089	żgħir	small	1	2	822
+v090	sabiħ	beautiful / nice	1	2	969
+v100	sew	right / OK	1	2	371
+v101	raġel	man / husband	2	1	188
+v102	mara	woman / wife	2	1	225
+v105	tfal	children	2	1	141
+v108	ħu	brother	2	1	20
+v109	oħt	sister	2	3	2996
+v111	bint	daughter	2	4	4323
+v112	familja	family	2	1	185
+v113	nannu	grandfather	2	4	4199
+v114	nanna	grandmother	2	4	3284
+v116	dar	house / home	2	1	127
+v118	kċina	kitchen	2	3	2460
+v119	banju	bathroom	2	4	3350
+v121	tieqa	window	2	3	2863
+v123	siġġu	chair	2	3	2074
+v124	sodda	bed	2	3	2111
+v125	triq	street / road	2	1	171
+v126	belt	city / town	2	1	194
+v128	skola	school	2	3	1672
+v129	xogħol	work	2	1	90
+v131	ħanut	shop	2	3	1679
+v133	knisja	church	2	1	131
+v134	sptar	hospital	2	4	3113
+v139	ħobż	bread	2	3	1382
+v140	kafè	coffee	2	3	1867
 v141	te	tea	2	4	
-v142	ħalib	milk	2	3	2269
-v143	inbid	wine	2	3	2089
+v142	ħalib	milk	2	3	2127
+v143	inbid	wine	2	3	1958
 v144	birra	beer	2	4	
-v145	ħut	fish	2	3	2597
-v146	laħam	meat	2	3	2366
-v147	ħaxix	vegetables	2	3	2218
-v149	ġobon	cheese	2	3	2468
-v150	bajd	eggs	2	4	4783
-v151	melħ	salt	2	4	3867
-v152	zokkor	sugar	2	3	1665
-v153	flus	money	2	1	246
-v154	kont	bill / account	2	1	129
-v155	ristorant	restaurant	2	4	3570
-v157	xarabank	bus	2	3	2480
-v158	ajruport	airport	2	3	1597
-v159	ktieb	book	2	1	234
-v160	telefon	phone	2	4	4267
-v162	sena	year	2	1	29
-v164	ġimgħa	week	2	1	159
-v165	jum	day	2	1	260
-v169	billejl	at night	2	4	3589
-v170	nixtri	I buy	2	4	3871
+v145	ħut	fish	2	3	2422
+v146	laħam	meat	2	3	2216
+v147	ħaxix	vegetables	2	3	2079
+v149	ġobon	cheese	2	3	2306
+v150	bajd	eggs	2	4	4379
+v151	melħ	salt	2	4	3557
+v152	zokkor	sugar	2	3	1567
+v153	flus	money	2	1	244
+v154	kont	bill / account	2	1	128
+v155	ristorant	restaurant	2	4	3290
+v157	xarabank	bus	2	3	2316
+v158	ajruport	airport	2	3	1505
+v159	ktieb	book	2	1	232
+v160	telefon	phone	2	4	3918
+v162	sena	year	2	1	28
+v164	ġimgħa	week	2	1	158
+v165	jum	day	2	1	257
+v169	billejl	at night	2	4	3308
+v170	nixtri	I buy	2	4	3561
 v171	nħallas	I pay	2	4	
-v172	naqra	I read	2	3	1352
-v173	nikteb	I write	2	3	2620
-v174	niftaħ	I open	2	4	4008
+v172	naqra	I read	2	3	1277
+v173	nikteb	I write	2	3	2443
+v174	niftaħ	I open	2	4	3685
 v175	nagħlaq	I close	2	4	
-v176	nibda	I begin	2	3	2956
+v176	nibda	I begin	2	3	2748
 v177	nispiċċa	I finish	2	4	
-v178	nistenna	I wait	2	4	4569
+v178	nistenna	I wait	2	4	4193
 v179	nsib	I find	2	4	
-v180	nistaqsi	I ask	2	4	4855
+v180	nistaqsi	I ask	2	4	4445
 v181	nwieġeb	I answer	2	4	
 v182	ngħin	I help	2	4	
 v183	nħares	I look	2	4	
@@ -106,41 +105,40 @@ v184	nimxi	I walk	2	4
 v185	niġri	I run	2	4	
 v186	norqod	I sleep	2	4	
 v187	nqum	I get up	2	4	
-v188	niftakar	I remember	2	3	1736
+v188	niftakar	I remember	2	3	1636
 v189	ninsa	I forget	2	4	
 v190	nħossni	I feel	2	4	
 v191	għajjien	tired	2	4	
-v192	ferħan	happy	2	4	4213
-v193	bil-ġuħ	hungry	2	1	41
-v194	bil-għatx	thirsty	2	1	41
+v192	ferħan	happy	2	4	3870
+v193	bil-ġuħ	hungry	2	1	40
+v194	bil-għatx	thirsty	2	1	40
 v195	sħun	hot	2	4	
 v196	kiesaħ	cold	2	4	
-v199	twil	long / tall	2	3	1515
-v200	qasir	short	2	3	2261
-v201	qadim	old (thing)	2	4	
+v199	twil	long / tall	2	3	1433
+v200	qasir	short	2	3	2120
+v201	qadim	old (thing)	2	4	4782
 v202	xiħ	old (person)	2	4	
 v204	irħis	cheap	2	4	
-v205	nadif	clean	2	4	
-v206	miftuħ	open	2	3	1591
-v207	magħluq	closed	2	4	3389
-v208	frisk	fresh	2	4	4839
-v212	bil-mod	slowly	2	1	41
-v213	aħmar	red	2	3	2431
-v214	abjad	white	2	3	1971
-v215	iswed	black	2	3	1866
+v205	nadif	clean	2	4	4786
+v206	miftuħ	open	2	3	1500
+v207	magħluq	closed	2	4	3126
+v208	frisk	fresh	2	4	4430
+v212	bil-mod	slowly	2	1	40
+v213	aħmar	red	2	3	2271
+v214	abjad	white	2	3	1850
+v215	iswed	black	2	3	1756
 v216	aħdar	green	2	4	
-v217	blu	blue	2	3	2813
+v217	blu	blue	2	3	2617
 v218	isfar	yellow	2	4	
-v219	wieħed	one	2	1	60
-v220	tnejn	two	2	1	257
-v222	erbgħa	four	2	1	253
-v223	ħamsa	five	2	3	1767
-v224	sitta	six	2	4	3021
-v226	tmienja	eight	2	3	2408
-v227	disgħa	nine	2	3	1256
-v228	għaxra	ten	2	4	
-v229	għoxrin	twenty	2	3	1500
-v231	elf	thousand	2	3	1700
+v219	wieħed	one	2	1	59
+v220	tnejn	two	2	1	255
+v222	erbgħa	four	2	1	251
+v223	ħamsa	five	2	3	1666
+v224	sitta	six	2	3	2803
+v226	tmienja	eight	2	3	2249
+v228	għaxra	ten	2	4	4600
+v229	għoxrin	twenty	2	3	1418
+v231	elf	thousand	2	3	1601
 v233	It-Tnejn	Monday	2	4	
 v234	It-Tlieta	Tuesday	2	4	
 v235	L-Erbgħa	Wednesday	2	4	
@@ -148,34 +146,34 @@ v236	Il-Ħamis	Thursday	2	4
 v237	Il-Ġimgħa	Friday	2	4	
 v238	Is-Sibt	Saturday	2	4	
 v239	Il-Ħadd	Sunday	2	4	
-v240	temp	weather	2	3	2114
-v242	riħ	wind	2	3	1586
-v243	sħana	heat	2	3	1831
+v240	temp	weather	2	3	1981
+v242	riħ	wind	2	3	1496
+v243	sħana	heat	2	3	1726
 v244	bard	cold (weather)	2	4	
-v245	sħab	clouds	2	4	3606
-v247	tabib	doctor	3	1	203
-v249	pulizija	police	3	1	112
+v245	sħab	clouds	2	4	3323
+v247	tabib	doctor	3	1	201
+v249	pulizija	police	3	1	111
 v250	spiżerija	pharmacy	3	4	
-v251	saħħa	health	3	1	172
+v251	saħħa	health	3	1	170
 v255	id	hand	3	4	
-v256	sieq	foot / leg	3	4	4794
-v257	qalb	heart	3	1	298
+v256	sieq	foot / leg	3	4	4390
+v257	qalb	heart	3	1	294
 v258	stonku	stomach	3	4	
-v261	kelma	word	3	1	226
-v262	sentenza	sentence	3	2	993
-v263	mistoqsija	question	3	2	799
-v266	eżempju	example	3	2	452
-v268	ġurnata	day (whole)	3	2	324
-v269	lejl	night	3	2	604
+v261	kelma	word	3	1	224
+v262	sentenza	sentence	3	2	945
+v263	mistoqsija	question	3	2	771
+v266	eżempju	example	3	2	444
+v268	ġurnata	day (whole)	3	2	320
+v269	lejl	night	3	2	588
 v270	għodwa	morning	3	4	
-v272	sajf	summer	3	2	847
-v274	Malti	Maltese	3	1	117
-v275	Ingliż	English	3	2	542
-v276	pajjiż	country	3	1	154
-v277	festa	feast / party	3	2	449
-v278	mużika	music	3	2	576
-v279	film	film	3	2	1088
-v280	logħba	game	3	2	503
+v272	sajf	summer	3	2	814
+v274	Malti	Maltese	3	1	116
+v275	Ingliż	English	3	2	528
+v276	pajjiż	country	3	1	153
+v277	festa	feast / party	3	2	441
+v278	mużika	music	3	2	561
+v279	film	film	3	2	1030
+v280	logħba	game	3	2	491
 v281	nilgħab	I play	3	4	
 v282	nkanta	I sing	3	4	
 v283	nogħdos	I swim	3	4	
@@ -183,58 +181,59 @@ v284	nsuq	I drive	3	4
 v285	nivvjaġġa	I travel	3	4	
 v286	nasal	I arrive	3	4	
 v287	nitlaq	I leave	3	4	
-v288	nidħol	I enter	3	4	4102
-v289	noħroġ	I go out	3	4	
+v288	nidħol	I enter	3	4	3770
+v289	noħroġ	I go out	3	4	4682
 v290	nibgħat	I send	3	4	
 v291	nġib	I bring	3	4	
 v292	nuri	I show	3	4	
 v293	nispjega	I explain	3	4	
 v294	nirrepeti	I repeat	3	4	
-v295	nipprova	I try	3	4	3330
-v296	nemmen	I believe	3	2	1045
-v297	nixtieq nkun naf	I'd like to know	3	2	1016
-v298	nirringrazzja	I thank	3	4	3617
+v295	nipprova	I try	3	4	3071
+v296	nemmen	I believe	3	2	991
+v297	nixtieq nkun naf	I'd like to know	3	2	964
+v298	nirringrazzja	I thank	3	4	3332
 v299	niddispjaċini	I'm sorry	3	4	
 v300	nifraħ	I'm glad	3	4	
-v301	dawl	light	3	2	363
+v301	dawl	light	3	2	358
 v302	ċavetta	key	3	4	
-v303	borża	bag	3	4	
+v303	borża	bag	3	4	4724
+v304	ħwejjeġ	clothes	3	2	1170
 v305	qmis	shirt	3	4	
 v306	żarbun	shoes	3	4	
-v308	prezz	price	3	2	1089
-v310	kbir wisq	too big	3	1	176
-v311	ieħor	another (m)	3	1	126
-v312	stess	same / self	3	1	281
-v313	kull	every	3	1	64
-v314	kuljum	every day	3	2	436
-v315	xi	some / a	3	1	26
-v316	bosta	many	3	2	331
-v317	nies	people	3	1	71
-v318	post	place	3	1	138
-v319	naħa	side / area	3	1	268
-v322	dritt	straight	3	2	453
-v323	qrib	near	3	2	474
-v324	bogħod	far	3	2	635
-v326	mur	go (imperative)	3	4	4084
-v327	ejja	come (imperative)	3	2	625
-v328	ħu	take (imperative)	3	1	21
+v308	prezz	price	3	2	1031
+v310	kbir wisq	too big	3	1	174
+v311	ieħor	another (m)	3	1	125
+v312	stess	same / self	3	1	278
+v313	kull	every	3	1	63
+v314	kuljum	every day	3	2	428
+v315	xi	some / a	3	1	25
+v316	bosta	many	3	2	327
+v317	nies	people	3	1	70
+v318	post	place	3	1	137
+v319	naħa	side / area	3	1	265
+v322	dritt	straight	3	2	445
+v323	qrib	near	3	2	463
+v324	bogħod	far	3	2	617
+v326	mur	go (imperative)	3	4	3753
+v327	ejja	come (imperative)	3	2	607
+v328	ħu	take (imperative)	3	1	20
 v329	agħti	give (imperative)	3	4	
 v330	oqgħod	stay / sit (imperative)	3	4	
-v331	ara	look (imperative)	3	2	413
-v332	isma'	listen (imperative)	3	4	
+v331	ara	look (imperative)	3	2	406
+v332	isma'	listen (imperative)	3	4	4839
 v333	erġa'	again (do again)	3	4	
-v334	ftakar	remember (imperative)	3	4	3559
+v334	ftakar	remember (imperative)	3	4	3280
 v335	skużi	excuse me	3	4	
-v336	grazzi	thank you	3	2	563
-v337	jekk jogħġbok	please	3	1	36
+v336	grazzi	thank you	3	2	548
+v337	jekk jogħġbok	please	3	1	35
 v338	prego	you're welcome	3	4	
-v339	mela	of course / well then	3	2	613
+v339	mela	of course / well then	3	2	596
 v340	orrajt	all right	3	4	
-v341	tassew	really	3	2	428
-v342	żgur	sure / certainly	3	2	402
-v345	diġà	already	3	1	273
-v346	aktar	more	3	1	32
-v347	inqas	less	3	2	348
+v341	tassew	really	3	2	420
+v342	żgur	sure / certainly	3	2	397
+v345	diġà	already	3	1	270
+v346	aktar	more	3	1	31
+v347	inqas	less	3	2	344
 v348	l-aħjar	the best	3	4	
 v349	l-agħar	the worst	3	4	
-v350	bħal	like / as	3	1	99
+v350	bħal	like / as	3	1	98

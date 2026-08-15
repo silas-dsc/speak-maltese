@@ -275,6 +275,48 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+## A real Maltese frequency list
+
+`scripts/build_frequency.py` derives one from **MLRS Korpus Malti** (University of
+Malta) — 45M tokens across its conversational genres, deliberately excluding the legal
+and parliamentary ones which would otherwise rank `regolament` above `ħobż`. The
+result is `data/frequency_mt.tsv`, the top 5,000 words. It replaces the
+machine-translated list this project started from, which was never a Maltese frequency
+list at all.
+
+```bash
+python scripts/build_frequency.py --korpus --retier
+```
+
+The corpus is **gated and CC BY-NC-SA 4.0**: you accept its terms yourself, and
+anything derived inherits non-commercial and share-alike — so that file is carved out
+of this repo's MIT licence. Without access it falls back to Maltese Wikipedia (CC
+BY-SA), blended with Tatoeba to offset the encyclopedic register.
+
+Two things the build has to get right:
+
+* **Names are not vocabulary.** Tatoeba's Maltese sentences use `Ziri` as their
+  stand-in person the way the English ones use "Tom" — 328 occurrences in 646
+  sentences, which put it at *rank 10* of the first list. Tokens that are almost
+  always capitalised are dropped. The threshold matters: at 75% it also swallowed
+  `gvern`, `ministru` and `partit`, which are ordinary nouns that happen to be
+  capitalised in news copy.
+* **Display is not the matching key.** Counting folds diacritics, so `tiegħu` and
+  `għall` group correctly — but printing the folded key gives `tieu` and `all`. The
+  commonest real spelling is kept for display.
+
+And the reason retiering is a *proposal* rather than an edit, in one line:
+
+| word | corpus rank | when a learner needs it |
+|---|---|---|
+| `li` | 1 | eventually |
+| `jekk jogħġbok` | 549 | first lesson |
+| `bonġu` | 2,588 | first minute |
+
+Frequency measures print. It does not measure what you need to say to order a coffee,
+so `--retier` writes `data/retier_proposal.tsv` for you to read rather than rewriting
+the deck.
+
 ## About the 2000-word list
 
 The requested source, [commonlyusedwords.com's 2000 most common Maltese

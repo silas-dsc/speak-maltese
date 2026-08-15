@@ -391,6 +391,81 @@ def test_decks_parse_and_have_unique_ids():
         assert int(row["tier"]) in (1, 2, 3, 4, 5)
 
 
+@pytest.mark.parametrize("a,b", [
+    ("Bonġu", "Bongu"),                       # diacritic dropped
+    ("Grazzi ħafna", "gratsi hafna"),          # ż/ts and ħ/h
+    ("Jien mill-Awstralja", "jien mill awstralja"),  # fused article split
+    ("Kemm jiswa?", "kem jiswa"),              # doubled consonant, punctuation
+    ("Il-kont", "ilkont"),
+    ("Nixtieq kafè", "nixtiek kafe"),
+])
+def test_phonetic_key_absorbs_recogniser_variation(a, b):
+    from backend import phonetics
+
+    assert phonetics.similarity(a, b) >= 0.88, phonetics.key(a) + " vs " + phonetics.key(b)
+
+
+@pytest.mark.parametrize("a,b", [
+    ("qalb", "kelb"),              # q must stay distinct from k
+    ("Iva, grazzi", "Le, grazzi"),  # yes vs no
+    ("Nixtieq kafè", "irrid te"),
+])
+def test_phonetic_key_still_separates_different_words(a, b):
+    from backend import phonetics
+
+    assert phonetics.similarity(a, b) < 0.8
+
+
+def test_scripted_dialogue_runs_without_a_model():
+    """The whole point of the drill mode: a correct answer advances the script with
+    no network call and no model, in well under a millisecond of matching."""
+    from backend import dialogue
+
+    node = dialogue.start("cafe")
+    assert node["node"] == "c1"
+    r = dialogue.evaluate("cafe", "c1", "nixtiek kafe jek jogobok")
+    assert r["verdict"] == "correct"
+    assert r["advance"] is True
+    assert r["next"]["node"] == "c2"
+    assert r["reply_mt"]
+
+
+def test_scripted_dialogue_reprompts_instead_of_advancing():
+    from backend import dialogue
+
+    r = dialogue.evaluate("cafe", "c1", "xi xi xi")
+    assert r["verdict"] == "wrong"
+    assert r["advance"] is False
+    assert r["reply_mt"], "must still say something back"
+    assert r.get("say_this_mt"), "must show the target to repeat"
+
+
+def test_scripted_dialogue_lines_are_all_maltese():
+    """Every line the app speaks in drill mode is authored, so unlike the LLM path
+    it can be checked once and trusted."""
+    from backend import dialogue
+
+    for line in dialogue.every_line():
+        assert text.looks_maltese(line), f"not Maltese: {line!r}"
+        assert not text.lint_fusion(line), f"unfused preposition: {line!r}"
+
+
+def test_every_dialogue_node_is_reachable_and_terminates():
+    from backend import dialogue
+
+    for d in dialogue.all_dialogues():
+        nodes = d["nodes"]
+        assert d["start"] in nodes
+        seen, cur, steps = set(), d["start"], 0
+        while cur and steps < 50:
+            assert cur in nodes, f"{d['id']} points at missing node {cur}"
+            seen.add(cur)
+            cur = nodes[cur].get("next")
+            steps += 1
+        assert steps < 50, f"{d['id']} does not terminate"
+        assert seen == set(nodes), f"{d['id']} has unreachable nodes: {set(nodes) - seen}"
+
+
 def test_decks_contain_no_unfused_prepositions():
     """The decks are what the app teaches, so they must obey the rule the tutor
     corrects against. Caught two real ones: `Jien minn l-Awstralja.` as the example

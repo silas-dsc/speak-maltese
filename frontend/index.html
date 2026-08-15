@@ -16,6 +16,7 @@
   </div>
   <nav class="tabs" role="tablist">
     <button class="tab is-active" data-view="talk" role="tab">Taħdita<em>Talk</em></button>
+    <button class="tab" data-view="drill" role="tab">Taħriġ<em>Fast</em></button>
     <button class="tab" data-view="review" role="tab">Reviżjoni<em>Review</em><span class="badge" id="dueBadge" hidden>0</span></button>
     <button class="tab" data-view="progress" role="tab">Progress<em>Stats</em></button>
     <button class="tab" data-view="reference" role="tab">Gwida<em>Guide</em></button>
@@ -52,6 +53,34 @@
         </div>
       </div>
       <p class="composer-status" id="composerStatus">Hold the mic, or press <kbd>space</kbd></p>
+    </div>
+  </section>
+
+  <!-- ══ DRILL (scripted, no model in the loop) ════════════════════════ -->
+  <section class="view" id="view-drill">
+    <div class="scenario-bar">
+      <label class="sr-only" for="drillSelect">Dialogue</label>
+      <select id="drillSelect"></select>
+      <button class="ghost-btn" id="drillRestart">Start over</button>
+      <p class="scenario-goal">Scripted conversation — replies are pre-written and
+        pre-voiced, so it answers the moment you stop speaking.</p>
+    </div>
+
+    <div class="chat" id="drillChat" aria-live="polite"></div>
+
+    <div class="composer">
+      <p class="drill-expect" id="drillExpect"></p>
+      <div class="composer-row">
+        <button class="mic" id="drillMic" aria-label="Hold to speak">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11a6 6 0 0 1-12 0M12 17v4M8.5 21h7"/></svg>
+          <span class="mic-ring"></span>
+        </button>
+        <div class="composer-text">
+          <input type="text" id="drillInput" placeholder="…jew ikteb (or type)" autocomplete="off" spellcheck="false">
+          <button class="send-btn" id="drillSend" aria-label="Send">→</button>
+        </div>
+      </div>
+      <p class="composer-status" id="drillStatus">Hold the mic and answer</p>
     </div>
   </section>
 

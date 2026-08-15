@@ -192,6 +192,18 @@ _MT_EXTRA = {
     "liema", "għaliex", "għax", "biex", "imma", "jew", "wkoll", "ukoll",
 }
 
+_MT_NEGATION = re.compile(r"\bma\s+\w+x\b", re.I)
+
+# Common inflected and imperative forms; the decks store only a base form, and a
+# short authored line often contains nothing else.
+_MT_FORMS = {
+    "fhimt", "fhimtx", "nifhimx", "nafx", "ġejt", "mort", "kont", "insejt",
+    "smajt", "rajt", "għid", "għidli", "prova", "erġa", "ejja", "mur", "ara",
+    "isma", "tini", "agħti", "oqgħod", "tixtieq", "tiekol", "jiswa", "daqshekk",
+    "spiċċajna", "nimxi", "nħallas", "tirrepeti", "toqgħod", "noqgħod",
+    "titkellem", "nitkellem", "nitgħallem", "pjaċir", "prosit", "ewro",
+}
+
 _MT_MARKERS_CACHE: set[str] | None = None
 
 
@@ -216,19 +228,35 @@ def maltese_markers() -> set[str]:
             if len(word) >= 2 and word not in ambiguous:
                 markers.add(word)
     markers |= {"mill", "fil", "tal", "bil", "sal", "mal", "għall", "lill", "fl", "bl"}
-    markers |= _MT_EXTRA
+    markers |= _MT_EXTRA | _MT_FORMS
     _MT_MARKERS_CACHE = markers
     return markers
 
 
 def _words(s: str) -> set[str]:
-    return {w.strip(".,!?;:'’\"()").lower() for w in (s or "").split()}
+    # Split on hyphens as well as spaces, matching how the marker set is built —
+    # otherwise `mill-Awstralja` is one unknown token instead of `mill` + `awstralja`.
+    parts = re.split(r"[\s\-]+", s or "")
+    return {w.strip(".,!?;:'’\"()").lower() for w in parts if w}
 
 
 def looks_maltese(s: str) -> bool:
+    # The `ma … -x` negation frame is structural and occurs in no other language
+    # here, so it settles the question on its own: "Ma fhimtx." is Maltese even
+    # though neither word is in the deck.
+    if _MT_NEGATION.search(s or ""):
+        return True
     w = _words(s)
-    hits = len(w & maltese_markers())
-    return hits >= 2 or (hits >= 1 and bool(_MT_CHARS.search(s or "")))
+    mt = len(w & maltese_markers())
+    en = len(w & _EN_MARKERS)
+    if mt == 0:
+        return False
+    if mt >= 2:
+        return mt >= en
+    # A single marker is enough when the orthography is unmistakably Maltese, or
+    # when the phrase is too short to contain two — "Le, grazzi." is entirely
+    # Maltese but only `grazzi` is distinctive.
+    return bool(_MT_CHARS.search(s or "")) or (len(w) <= 3 and en == 0)
 
 
 def looks_english(s: str) -> bool:

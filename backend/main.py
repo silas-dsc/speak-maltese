@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import CFG, FRONTEND_DIR
-from . import curriculum, db, srs, stt, text, tts, tutor
+from . import curriculum, db, dialogue, srs, stt, text, tts, tutor
 
 logging.basicConfig(
     level=logging.DEBUG if CFG.debug else logging.INFO,
@@ -36,6 +36,36 @@ def _startup() -> None:
     # thing the learner says. In a thread so the UI is up immediately.
     if "faster_whisper" in stt.available():
         threading.Thread(target=stt.preload, name="stt-preload", daemon=True).start()
+
+    # Scripted dialogue speaks from a fixed, finite script, so all of it can be
+    # synthesised up front. Once warm, a drill turn waits on nothing but the
+    # recogniser — which is the whole point of that mode.
+    threading.Thread(target=_prewarm_dialogue_audio,
+                     name="tts-prewarm", daemon=True).start()
+
+
+def _prewarm_dialogue_audio() -> None:
+    import asyncio
+
+    lines = dialogue.every_line()
+    voice = db.get_setting("voice", CFG.azure_voice)
+    rate = float(db.get_setting("rate", 0.95))
+
+    async def run() -> int:
+        done = 0
+        for line in lines:
+            try:
+                await tts.synthesize(line, voice, rate)
+                done += 1
+            except Exception:  # noqa: BLE001 — a cold cache is not fatal
+                pass
+        return done
+
+    try:
+        done = asyncio.run(run())
+        log.info("dialogue audio cached: %d/%d lines", done, len(lines))
+    except Exception:  # noqa: BLE001
+        log.exception("dialogue audio prewarm failed")
 
 
 # ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -115,6 +145,52 @@ async def chat(payload: dict = Body(...)) -> dict:
 @app.get("/api/history")
 def get_history(session_id: str = Query(...), limit: int = 60) -> dict:
     return {"turns": db.history(session_id, limit)}
+
+
+# ── Scripted conversation (no model in the loop) ───────────────────────────
+
+@app.get("/api/drill/dialogues")
+def drill_list() -> dict:
+    return {"dialogues": [
+        {k: d[k] for k in ("id", "name", "name_en", "level")}
+        for d in dialogue.all_dialogues()
+    ]}
+
+
+@app.post("/api/drill/start")
+def drill_start(payload: dict = Body(...)) -> dict:
+    node = dialogue.start(payload.get("dialogue") or "")
+    if not node:
+        raise HTTPException(404, "unknown dialogue")
+    return node
+
+
+@app.post("/api/drill/answer")
+def drill_answer(payload: dict = Body(...)) -> dict:
+    result = dialogue.evaluate(
+        payload.get("dialogue") or "",
+        payload.get("node") or "",
+        payload.get("said") or "",
+    )
+    if result.get("error"):
+        raise HTTPException(404, result["error"])
+    # A scripted turn still feeds the spaced-repetition system: a phrase you
+    # produced correctly under time pressure is exactly what should be scheduled.
+    if result["verdict"] == "correct" and result.get("matched_mt"):
+        _schedule_from_drill(result["matched_mt"], result.get("matched_en") or "")
+    return result
+
+
+def _schedule_from_drill(mt: str, en: str) -> None:
+    try:
+        ids = curriculum.register_new_vocab([{"mt": mt, "en": en}], "drill")
+        for cid in ids:
+            st = db.state_of(cid)
+            if st.state == "new":
+                db.save_state(cid, srs.review(st, srs.GOOD, CFG.target_retention))
+                db.log_review(cid, srs.GOOD, "produce", None, None, None)
+    except Exception:  # noqa: BLE001 — never let bookkeeping break a turn
+        log.exception("could not schedule drill phrase")
 
 
 # ── Speech ─────────────────────────────────────────────────────────────────

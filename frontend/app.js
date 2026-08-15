@@ -434,6 +434,101 @@ async function send(text) {
   }
 }
 
+/* ── Drill: scripted conversation ──────────────────────────────────────────
+   No model in the loop. The reply is chosen by phonetic match on the server in
+   under a millisecond, and its audio is already cached, so the only wait is
+   speech recognition. */
+
+const drill = { dialogue: null, node: null, busy: false };
+
+async function loadDrills() {
+  const { dialogues } = await api('/api/drill/dialogues');
+  const sel = $('drillSelect');
+  sel.innerHTML = dialogues
+    .map((d) => `<option value="${d.id}">${d.name} — ${d.name_en} · ${d.level}</option>`)
+    .join('');
+  sel.onchange = () => startDrill(sel.value);
+  if (!drill.dialogue) await startDrill(dialogues[0]?.id);
+}
+
+async function startDrill(id) {
+  if (!id) return;
+  drill.dialogue = id;
+  $('drillChat').innerHTML = '';
+  const node = await post('/api/drill/start', { dialogue: id });
+  presentDrillNode(node);
+}
+
+function presentDrillNode(node) {
+  drill.node = node.node;
+  $('drillExpect').textContent = node.expect_en ? `→ ${node.expect_en}` : '';
+  drillBubble('tutor', node.say_mt, node.say_en);
+  if (state.settings.autoplay) speak(node.say_mt);
+}
+
+function drillBubble(role, mt, en, extraClass = '') {
+  const el = document.createElement('div');
+  el.className = `turn ${role} ${extraClass}`;
+  el.innerHTML = `
+    <div class="bubble">
+      <p class="mt">${escapeHtml(mt || '')}</p>
+      ${en ? `<p class="en" ${state.settings.show_english ? '' : 'hidden'}>${escapeHtml(en)}</p>` : ''}
+      ${role === 'tutor' && mt ? `<div class="bubble-tools">
+          <button class="tool" data-play>🔊 Play</button>
+          <button class="tool" data-slow>🐢 Slow</button>
+        </div>` : ''}
+    </div>`;
+  if (role === 'tutor' && mt) {
+    el.querySelector('[data-play]').onclick = () => speak(mt);
+    el.querySelector('[data-slow]').onclick = () => speak(mt, { rate: 0.7 });
+  }
+  $('drillChat').append(el);
+  $('drillChat').scrollTop = $('drillChat').scrollHeight;
+  return el;
+}
+
+async function answerDrill(said) {
+  said = (said || '').trim();
+  if (!said || drill.busy) return;
+  drill.busy = true;
+  $('drillInput').value = '';
+  drillBubble('user', said, '');
+
+  try {
+    const t0 = performance.now();
+    const r = await post('/api/drill/answer', {
+      dialogue: drill.dialogue, node: drill.node, said,
+    });
+    const ms = Math.round(performance.now() - t0);
+
+    const tone = { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
+    const mark = { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
+    const el = drillBubble('tutor', r.reply_mt, r.reply_en);
+    el.querySelector('.bubble').insertAdjacentHTML('afterbegin',
+      `<p class="drill-verdict ${tone}">${mark} ${r.verdict} · ${Math.round(r.score * 100)}% · ${ms}ms</p>`);
+
+    if (r.say_this_mt) {
+      el.querySelector('.bubble').insertAdjacentHTML('beforeend',
+        `<p class="drill-target">${escapeHtml(r.say_this_mt)}
+           <em>${escapeHtml(r.say_this_en || '')}</em></p>`);
+    }
+
+    if (state.settings.autoplay) await speak(r.reply_mt);
+
+    if (r.advance && r.next) {
+      setTimeout(() => presentDrillNode(r.next), 450);
+    } else if (r.finished) {
+      $('drillExpect').textContent = '';
+      drillBubble('tutor', 'Spiċċajna. Prosit!', 'We’re done. Well done!');
+      updateCounts((await api('/api/bootstrap')).counts);
+    }
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    drill.busy = false;
+  }
+}
+
 /* ── Review ────────────────────────────────────────────────────────────── */
 
 async function loadQueue() {
@@ -695,6 +790,7 @@ function switchView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('is-active', v.id === `view-${name}`));
   if (name === 'review' && !state.card) loadQueue().catch((e) => toast(e.message));
   if (name === 'progress') loadStats().catch((e) => toast(e.message));
+  if (name === 'drill' && !drill.dialogue) loadDrills().catch((e) => toast(e.message));
 }
 
 document.querySelectorAll('.tab').forEach((t) => {
@@ -712,6 +808,20 @@ bindMic($('micBtn'), {
   onResult: async (res) => {
     if (!res.text) { toast('Nothing heard — try again'); return; }
     await send(res.text);
+  },
+});
+
+$('drillSend').addEventListener('click', () => answerDrill($('drillInput').value));
+$('drillInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') answerDrill($('drillInput').value);
+});
+$('drillRestart').addEventListener('click', () => startDrill(drill.dialogue));
+
+bindMic($('drillMic'), {
+  onStatus: (s) => { $('drillStatus').textContent = s || 'Hold the mic and answer'; },
+  onResult: async (res) => {
+    if (!res.text) { toast('Nothing heard — try again'); return; }
+    await answerDrill(res.text);
   },
 });
 

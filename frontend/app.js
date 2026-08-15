@@ -272,15 +272,38 @@ async function loadDrills() {
   if (!drill.dialogue) await startDrill(dialogues[0]?.id);
 }
 
-/** Re-renders the picker so finished scenes are ticked. */
+/** Groups the picker by level and ticks what you've finished.
+
+    23 scenes in a flat list tells a learner nothing about where to start, so they
+    are grouped A0 → A2 in the order the vocabulary builds, and the first unfinished
+    scene is offered as the obvious next thing. */
 function renderDrillOptions() {
   const done = doneScenes.all();
   const sel = $('drillSelect');
   const current = sel.value;
-  sel.innerHTML = drill.dialogues
-    .map((d) => `<option value="${d.id}">${done[d.id] ? '✓ ' : ''}${d.name} — ${d.name_en} · ${d.level}</option>`)
-    .join('');
+  const levels = [...new Set(drill.dialogues.map((d) => d.level))].sort();
+
+  sel.innerHTML = levels.map((lvl) => {
+    const opts = drill.dialogues.filter((d) => d.level === lvl)
+      .map((d) => `<option value="${d.id}">${done[d.id] ? '✓ ' : ''}${d.name} — ${d.name_en}</option>`)
+      .join('');
+    return `<optgroup label="${lvl}">${opts}</optgroup>`;
+  }).join('');
   if (current) sel.value = current;
+
+  const nextUp = drill.dialogues.find((d) => !done[d.id]);
+  const finished = drill.dialogues.filter((d) => done[d.id]).length;
+  $('drillProgress').textContent = nextUp
+    ? `${finished} of ${drill.dialogues.length} scenes done · next up: ${nextUp.name_en}`
+    : `All ${drill.dialogues.length} scenes done — go round again, they get easier.`;
+}
+
+/** Jump to the first scene not yet completed. */
+function goToNextScene() {
+  const done = doneScenes.all();
+  const next = drill.dialogues.find((d) => !done[d.id]) || drill.dialogues[0];
+  $('drillSelect').value = next.id;
+  startDrill(next.id);
 }
 
 async function startDrill(id) {
@@ -348,12 +371,7 @@ function showRunSummary() {
   speak(scene ? 'Prosit! Spiċċajna.' : 'Prosit!');
 
   el.querySelector('[data-again]').onclick = () => startDrill(drill.dialogue);
-  el.querySelector('[data-next]').onclick = () => {
-    const ids = drill.dialogues.map((d) => d.id);
-    const next = ids[(ids.indexOf(drill.dialogue) + 1) % ids.length];
-    $('drillSelect').value = next;
-    startDrill(next);
-  };
+  el.querySelector('[data-next]').onclick = goToNextScene;
 }
 
 function drillBubble(role, mt, en, extraClass = '') {
@@ -704,6 +722,7 @@ $('drillInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') answerDrill($('drillInput').value);
 });
 $('drillRestart').addEventListener('click', () => startDrill(drill.dialogue));
+$('drillNext').addEventListener('click', goToNextScene);
 
 bindMic($('drillMic'), {
   onStatus: (s) => { $('drillStatus').textContent = s || 'Hold the mic and answer'; },

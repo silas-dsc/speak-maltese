@@ -8,3 +8,4 @@ data/progress.db-shm
 data/audio_cache/
 data/frequency_import.tsv
 .DS_Store
+data/eval_clips/

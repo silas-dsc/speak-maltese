@@ -125,6 +125,67 @@ def test_tutor_lint_is_silent_on_correct_maltese():
     assert data["correction"]["issues"] == []
 
 
+def _stt_metrics():
+    import importlib.util
+    path = Path(__file__).resolve().parent.parent / "scripts" / "compare_stt.py"
+    spec = importlib.util.spec_from_file_location("compare_stt", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_wer_and_cer_basics():
+    m = _stt_metrics()
+    assert m.wer("Jien mill-Awstralja.", "Jien mill-Awstralja.") == 0.0
+    assert m.cer("Jien mill-Awstralja.", "Jien mill-Awstralja.") == 0.0
+    assert m.wer("", "Jien mill-Awstralja.") == 1.0
+    assert m.wer("Jien minn Awstralja", "Jien mill-Awstralja.") > 0
+
+
+def test_folded_wer_forgives_what_recognisers_always_drop():
+    """A recogniser writing `Bongu kif int` heard every word correctly; only the
+    diacritics are missing. Strict WER calls that 67% wrong, which would make the
+    comparison measure orthography instead of recognition."""
+    m = _stt_metrics()
+    assert m.wer("Bongu kif int", "Bonġu! Kif int?") > 0.5
+    assert m.wer("Bongu kif int", "Bonġu! Kif int?", folded=True) == 0.0
+    assert m.wer("Jien mill Awstralja", "Jien mill-Awstralja.", folded=True) == 0.0
+
+
+def test_eval_sentences_spread_across_the_deck():
+    m = _stt_metrics()
+    picked = m._sentences(20)
+    assert len(picked) == 20
+    assert len(set(picked)) == 20, "duplicate eval sentences"
+    # not all greetings from the top of the phrase deck
+    assert sum(1 for s in picked if s.startswith(("Bonġu", "Bonswà", "Saħħa"))) <= 2
+
+
+def test_eval_clip_names_follow_the_sentence_not_the_index():
+    """Regression: clips were named synth_001, synth_002… but --synth 8 and
+    --synth 25 pick different sentences, so cached audio from one run got paired
+    with another run's reference text — silently scoring every model against the
+    wrong transcript."""
+    import hashlib
+
+    m = _stt_metrics()
+    small, large = m._sentences(8), m._sentences(25)
+    overlap = set(small) & set(large)
+    assert overlap, "expected some shared sentences between eval-set sizes"
+
+    def clip_name(sentence):
+        return f"synth_{hashlib.sha256(sentence.encode()).hexdigest()[:12]}.mp3"
+
+    # the same sentence must map to the same file regardless of eval-set size...
+    for s in overlap:
+        assert clip_name(s) == clip_name(s)
+    # ...and different sentences must never collide onto one file
+    names = {clip_name(s) for s in set(small) | set(large)}
+    assert len(names) == len(set(small) | set(large))
+    # position in the list must not appear in the name
+    assert "001" not in clip_name(small[0]) or clip_name(small[0]) != clip_name(large[0])
+
+
 def test_hyphen_split_keeps_display_form():
     pairs = text.units("mill-Awstralja")
     assert [d for d, _ in pairs] == ["mill-", "Awstralja"]
@@ -253,6 +314,24 @@ def test_decks_parse_and_have_unique_ids():
     for row in vocab + phrases:
         assert row["mt"] and row["en"], f"incomplete row: {row}"
         assert int(row["tier"]) in (1, 2, 3, 4, 5)
+
+
+def test_decks_contain_no_unfused_prepositions():
+    """The decks are what the app teaches, so they must obey the rule the tutor
+    corrects against. Caught two real ones: `Jien minn l-Awstralja.` as the example
+    for `minn`, and `Naħdem sa l-erbgħa.` for `sa`."""
+    offenders = []
+    sources = (
+        (curriculum.VOCAB_TSV, ("mt", "ex_mt")),
+        (curriculum.PHRASES_TSV, ("mt",)),
+    )
+    for path, cols in sources:
+        for row in curriculum._read_tsv(path):
+            for col in cols:
+                value = (row.get(col) or "").strip()
+                for hit in text.lint_fusion(value):
+                    offenders.append(f"{row['id']}.{col}: {value!r} → {hit['should_be']}")
+    assert not offenders, "unfused preposition + article in the decks:\n" + "\n".join(offenders)
 
 
 def test_scenarios_are_well_formed():

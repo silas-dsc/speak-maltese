@@ -183,14 +183,37 @@ few, small, and mostly academic. The ones that matter here:
 | [`sam8000/whisper-large-v3-turbo-maltese-malta`](https://huggingface.co/sam8000/whisper-large-v3-turbo-maltese-malta) | Newer base, but transformers format — needs `ct2-transformers-converter` first. MIT. |
 | [`oddadmix/MasriSwitch-Gemma3n-Transcriber-v1`](https://huggingface.co/oddadmix/MasriSwitch-Gemma3n-Transcriber-v1) | Handles Maltese↔English code-switching, which is how Maltese is actually spoken. GGUF builds exist. |
 
-To use the Maltese-tuned recogniser instead of generic Whisper:
+**Measured**, with `scripts/compare_stt.py` on 25 deck sentences spoken by the app's
+own `mt-MT` voice:
+
+| model | WER | fWER | CER | app score | **would pass** | s/clip |
+|---|---|---|---|---|---|---|
+| **whisper-large-maltese-…-ct2** | 50.3% | **5.3%** | 8.0% | **0.98** | **96%** | 8.7 |
+| whisper `small` (generic) | 127% | 120% | 48.4% | 0.40 | **4%** | 3.3 |
+
+Not a marginal gain: **4% → 96%** of utterances the app would mark correct. Generic
+`small` does not merely mis-hear Maltese, it hallucinates — `Tinkwetax.` came back as
+a different sentence entirely, and WER above 100% means it invented more words than
+were said. On a low-resource language the fine-tune is the difference between working
+and not.
+
+Read `fWER`, not `WER`, for the fine-tune: it transcribes lowercase and unpunctuated,
+which strict WER punishes even when every word is right.
 
 ```bash
 SM_WHISPER_MODEL=carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2
 ```
 
-`faster-whisper` resolves that repo id through the Hub. ~3 GB on first run. *Verified
-that the repo is CT2-ready (`model.bin` + `vocabulary.json`); not benchmarked here.*
+`faster-whisper` resolves that repo id through the Hub (~3 GB on first run). It is
+~2.6× slower per clip, which is the trade: a couple of extra seconds after you speak,
+for transcription that actually works.
+
+Reproduce, or test your own voice — which is what really matters, since the app has to
+understand *you* rather than a synthesiser:
+
+```bash
+python scripts/compare_stt.py --record 20 --models small,carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2
+```
 
 **Language models** — [`MLRS/BERTu`](https://huggingface.co/MLRS/BERTu) is the
 reference Maltese encoder (University of Malta), with POS/NER/sentiment heads

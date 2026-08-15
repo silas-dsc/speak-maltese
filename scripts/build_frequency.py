@@ -46,6 +46,12 @@ WIKI_DUMP = "https://dumps.wikimedia.org/mtwiki/latest/mtwiki-latest-pages-artic
 UA = {"user-agent": "speak-maltese/1.0 (personal language-learning tool)"}
 
 SURFACE: dict[str, Counter] = {}
+# How often each token appeared capitalised, to spot proper nouns. Tatoeba's Maltese
+# sentences use "Ziri" as their stand-in person the way the English ones use "Tom" —
+# 328 occurrences in 646 sentences, which lands it at rank 10 of a vocabulary list
+# unless names are excluded.
+CASED: Counter = Counter()
+TOTALS: Counter = Counter()
 
 CACHE = DATA_DIR / ".corpus_cache"
 FREQ_OUT = DATA_DIR / "frequency_mt.tsv"
@@ -99,6 +105,9 @@ def _bump(counts: Counter, surface: dict, word: str) -> None:
     if 2 <= len(f) <= 24:
         counts[f] += 1
         surface.setdefault(f, Counter())[word.lower()] += 1
+        TOTALS[f] += 1
+        if word[:1].isupper():
+            CASED[f] += 1
 
 
 def wikipedia_counts() -> tuple[Counter, int]:
@@ -182,6 +191,27 @@ def tatoeba_counts() -> Counter:
     return counts
 
 
+def _cached_counts(name: str, build):
+    """Counting 700 remote files takes a quarter of an hour; do it once."""
+    import json
+
+    cache = CACHE / f"counts_{name}.json"
+    if cache.exists():
+        blob = json.loads(cache.read_text(encoding="utf-8"))
+        SURFACE.update({k: Counter(v) for k, v in blob["surface"].items()})
+        CASED.update(blob["cased"])
+        TOTALS.update(blob["totals"])
+        print(f"  (reusing cached counts from {cache.name})")
+        return Counter(blob["counts"]), blob["docs"]
+    counts, docs = build()
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({
+        "counts": counts, "docs": docs, "cased": dict(CASED), "totals": dict(TOTALS),
+        "surface": {k: dict(v) for k, v in SURFACE.items()},
+    }), encoding="utf-8")
+    return counts, docs
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--korpus", action="store_true",
@@ -193,11 +223,11 @@ def main() -> int:
 
     if args.korpus:
         print("MLRS Korpus Malti — CC BY-NC-SA 4.0")
-        counts, docs = korpus_counts()
+        counts, docs = _cached_counts("korpus", korpus_counts)
         source = "MLRS Korpus Malti (CC BY-NC-SA 4.0), conversational genres"
     else:
         print("Maltese Wikipedia — CC BY-SA")
-        counts, docs = wikipedia_counts()
+        counts, docs = _cached_counts("wiki", wikipedia_counts)
         source = "Maltese Wikipedia (CC BY-SA)"
 
     print(f"  {docs} documents · {sum(counts.values())/1e6:.2f}M tokens · "
@@ -214,6 +244,16 @@ def main() -> int:
 
     for w in STOP_NOISE:
         counts.pop(w, None)
+
+    # Drop proper nouns. A word that is almost always capitalised is a name or a
+    # place, and a learner's frequency list should rank vocabulary, not people.
+    names = [w for w, total in TOTALS.items()
+             if total >= 15 and CASED[w] / total >= 0.75 and w in counts]
+    for w in names:
+        counts.pop(w, None)
+    print(f"  dropped {len(names)} proper nouns "
+          f"(e.g. {', '.join(sorted(names, key=lambda x: -TOTALS[x])[:6])})")
+
     ranked = counts.most_common(args.top)
 
     def display(key: str) -> str:

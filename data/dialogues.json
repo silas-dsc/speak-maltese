@@ -1934,6 +1934,924 @@
           "next": null
         }
       }
+    },
+    {
+      "id": "home",
+      "name": "Id-dar",
+      "name_en": "At home",
+      "level": "A1",
+      "start": "h1",
+      "nodes": {
+        "h1": {
+          "say_mt": "Din hi d-dar tiegħi. Kif tidhirlek?",
+          "say_en": "This is my house. What do you think of it?",
+          "expect_en": "Say it's nice or big",
+          "accept": [
+            {
+              "mt": "Sabiħa ħafna!",
+              "en": "Very beautiful!"
+            },
+            {
+              "mt": "Kbira!",
+              "en": "Big!"
+            },
+            {
+              "mt": "Dar sabiħa.",
+              "en": "A lovely house."
+            },
+            {
+              "mt": "Nadifa ħafna.",
+              "en": "Very clean."
+            }
+          ],
+          "correct": {
+            "mt": "Grazzi! Din il-kċina. Il-bieb miftuħ — idħol.",
+            "en": "Thanks! This is the kitchen. The door is open — come in."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Sabiħa ħafna!",
+            "en": "Almost. Say: Very beautiful!"
+          },
+          "wrong": {
+            "mt": "Għid: Sabiħa ħafna!",
+            "en": "Say: Very beautiful!"
+          },
+          "next": "h2"
+        },
+        "h2": {
+          "say_mt": "Din il-kċina. Trid tiftaħ it-tieqa?",
+          "say_en": "This is the kitchen. Do you want to open the window?",
+          "expect_en": "Say yes or no about the window",
+          "accept": [
+            {
+              "mt": "Iva, niftaħ it-tieqa.",
+              "en": "Yes, I'll open the window."
+            },
+            {
+              "mt": "Le, nagħlaq it-tieqa.",
+              "en": "No, I'll close the window."
+            },
+            {
+              "mt": "Iva, jekk jogħġbok.",
+              "en": "Yes, please."
+            },
+            {
+              "mt": "Le, hemm il-bard.",
+              "en": "No, it's cold."
+            }
+          ],
+          "correct": {
+            "mt": "Tajjeb. U hemm il-kamra tas-sodda, imma issa magħluqa.",
+            "en": "Good. And there's the bedroom, but it's closed now."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Iva, niftaħ it-tieqa.",
+            "en": "Almost. Say: Yes, I'll open the window."
+          },
+          "wrong": {
+            "mt": "Għid: Iva, niftaħ it-tieqa.",
+            "en": "Say: Yes, I'll open the window."
+          },
+          "next": "h3"
+        },
+        "h3": {
+          "say_mt": "Kemm-il kamra għandek?",
+          "say_en": "How many rooms do you have?",
+          "expect_en": "Say how many rooms",
+          "accept": [
+            {
+              "mt": "Għandi ħames kmamar.",
+              "en": "I have five rooms."
+            },
+            {
+              "mt": "Tliet kmamar.",
+              "en": "Three rooms."
+            },
+            {
+              "mt": "Sitt kmamar.",
+              "en": "Six rooms."
+            },
+            {
+              "mt": "Kamra waħda biss.",
+              "en": "Only one room."
+            }
+          ],
+          "correct": {
+            "mt": "Sabiħ. Il-kafè fil-kċina — ejja!",
+            "en": "Lovely. The coffee's in the kitchen — come on!"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Għandi ħames kmamar.",
+            "en": "Almost. Say: I have five rooms."
+          },
+          "wrong": {
+            "mt": "Għid: Tliet kmamar.",
+            "en": "Say: Three rooms."
+          },
+          "next": null,
+          "free": true
+        }
+      }
+    },
+    {
+      "id": "routine",
+      "name": "Il-ġurnata tiegħi",
+      "name_en": "My day",
+      "level": "A1",
+      "start": "y1",
+      "nodes": {
+        "y1": {
+          "say_mt": "X'ħin tqum filgħodu?",
+          "say_en": "What time do you get up in the morning?",
+          "expect_en": "Say when you get up",
+          "accept": [
+            {
+              "mt": "Nqum fis-sitta.",
+              "en": "I get up at six."
+            },
+            {
+              "mt": "Nqum fis-siegħa tmienja.",
+              "en": "I get up at eight."
+            },
+            {
+              "mt": "Nqum tard!",
+              "en": "I get up late!"
+            },
+            {
+              "mt": "Nqum kmieni ħafna.",
+              "en": "I get up very early."
+            }
+          ],
+          "correct": {
+            "mt": "Kmieni! U x'ħin tibda x-xogħol?",
+            "en": "Early! And what time do you start work?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Nqum fis-sitta.",
+            "en": "Almost. Say: I get up at six."
+          },
+          "wrong": {
+            "mt": "Għid: Nqum fis-sitta.",
+            "en": "Say: I get up at six."
+          },
+          "next": "y2",
+          "free": true
+        },
+        "y2": {
+          "say_mt": "X'ħin tibda u tispiċċa x-xogħol?",
+          "say_en": "What time do you start and finish work?",
+          "expect_en": "Say when you start and finish",
+          "accept": [
+            {
+              "mt": "Nibda fid-disgħa u nispiċċa fil-ħamsa.",
+              "en": "I start at nine and finish at five."
+            },
+            {
+              "mt": "Nibda fit-tmienja.",
+              "en": "I start at eight."
+            },
+            {
+              "mt": "Nispiċċa tard.",
+              "en": "I finish late."
+            }
+          ],
+          "correct": {
+            "mt": "Ġurnata sħiħa! U filgħaxija x'tagħmel?",
+            "en": "A full day! And in the evening what do you do?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Nibda fid-disgħa u nispiċċa fil-ħamsa.",
+            "en": "Almost. Say: I start at nine and finish at five."
+          },
+          "wrong": {
+            "mt": "Għid: Nibda fit-tmienja.",
+            "en": "Say: I start at eight."
+          },
+          "next": "y3",
+          "free": true
+        },
+        "y3": {
+          "say_mt": "Filgħaxija x'tagħmel?",
+          "say_en": "What do you do in the evening?",
+          "expect_en": "Say what you do at night",
+          "accept": [
+            {
+              "mt": "Nikteb u naqra.",
+              "en": "I write and read."
+            },
+            {
+              "mt": "Norqod kmieni.",
+              "en": "I sleep early."
+            },
+            {
+              "mt": "Nara t-televiżjoni.",
+              "en": "I watch television."
+            },
+            {
+              "mt": "Billejl norqod.",
+              "en": "At night I sleep."
+            }
+          ],
+          "correct": {
+            "mt": "Ġurnata tajba! Il-lejl it-tajjeb.",
+            "en": "A good day! Good night."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Norqod kmieni.",
+            "en": "Almost. Say: I sleep early."
+          },
+          "wrong": {
+            "mt": "Għid: Norqod kmieni.",
+            "en": "Say: I sleep early."
+          },
+          "next": null
+        }
+      }
+    },
+    {
+      "id": "shop",
+      "name": "Fil-ħanut",
+      "name_en": "In the shop",
+      "level": "A1",
+      "start": "q1",
+      "nodes": {
+        "q1": {
+          "say_mt": "Bonġu! Qed tfittex xi ħaġa?",
+          "say_en": "Hello! Are you looking for something?",
+          "expect_en": "Say what you're looking for",
+          "accept": [
+            {
+              "mt": "Qed nfittex il-ħalib.",
+              "en": "I'm looking for the milk."
+            },
+            {
+              "mt": "Nixtri l-bajd.",
+              "en": "I'm buying eggs."
+            },
+            {
+              "mt": "Fejn hu l-ħaxix?",
+              "en": "Where are the vegetables?"
+            },
+            {
+              "mt": "Qed nfittex iz-zokkor.",
+              "en": "I'm looking for the sugar."
+            }
+          ],
+          "correct": {
+            "mt": "Hemm hu. Trid xi ħaġa oħra? Melħ, forsi?",
+            "en": "There it is. Do you want anything else? Salt, maybe?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Qed nfittex il-ħalib.",
+            "en": "Almost. Say: I'm looking for the milk."
+          },
+          "wrong": {
+            "mt": "Għid: Fejn hu l-ħalib?",
+            "en": "Say: Where is the milk?"
+          },
+          "next": "q2"
+        },
+        "q2": {
+          "say_mt": "Trid melħ ukoll?",
+          "say_en": "Do you want salt as well?",
+          "expect_en": "Say yes or no",
+          "accept": [
+            {
+              "mt": "Iva, u zokkor.",
+              "en": "Yes, and sugar."
+            },
+            {
+              "mt": "Le, grazzi. Daqshekk.",
+              "en": "No thanks. That's all."
+            },
+            {
+              "mt": "Iva, jekk jogħġbok.",
+              "en": "Yes, please."
+            }
+          ],
+          "correct": {
+            "mt": "Sew. Kollox flimkien: għoxrin ewro.",
+            "en": "Right. Everything together: twenty euros."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Le, grazzi. Daqshekk.",
+            "en": "Almost. Say: No thanks. That's all."
+          },
+          "wrong": {
+            "mt": "Għid: Le, grazzi.",
+            "en": "Say: No, thanks."
+          },
+          "next": "q3"
+        },
+        "q3": {
+          "say_mt": "Għoxrin ewro, jekk jogħġbok.",
+          "say_en": "Twenty euros, please.",
+          "expect_en": "Say it's cheap or expensive, then pay",
+          "accept": [
+            {
+              "mt": "Irħis! Hawn hu.",
+              "en": "Cheap! Here you are."
+            },
+            {
+              "mt": "Għoli ftit, imma tajjeb.",
+              "en": "A bit expensive, but fine."
+            },
+            {
+              "mt": "M'għandix flus biżżejjed.",
+              "en": "I don't have enough money."
+            },
+            {
+              "mt": "Hawn hu. Grazzi!",
+              "en": "Here you are. Thanks!"
+            }
+          ],
+          "correct": {
+            "mt": "Grazzi ħafna! Il-ġurnata t-tajba.",
+            "en": "Thank you very much! Have a good day."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Hawn hu. Grazzi!",
+            "en": "Almost. Say: Here you are. Thanks!"
+          },
+          "wrong": {
+            "mt": "Għid: Hawn hu. Grazzi!",
+            "en": "Say: Here you are. Thanks!"
+          },
+          "next": null
+        }
+      }
+    },
+    {
+      "id": "colours",
+      "name": "Kuluri u affarijiet",
+      "name_en": "Colours and things",
+      "level": "A1",
+      "start": "u1",
+      "nodes": {
+        "u1": {
+          "say_mt": "Ara dawn iż-żewġ qomos. Liema tħobb?",
+          "say_en": "Look at these two shirts. Which do you like?",
+          "expect_en": "Say which colour you like",
+          "accept": [
+            {
+              "mt": "Inħobb il-blu.",
+              "en": "I like the blue one."
+            },
+            {
+              "mt": "Dik l-ħadra.",
+              "en": "That green one."
+            },
+            {
+              "mt": "Is-safra hi sabiħa.",
+              "en": "The yellow one is lovely."
+            },
+            {
+              "mt": "Inħobb is-sewda.",
+              "en": "I like the black one."
+            }
+          ],
+          "correct": {
+            "mt": "Għażla tajba. Din twila jew qasira wisq?",
+            "en": "Good choice. Is this one too long or too short?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Inħobb il-blu.",
+            "en": "Almost. Say: I like the blue one."
+          },
+          "wrong": {
+            "mt": "Għid: Inħobb il-blu.",
+            "en": "Say: I like the blue one."
+          },
+          "next": "u2",
+          "free": true
+        },
+        "u2": {
+          "say_mt": "Din twila jew qasira?",
+          "say_en": "Is this one long or short?",
+          "expect_en": "Say long or short",
+          "accept": [
+            {
+              "mt": "Twila wisq.",
+              "en": "Too long."
+            },
+            {
+              "mt": "Qasira wisq.",
+              "en": "Too short."
+            },
+            {
+              "mt": "Perfetta!",
+              "en": "Perfect!"
+            },
+            {
+              "mt": "Tajba hekk.",
+              "en": "It's fine like that."
+            }
+          ],
+          "correct": {
+            "mt": "Nifhem. U din il-qadima — għadha tajba?",
+            "en": "I see. And this old one — is it still good?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Twila wisq.",
+            "en": "Almost. Say: Too long."
+          },
+          "wrong": {
+            "mt": "Għid: Qasira wisq.",
+            "en": "Say: Too short."
+          },
+          "next": "u3"
+        },
+        "u3": {
+          "say_mt": "Din il-qmis qadima — għadha tajba?",
+          "say_en": "This old shirt — is it still good?",
+          "expect_en": "Say yes or no",
+          "accept": [
+            {
+              "mt": "Iva, għadha tajba.",
+              "en": "Yes, it's still good."
+            },
+            {
+              "mt": "Le, qadima wisq.",
+              "en": "No, too old."
+            },
+            {
+              "mt": "Naħseb li iva.",
+              "en": "I think so."
+            }
+          ],
+          "correct": {
+            "mt": "Sew! Nieħu l-blu, mela. Grazzi!",
+            "en": "Right! I'll take the blue one, then. Thanks!"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Iva, għadha tajba.",
+            "en": "Almost. Say: Yes, it's still good."
+          },
+          "wrong": {
+            "mt": "Għid: Le, qadima wisq.",
+            "en": "Say: No, too old."
+          },
+          "next": null
+        }
+      }
+    },
+    {
+      "id": "people",
+      "name": "In-nies tiegħi",
+      "name_en": "My people",
+      "level": "A1",
+      "start": "o1",
+      "nodes": {
+        "o1": {
+          "say_mt": "X'jisem ommok?",
+          "say_en": "What's your mother's name?",
+          "expect_en": "Say her name — anything goes",
+          "accept": [
+            {
+              "mt": "Jisimha Marija.",
+              "en": "Her name is Marija."
+            },
+            {
+              "mt": "Ommi jisimha Anna.",
+              "en": "My mother's name is Anna."
+            },
+            {
+              "mt": "Ma niftakarx!",
+              "en": "I don't remember!"
+            }
+          ],
+          "correct": {
+            "mt": "Isem sabiħ. U missierek, x'jaħdem?",
+            "en": "A lovely name. And your father, what does he do?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Jisimha Marija.",
+            "en": "Almost. Say: Her name is Marija."
+          },
+          "wrong": {
+            "mt": "Għid: Jisimha Marija.",
+            "en": "Say: Her name is Marija."
+          },
+          "next": "o2",
+          "free": true
+        },
+        "o2": {
+          "say_mt": "Missierek x'jaħdem?",
+          "say_en": "What does your father do?",
+          "expect_en": "Say what he does — anything goes",
+          "accept": [
+            {
+              "mt": "Hu għalliem.",
+              "en": "He's a teacher."
+            },
+            {
+              "mt": "Jaħdem f'ħanut.",
+              "en": "He works in a shop."
+            },
+            {
+              "mt": "Hu rtirat.",
+              "en": "He's retired."
+            },
+            {
+              "mt": "Ma jaħdimx issa.",
+              "en": "He doesn't work now."
+            }
+          ],
+          "correct": {
+            "mt": "Interessanti. Għandek iben jew bint?",
+            "en": "Interesting. Do you have a son or a daughter?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Hu għalliem.",
+            "en": "Almost. Say: He's a teacher."
+          },
+          "wrong": {
+            "mt": "Għid: Jaħdem f'ħanut.",
+            "en": "Say: He works in a shop."
+          },
+          "next": "o3",
+          "free": true
+        },
+        "o3": {
+          "say_mt": "Għandek iben jew bint?",
+          "say_en": "Do you have a son or a daughter?",
+          "expect_en": "Say who you have",
+          "accept": [
+            {
+              "mt": "Għandi tifel u tifla.",
+              "en": "I have a boy and a girl."
+            },
+            {
+              "mt": "Għandi iben wieħed.",
+              "en": "I have one son."
+            },
+            {
+              "mt": "Le, m'għandix tfal.",
+              "en": "No, I don't have children."
+            },
+            {
+              "mt": "Għandi bint waħda.",
+              "en": "I have one daughter."
+            }
+          ],
+          "correct": {
+            "mt": "Prosit! Familja sabiħa. Awguri!",
+            "en": "Well done! A lovely family. Best wishes!"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Għandi tifel u tifla.",
+            "en": "Almost. Say: I have a boy and a girl."
+          },
+          "wrong": {
+            "mt": "Għid: Le, m'għandix tfal.",
+            "en": "Say: No, I don't have children."
+          },
+          "next": null,
+          "free": true
+        }
+      }
+    },
+    {
+      "id": "feelings",
+      "name": "Kif tħossok?",
+      "name_en": "How are you feeling?",
+      "level": "A2",
+      "start": "z1",
+      "nodes": {
+        "z1": {
+          "say_mt": "Tidher imdejjaq. X'ġara?",
+          "say_en": "You look down. What happened?",
+          "expect_en": "Say how you feel",
+          "accept": [
+            {
+              "mt": "Inħossni għajjien.",
+              "en": "I feel tired."
+            },
+            {
+              "mt": "Ninsab imdejjaq ftit.",
+              "en": "I'm a bit sad."
+            },
+            {
+              "mt": "Xejn, jien tajjeb.",
+              "en": "Nothing, I'm fine."
+            },
+            {
+              "mt": "Inħossni ferħan!",
+              "en": "I feel happy!"
+            }
+          ],
+          "correct": {
+            "mt": "Jiddispjaċini. Tinkwetax — kollox jgħaddi.",
+            "en": "I'm sorry. Don't worry — everything passes."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Inħossni għajjien.",
+            "en": "Almost. Say: I feel tired."
+          },
+          "wrong": {
+            "mt": "Għid: Inħossni għajjien.",
+            "en": "Say: I feel tired."
+          },
+          "next": "z2",
+          "free": true
+        },
+        "z2": {
+          "say_mt": "Trid l-għajnuna tiegħi?",
+          "say_en": "Do you want my help?",
+          "expect_en": "Ask for help, or decline",
+          "accept": [
+            {
+              "mt": "Iva, għinni jekk jogħġbok.",
+              "en": "Yes, help me please."
+            },
+            {
+              "mt": "Le, grazzi. Jien tajjeb.",
+              "en": "No thanks. I'm fine."
+            },
+            {
+              "mt": "Tista' tgħinni?",
+              "en": "Can you help me?"
+            },
+            {
+              "mt": "Grazzi, imma le.",
+              "en": "Thanks, but no."
+            }
+          ],
+          "correct": {
+            "mt": "Dejjem hawn jien. Kif nista' ngħinek?",
+            "en": "I'm always here. How can I help you?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Iva, għinni jekk jogħġbok.",
+            "en": "Almost. Say: Yes, help me please."
+          },
+          "wrong": {
+            "mt": "Għid: Tista' tgħinni?",
+            "en": "Say: Can you help me?"
+          },
+          "next": "z3"
+        },
+        "z3": {
+          "say_mt": "Għada tħossok aħjar?",
+          "say_en": "Will you feel better tomorrow?",
+          "expect_en": "Say what you think",
+          "accept": [
+            {
+              "mt": "Naħseb li iva.",
+              "en": "I think so."
+            },
+            {
+              "mt": "Ninsab aħjar diġà.",
+              "en": "I'm already better."
+            },
+            {
+              "mt": "Nittama.",
+              "en": "I hope so."
+            },
+            {
+              "mt": "Ma nafx.",
+              "en": "I don't know."
+            }
+          ],
+          "correct": {
+            "mt": "Prosit. Ħu ħsieb, u strieħ!",
+            "en": "Good. Take care, and rest!"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Naħseb li iva.",
+            "en": "Almost. Say: I think so."
+          },
+          "wrong": {
+            "mt": "Għid: Nittama.",
+            "en": "Say: I hope so."
+          },
+          "next": null
+        }
+      }
+    },
+    {
+      "id": "town",
+      "name": "Fir-raħal",
+      "name_en": "Around town",
+      "level": "A1",
+      "start": "v1",
+      "nodes": {
+        "v1": {
+          "say_mt": "Dan raħal żgħir. X'qed tfittex?",
+          "say_en": "This is a small village. What are you looking for?",
+          "expect_en": "Ask where a building is",
+          "accept": [
+            {
+              "mt": "Fejn hi l-iskola?",
+              "en": "Where is the school?"
+            },
+            {
+              "mt": "Fejn hu l-isptar?",
+              "en": "Where is the hospital?"
+            },
+            {
+              "mt": "Fejn hi l-knisja?",
+              "en": "Where is the church?"
+            },
+            {
+              "mt": "Qed nfittex ristorant.",
+              "en": "I'm looking for a restaurant."
+            }
+          ],
+          "correct": {
+            "mt": "Ħdejn il-pjazza. Trid li nurik?",
+            "en": "Next to the square. Do you want me to show you?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Fejn hi l-iskola?",
+            "en": "Almost. Say: Where is the school?"
+          },
+          "wrong": {
+            "mt": "Għid: Fejn hi l-knisja?",
+            "en": "Say: Where is the church?"
+          },
+          "next": "v2"
+        },
+        "v2": {
+          "say_mt": "Trid li nurik it-triq?",
+          "say_en": "Do you want me to show you the way?",
+          "expect_en": "Accept or decline politely",
+          "accept": [
+            {
+              "mt": "Iva, grazzi ħafna!",
+              "en": "Yes, thank you very much!"
+            },
+            {
+              "mt": "Le, grazzi. Insibha.",
+              "en": "No thanks. I'll find it."
+            },
+            {
+              "mt": "Jekk jogħġbok, iva.",
+              "en": "Please, yes."
+            }
+          ],
+          "correct": {
+            "mt": "Ejja miegħi. Nistenna hawn — lest?",
+            "en": "Come with me. I'll wait here — ready?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Iva, grazzi ħafna!",
+            "en": "Almost. Say: Yes, thank you very much!"
+          },
+          "wrong": {
+            "mt": "Għid: Le, grazzi. Insibha.",
+            "en": "Say: No thanks. I'll find it."
+          },
+          "next": "v3"
+        },
+        "v3": {
+          "say_mt": "Ġejt minn hawn? Qatt ma rajtek qabel.",
+          "say_en": "Are you from here? I've never seen you before.",
+          "expect_en": "Say you're a visitor",
+          "accept": [
+            {
+              "mt": "Le, jien turist.",
+              "en": "No, I'm a tourist."
+            },
+            {
+              "mt": "Ġejt għall-ewwel darba.",
+              "en": "I've come for the first time."
+            },
+            {
+              "mt": "Noqgħod hawn issa.",
+              "en": "I live here now."
+            },
+            {
+              "mt": "Ġej mill-belt.",
+              "en": "I come from the city."
+            }
+          ],
+          "correct": {
+            "mt": "Merħba, mela! Igawdi r-raħal tagħna.",
+            "en": "Welcome, then! Enjoy our village."
+          },
+          "close": {
+            "mt": "Kważi. Għid: Le, jien turist.",
+            "en": "Almost. Say: No, I'm a tourist."
+          },
+          "wrong": {
+            "mt": "Għid: Le, jien turist.",
+            "en": "Say: No, I'm a tourist."
+          },
+          "next": null,
+          "free": true
+        }
+      }
+    },
+    {
+      "id": "phone",
+      "name": "Fuq it-telefon",
+      "name_en": "On the phone",
+      "level": "A2",
+      "start": "x1",
+      "nodes": {
+        "x1": {
+          "say_mt": "Bonġu, min qed jitkellem?",
+          "say_en": "Hello, who's speaking?",
+          "expect_en": "Say who you are",
+          "accept": [
+            {
+              "mt": "Jien Silas.",
+              "en": "It's Silas."
+            },
+            {
+              "mt": "Bonġu, jien ħabib ta' Marija.",
+              "en": "Hello, I'm a friend of Marija's."
+            },
+            {
+              "mt": "Skużani, żbaljajt in-numru.",
+              "en": "Sorry, I've got the wrong number."
+            }
+          ],
+          "correct": {
+            "mt": "Ah, bonġu! Tista' tistenna mument?",
+            "en": "Ah, hello! Can you wait a moment?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Jien Silas.",
+            "en": "Almost. Say: It's Silas."
+          },
+          "wrong": {
+            "mt": "Għid: Jien Silas.",
+            "en": "Say: It's Silas."
+          },
+          "next": "x2",
+          "free": true
+        },
+        "x2": {
+          "say_mt": "Tista' tistenna mument?",
+          "say_en": "Can you wait a moment?",
+          "expect_en": "Say yes, or that you'll call back",
+          "accept": [
+            {
+              "mt": "Iva, nistenna.",
+              "en": "Yes, I'll wait."
+            },
+            {
+              "mt": "Nċempel wara.",
+              "en": "I'll call later."
+            },
+            {
+              "mt": "M'għandix ħin, jiddispjaċini.",
+              "en": "I don't have time, sorry."
+            },
+            {
+              "mt": "Iva, m'hemmx problema.",
+              "en": "Yes, no problem."
+            }
+          ],
+          "correct": {
+            "mt": "Grazzi. Ma nsibhiex — trid tħalli messaġġ?",
+            "en": "Thanks. I can't find her — do you want to leave a message?"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Iva, nistenna.",
+            "en": "Almost. Say: Yes, I'll wait."
+          },
+          "wrong": {
+            "mt": "Għid: Iva, nistenna.",
+            "en": "Say: Yes, I'll wait."
+          },
+          "next": "x3"
+        },
+        "x3": {
+          "say_mt": "Trid tħalli messaġġ?",
+          "say_en": "Do you want to leave a message?",
+          "expect_en": "Leave a message, or say you'll try later",
+          "accept": [
+            {
+              "mt": "Iva. Għidilha li ċempilt.",
+              "en": "Yes. Tell her I called."
+            },
+            {
+              "mt": "Le, grazzi. Nerġa' nċempel.",
+              "en": "No thanks. I'll call again."
+            },
+            {
+              "mt": "Għidilha li nistennieha għada.",
+              "en": "Tell her I'll wait for her tomorrow."
+            }
+          ],
+          "correct": {
+            "mt": "Ngħidilha żgur. Grazzi tal-ħin — saħħa!",
+            "en": "I'll certainly tell her. Thanks for your time — bye!"
+          },
+          "close": {
+            "mt": "Kważi. Għid: Iva. Għidilha li ċempilt.",
+            "en": "Almost. Say: Yes. Tell her I called."
+          },
+          "wrong": {
+            "mt": "Għid: Le, grazzi. Nerġa' nċempel.",
+            "en": "Say: No thanks. I'll call again."
+          },
+          "next": null
+        }
+      }
     }
   ]
 }

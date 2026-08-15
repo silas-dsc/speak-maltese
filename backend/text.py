@@ -212,6 +212,16 @@ _MT_FORMS = {
     "kmamar", "ħwienet", "knejjes", "ċwievet", "snin", "xhur", "ijiem",
     "ipprova", "ħares", "agħżel", "ejjew", "ixgħel", "iftaħ", "agħlaq",
     "nistrieħ", "sibthom", "narahomx", "infittex", "nqum",
+    # demonstratives, possessed kin, and colour/adjective agreement forms
+    "dik", "dawn", "dawk", "din", "ommi", "ommok", "missieri", "missierek",
+    "ibni", "binti", "ħija", "oħti", "jisimha", "jisimhom", "ismijiet",
+    "ħadra", "ħamra", "safra", "sewda", "bajda", "kbira", "żgħira", "twila",
+    "qasira", "qadima", "ġdida", "sabiħa", "tajba", "ħażina", "nadifa",
+    "perfetta", "imdejjaq", "imdejqa", "ferħana", "għajjiena",
+    # very common verb forms
+    "jaħdem", "taħdem", "tidher", "ġara", "nittama", "nfittex", "tfittex",
+    "nċempel", "ċempilt", "għidilha", "għidlu", "nurik", "nsibha", "insibha",
+    "żbaljajt", "igawdi", "jgħaddi", "tħossok", "nħossni", "tidhirlek",
 }
 
 _MT_MARKERS_CACHE: set[str] | None = None

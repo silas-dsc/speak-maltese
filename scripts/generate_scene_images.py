@@ -58,6 +58,14 @@ SCENES = {
     "likes": "a plate of Maltese food seen from above, fish, bread and salad, appetising",
     "plans": "a calendar and cinema tickets on a table beside a phone, evening light",
     "meeting": "a doorway with a welcome mat, warm light spilling out, someone waving hello",
+    "home": "a Maltese townhouse interior, open door onto a bright kitchen, tiled floor",
+    "routine": "an alarm clock on a bedside table beside a window at sunrise, calm",
+    "shop": "a small Maltese grocery shop counter with shelves of milk, eggs and bread",
+    "colours": "two folded shirts on a table, one blue and one green, tape measure beside them",
+    "people": "a framed family photograph on a sideboard beside a vase of flowers",
+    "feelings": "a quiet balcony with one chair and a cup of tea, soft evening light",
+    "town": "a Maltese village square with a church dome, a school and a signpost",
+    "phone": "an old telephone on a hall table with a notepad and pencil beside it",
 }
 
 

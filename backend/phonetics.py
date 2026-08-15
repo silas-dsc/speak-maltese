@@ -71,9 +71,20 @@ def key_nospace(s: str) -> str:
     return key(s).replace(" ", "")
 
 
-def similarity(a: str, b: str) -> float:
+def soft_key(s: str) -> str:
+    """Phonetic key with `q` folded to `k`.
+
+    `q` is a glottal stop, and recognisers render it as h, k or nothing —
+    `Noqgħod` comes back as `noħog`, `noħok`, `noħħok`. Folding it costs little in a
+    closed set: `qalb` against `kelb` still scores 0.75, well under the accept
+    threshold, because the vowels carry the difference.
+    """
+    return key_nospace(s).replace("q", "k")
+
+
+def similarity(a: str, b: str, soft: bool = False) -> float:
     """0..1 phonetic similarity, insensitive to word splits."""
-    ka, kb = key_nospace(a), key_nospace(b)
+    ka, kb = (soft_key(a), soft_key(b)) if soft else (key_nospace(a), key_nospace(b))
     if not ka and not kb:
         return 1.0
     if not ka or not kb:

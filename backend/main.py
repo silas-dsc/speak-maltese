@@ -125,6 +125,7 @@ def drill_answer(payload: dict = Body(...)) -> dict:
         payload.get("dialogue") or "",
         payload.get("node") or "",
         payload.get("said") or "",
+        int(payload.get("attempts") or 0),
     )
     if result.get("error"):
         raise HTTPException(404, result["error"])

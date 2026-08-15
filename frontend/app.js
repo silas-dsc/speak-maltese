@@ -245,7 +245,7 @@ function updateCounts(counts) {
    under a millisecond, and its audio is already cached, so the only wait is
    speech recognition. */
 
-const drill = { dialogue: null, node: null, busy: false };
+const drill = { dialogue: null, node: null, busy: false, attempts: 0 };
 
 async function loadDrills() {
   const { dialogues } = await api('/api/drill/dialogues');
@@ -267,6 +267,7 @@ async function startDrill(id) {
 
 function presentDrillNode(node) {
   drill.node = node.node;
+  drill.attempts = 0;
   $('drillExpect').textContent = node.expect_en ? `→ ${node.expect_en}` : '';
   drillBubble('tutor', node.say_mt, node.say_en);
   if (state.settings.autoplay) speak(node.say_mt);
@@ -303,15 +304,16 @@ async function answerDrill(said) {
   try {
     const t0 = performance.now();
     const r = await post('/api/drill/answer', {
-      dialogue: drill.dialogue, node: drill.node, said,
+      dialogue: drill.dialogue, node: drill.node, said, attempts: drill.attempts,
     });
+    if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 
-    const tone = { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
-    const mark = { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
+    const tone = r.moved_on ? 'near' : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
+    const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
     const el = drillBubble('tutor', r.reply_mt, r.reply_en);
     el.querySelector('.bubble').insertAdjacentHTML('afterbegin',
-      `<p class="drill-verdict ${tone}">${mark} ${r.verdict} · ${Math.round(r.score * 100)}% · ${ms}ms</p>`);
+      `<p class="drill-verdict ${tone}">${mark} ${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}% · ${ms}ms</p>`);
 
     if (r.say_this_mt) {
       el.querySelector('.bubble').insertAdjacentHTML('beforeend',

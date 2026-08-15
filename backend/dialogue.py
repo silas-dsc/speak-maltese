@@ -81,16 +81,17 @@ def _best_match(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
         # Phonetic similarity carries the decision; the orthographic score is
         # blended in so a spelling-perfect answer is never dragged down by a
         # phonetic near-miss.
-        score = max(
-            phonetics.similarity(said, candidate["mt"]),
-            0.6 * phonetics.similarity(said, candidate["mt"]) + 0.4 * text.score(said, candidate["mt"]),
-        )
+        phon = phonetics.similarity(said, candidate["mt"], soft=True)
+        score = max(phon, 0.6 * phon + 0.4 * text.score(said, candidate["mt"]))
         if score > best_score:
             best, best_score = candidate, score
     return best, round(best_score, 4)
 
 
-def evaluate(dialogue_id: str, node_id: str, said: str) -> dict:
+MAX_ATTEMPTS = 2
+
+
+def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> dict:
     """Grade an utterance and return the next thing to say. No model involved."""
     n = node(dialogue_id, node_id)
     if not n:
@@ -99,20 +100,34 @@ def evaluate(dialogue_id: str, node_id: str, said: str) -> dict:
     said = text.normalise(said)
     match, score = _best_match(said, n.get("accept", []))
 
-    if score >= CORRECT:
+    if n.get("free"):
+        # The answer is a name, a place, a number — something personal that the app
+        # has no business checking. Anything that is not silence moves on.
+        verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
+    elif score >= CORRECT:
         verdict = "correct"
     elif score >= CLOSE:
         verdict = "close"
     else:
         verdict = "wrong"
 
+    # Never let someone loop on one line. After a couple of tries the target has
+    # been shown and spoken twice; repeating it a third time teaches nothing, and
+    # being stuck is worse than being waved through.
+    moved_on = False
+    if verdict != "correct" and attempts >= MAX_ATTEMPTS:
+        verdict, moved_on = "correct", True
+
     reply = n.get(verdict) or n.get("wrong") or {}
+    if moved_on:
+        reply = {"mt": "Ejja nkomplu.", "en": "Let's carry on."}
     # Advance only on a correct answer; close and wrong re-ask the same node, which
     # is the prompted-repetition pattern the free-conversation mode uses too.
     next_node = n.get("next") if verdict == "correct" else node_id
 
     out = {
         "verdict": verdict,
+        "moved_on": moved_on,
         "score": score,
         "said": said,
         "matched_mt": match["mt"] if match else None,

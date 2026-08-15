@@ -192,7 +192,8 @@ _MT_EXTRA = {
     "liema", "għaliex", "għax", "biex", "imma", "jew", "wkoll", "ukoll",
 }
 
-_MT_NEGATION = re.compile(r"\bma\s+\w+x\b", re.I)
+# `ma nifhimx` and its contracted form `m'għandix` — both unmistakably Maltese.
+_MT_NEGATION = re.compile(r"\bma\s+\w+x\b|\bm'\w+x\b", re.I)
 
 # Common inflected and imperative forms; the decks store only a base form, and a
 # short authored line often contains nothing else.
@@ -202,6 +203,10 @@ _MT_FORMS = {
     "isma", "tini", "agħti", "oqgħod", "tixtieq", "tiekol", "jiswa", "daqshekk",
     "spiċċajna", "nimxi", "nħallas", "tirrepeti", "toqgħod", "noqgħod",
     "titkellem", "nitkellem", "nitgħallem", "pjaċir", "prosit", "ewro",
+    "lest", "lesti", "staqsini", "dwar", "għamilt", "tixrob", "tiekol", "niflaħx",
+    "uġigħ", "deni", "strieħ", "ifiq", "mort", "qgħadt", "noħroġ", "ħbieb",
+    "weekend", "kilo", "tuffieħ", "mejda", "inbid", "ħut", "kont", "jiswa",
+    "tirrakkomanda", "għandix", "nirrakkomanda", "tixtiequ", "tixorbu",
 }
 
 _MT_MARKERS_CACHE: set[str] | None = None
@@ -234,9 +239,10 @@ def maltese_markers() -> set[str]:
 
 
 def _words(s: str) -> set[str]:
-    # Split on hyphens as well as spaces, matching how the marker set is built —
-    # otherwise `mill-Awstralja` is one unknown token instead of `mill` + `awstralja`.
-    parts = re.split(r"[\s\-]+", s or "")
+    # Split on hyphens and apostrophes as well as spaces. `mill-Awstralja` is
+    # `mill` + `awstralja`, and `X'tixtieq` is `x` + `tixtieq` — Maltese writes both
+    # as one token, so without this they read as unknown words.
+    parts = re.split(r"[\s\-']+", s or "")
     return {w.strip(".,!?;:'’\"()").lower() for w in parts if w}
 
 

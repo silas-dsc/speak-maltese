@@ -110,6 +110,65 @@ and splits at hyphens — so `jien mill Awstralja` scores 1.00 against
 
 ---
 
+## Running the tutor on a free local model
+
+Yes — but check the model first. Maltese is low-resource enough that most models will
+generate *confident, wrong* Maltese, which for a correcting tutor is worse than no
+tutor. `scripts/check_tutor_model.py` measures a model on the five things the tutor
+actually has to do, with deterministic grading:
+
+```bash
+ollama pull hf.co/bartowski/EuroLLM-9B-Instruct-GGUF:Q4_K_M
+python scripts/check_tutor_model.py --base-url http://localhost:11434/v1 \
+       --model hf.co/bartowski/EuroLLM-9B-Instruct-GGUF:Q4_K_M --trials 4
+```
+
+Then point the app at it — no API key needed:
+
+```bash
+SM_OPENAI_BASE_URL=http://localhost:11434/v1
+SM_OPENAI_MODEL=hf.co/bartowski/EuroLLM-9B-Instruct-GGUF:Q4_K_M
+```
+
+**Measured on this machine** — grounded, i.e. with `grammar_notes.md` in context as
+the live tutor does. Trials shown as *passed / run*, because low-resource output is
+high-variance and a single run is misleading:
+
+| model | mean | article fusion | counting form | no copula | stays in Maltese | JSON |
+|---|---|---|---|---|---|---|
+| **EuroLLM-9B-Instruct** Q4_K_M | **82%** ✅ | 1/4 ⚠ | 4/4 | 4/4 | 4/4 | 4/4 |
+| gemma3:12b | 58% | 0/3 | 0/3 | 3/3 | 3/3 | 2/3 |
+| qwen3.5:9b | 53% | 0/3 | 0/3 | 3/3 | 3/3 | 0/3 |
+| qwen3:4b | unusable | — | — | — | — | — |
+
+[EuroLLM](https://huggingface.co/utter-project/EuroLLM-9B-Instruct) is the one to use.
+It is EU-funded and trained on all 24 official EU languages, Maltese included, and it
+is the only local model tested that both corrects reliably and returns clean JSON.
+~5.6 GB, a couple of seconds per turn on Apple silicon.
+
+Bigger general-purpose models do not rescue this — gemma3:12b is larger than EuroLLM
+and scores 24 points lower, because size is not the constraint, Maltese in the
+training mix is. qwen3.5:9b never once produced usable structured output (it is a
+reasoning model and buried the JSON in its thinking), "corrected" a sentence while
+leaving the error in it, and invented the non-word *tfaliet*. qwen3:4b asserted that
+the Maltese for "I" is *Naw*. **A model card listing Maltese is not evidence — measure
+it.**
+
+**The gap, and the safety net.** EuroLLM's weak spot is preposition + article fusion
+(`minn` + `il-` → `mill-`), which it fixes about one time in four — and that is the
+single most common error an English speaker makes. But it is also *fully mechanical*,
+so it does not need a model at all. `text.lint_fusion` checks it by rule on every
+turn, regardless of backend, and will:
+
+1. repair the tutor's own output, so a "corrected" sentence never ships with the
+   error still in it, and
+2. raise the correction itself when you made the mistake and the model let it pass.
+
+That closes EuroLLM's main gap deterministically. Everything else — idiom, register,
+whether a reply is a *good* conversational turn — still degrades on a small model, so
+a hosted model remains noticeably better company. Local is genuinely usable; it is not
+equal.
+
 ## About the 2000-word list
 
 The requested source, [commonlyusedwords.com's 2000 most common Maltese

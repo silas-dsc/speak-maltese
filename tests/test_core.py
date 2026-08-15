@@ -3,6 +3,7 @@ or corrupt the schedule."""
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -53,6 +54,75 @@ def test_hyphenated_article_is_not_penalised(said, target):
     """Maltese fuses the article onto the next word; recognisers split it about half
     the time. That must not cost the learner a third of the score."""
     assert text.score(said, target) > 0.95
+
+
+@pytest.mark.parametrize("bad,good", [
+    ("Jien minn l-Awstralja.", "Jien mill-Awstralja."),
+    ("Noqgħod fi il-Belt.", "Noqgħod fil-Belt."),
+    ("Ġejt minn is-sena l-oħra.", "Ġejt mis-sena l-oħra."),
+    ("Ħadt il-karozza minn id-dar.", "Ħadt il-karozza mid-dar."),
+    ("Nitkellem bi il-Malti.", "Nitkellem bil-Malti."),
+    ("Immur għal il-festa.", "Immur għall-festa."),
+    ("Naħdem fi ix-xogħol.", "Naħdem fix-xogħol."),
+    ("Il-ktieb ta il-tifel.", "Il-ktieb tal-tifel."),
+    ("Mort sa il-baħar.", "Mort sal-baħar."),
+])
+def test_preposition_article_fusion_is_repaired(bad, good):
+    assert text.apply_fusion(bad) == good
+    assert text.lint_fusion(bad), "should have been flagged"
+
+
+@pytest.mark.parametrize("ok", [
+    "Jien mill-Awstralja.",
+    "Noqgħod fil-Belt.",
+    "Tini l-ilma, jekk jogħġbok.",
+    "Ma nifhimx il-Malti.",
+    "Il-ktieb fuq il-mejda.",
+    "Ġejt ma' ħabib.",
+])
+def test_fusion_lint_leaves_correct_maltese_alone(ok):
+    assert text.lint_fusion(ok) == []
+    assert text.apply_fusion(ok) == ok
+
+
+def test_tutor_lint_raises_a_correction_the_model_missed():
+    """A weaker local model often replies without noticing the fusion error. The
+    lint must supply the correction rather than let it through silently."""
+    from backend import tutor
+
+    data = tutor._coerce('{"reply_mt": "Mela!", "reply_en": "So!", '
+                         '"correction": {"needed": false}}')
+    tutor._lint("Jien minn l-Awstralja.", data)
+    assert data["correction"]["needed"] is True
+    assert data["correction"]["corrected_mt"] == "Jien mill-Awstralja."
+    assert data["correction"]["repeat_prompt_mt"] == "Jien mill-Awstralja."
+    assert any(i["should_be"] == "mill-" for i in data["correction"]["issues"])
+
+
+def test_tutor_lint_repairs_the_models_own_output():
+    """Worse than missing the error: 'correcting' it into another broken sentence."""
+    from backend import tutor
+
+    data = tutor._coerce(json.dumps({
+        "reply_mt": "Mela int minn l-Awstralja!",
+        "reply_en": "So you're from Australia!",
+        "correction": {"needed": True, "corrected_mt": "Jien minn l-Awstralja.",
+                       "repeat_prompt_mt": "Jien minn l-Awstralja.", "issues": []},
+    }))
+    tutor._lint("Jien minn l-Awstralja.", data)
+    assert data["reply_mt"] == "Mela int mill-Awstralja!"
+    assert data["correction"]["corrected_mt"] == "Jien mill-Awstralja."
+    assert data["correction"]["repeat_prompt_mt"] == "Jien mill-Awstralja."
+
+
+def test_tutor_lint_is_silent_on_correct_maltese():
+    from backend import tutor
+
+    data = tutor._coerce('{"reply_mt": "Mela int mill-Awstralja!", "reply_en": "x", '
+                         '"correction": {"needed": false}}')
+    tutor._lint("Jien mill-Awstralja.", data)
+    assert data["correction"]["needed"] is False
+    assert data["correction"]["issues"] == []
 
 
 def test_hyphen_split_keeps_display_form():

@@ -160,5 +160,72 @@ def definite(word: str) -> str:
 
 PREP_FUSION = {
     "fi": "fil-", "f'": "fil-", "bi": "bil-", "b'": "bil-", "ta'": "tal-",
-    "minn": "mill-", "ma'": "mal-", "għal": "għall-", "sa": "sal-", "lil": "lill-",
+    "ta": "tal-", "minn": "mill-", "ma'": "mal-", "għal": "għall-",
+    "sa": "sal-", "lil": "lill-",
 }
+
+# Maltese prepositions must fuse with a following definite article:
+#   minn + il-Belt → mill-Belt ;  fi + l-Awstralja → fl-Awstralja
+# Written unfused, they are simply wrong. This is the single most common error an
+# English speaker makes, and — unlike most grammar — it is fully mechanical, so it
+# can be checked without a model. See `lint_fusion`.
+_FUSION_RE = re.compile(
+    r"\b(minn|fi|f'|bi|b'|ta'|ta|ma'|għal|sa|lil)\s+(l-|il-|i[ċdnrstxzż]-)",
+    re.IGNORECASE,
+)
+
+# Before a vowel the article reduces to l-, and some fused forms lose their vowel
+# with it: fi + l-Awstralja → fl-Awstralja, not *fil-Awstralja.
+_FUSION_BEFORE_VOWEL = {
+    "minn": "mill-", "fi": "fl-", "f'": "fl-", "bi": "bl-", "b'": "bl-",
+    "ta'": "tal-", "ta": "tal-", "ma'": "mal-", "għal": "għall-",
+    "sa": "sal-", "lil": "lill-",
+}
+
+# Before an assimilated article (is-, id-, ix-…) the preposition keeps its stem and
+# takes the doubled consonant: minn + is-sena → mis-sena, fi + id-dar → fid-dar.
+_FUSION_STEM = {
+    "minn": "mi", "fi": "fi", "f'": "fi", "bi": "bi", "b'": "bi",
+    "ta'": "ta", "ta": "ta", "ma'": "ma", "għal": "għa", "sa": "sa", "lil": "li",
+}
+
+
+def lint_fusion(s: str) -> list[dict]:
+    """Find unfused preposition + article sequences.
+
+    Returns [{"found", "should_be", "why"}]. Used as a safety net over tutor output:
+    a weaker model will sometimes hand back a "corrected" sentence that still
+    contains this error, and shipping that to a learner is worse than not correcting
+    at all.
+    """
+    out: list[dict] = []
+    for m in _FUSION_RE.finditer(normalise(s)):
+        prep_raw, article = m.group(1), m.group(2)
+        prep = prep_raw.lower()
+        low = article.lower()
+        if low == "l-":
+            fused = _FUSION_BEFORE_VOWEL.get(prep, "")
+        elif low == "il-":
+            fused = PREP_FUSION.get(prep, "")
+        else:
+            # assimilated article: minn + is- → mis-, fi + id- → fid-
+            stem = _FUSION_STEM.get(prep, "")
+            fused = f"{stem}{article[1]}-" if stem else ""
+        if not fused:
+            continue
+        rest = m.group(0)[len(prep_raw):].lstrip()
+        out.append({
+            "found": m.group(0),
+            "should_be": fused,
+            "why": f"{prep} fuses with the article {rest.rstrip('-')}- to make {fused}",
+        })
+    return out
+
+
+def apply_fusion(s: str) -> str:
+    """Rewrite unfused sequences into their correct fused forms."""
+    def _sub(m: re.Match) -> str:
+        fixes = lint_fusion(m.group(0))
+        return fixes[0]["should_be"] if fixes else m.group(0)
+
+    return _FUSION_RE.sub(_sub, normalise(s))

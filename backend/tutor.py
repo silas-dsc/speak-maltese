@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 
 from .config import CFG
-from . import curriculum, db
+from . import curriculum, db, text
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -191,8 +191,52 @@ async def respond(user_text: str, session_id: str, scenario_id: str | None) -> d
         )
 
     data = _coerce(raw)
+    _lint(user_text, data)
     _persist(session_id, scenario_id, user_text, data)
     return data
+
+
+def _lint(user_text: str, data: dict) -> None:
+    """Rule-based safety net over the model's Maltese.
+
+    Preposition + article fusion (`minn il-` → `mill-`) is the most common error an
+    English speaker makes, and it is fully mechanical — so it does not need a model.
+    Smaller local models miss it often (EuroLLM-9B catches it about one time in
+    four), and a "corrected" sentence that still contains the error is worse than no
+    correction. So we check the tutor's own output, repair it, and — if the learner
+    made the mistake and the model said nothing — raise the correction ourselves.
+    """
+    corr = data["correction"]
+
+    # 1. Never ship a corrected form or a reply that still contains the error.
+    for field in ("corrected_mt", "repeat_prompt_mt"):
+        if corr.get(field):
+            corr[field] = text.apply_fusion(corr[field])
+    for field in ("reply_mt",):
+        if data.get(field):
+            data[field] = text.apply_fusion(data[field])
+
+    # 2. If the learner made the error and the model let it pass, correct it.
+    missed = text.lint_fusion(user_text)
+    if not missed:
+        return
+    already = {i.get("should_be", "").lower() for i in (corr.get("issues") or [])}
+    new_issues = [
+        {"kind": "grammar", "said": m["found"], "should_be": m["should_be"],
+         "why": m["why"]}
+        for m in missed if m["should_be"].lower() not in already
+    ]
+    if not new_issues:
+        return
+    corr["needed"] = True
+    corr["issues"] = (corr.get("issues") or []) + new_issues
+    corr["issues"] = corr["issues"][:3]
+    fixed = text.apply_fusion(user_text)
+    corr.setdefault("severity", "minor")
+    if not corr.get("corrected_mt"):
+        corr["corrected_mt"] = fixed
+    if not corr.get("repeat_prompt_mt"):
+        corr["repeat_prompt_mt"] = fixed
 
 
 async def _call_anthropic(system: str, messages: list[dict]) -> str:

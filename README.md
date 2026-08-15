@@ -200,13 +200,19 @@ and not.
 Read `fWER`, not `WER`, for the fine-tune: it transcribes lowercase and unpunctuated,
 which strict WER punishes even when every word is right.
 
-```bash
-SM_WHISPER_MODEL=carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2
-```
+This is now the **default** in `.env.example`. `faster-whisper` resolves the repo id
+through the Hub, so the only setup is the ~3 GB first-run download.
 
-`faster-whisper` resolves that repo id through the Hub (~3 GB on first run). It is
-~2.6× slower per clip, which is the trade: a couple of extra seconds after you speak,
-for transcription that actually works.
+The cost is real and worth stating plainly: **~9s to transcribe each thing you say**
+on CPU, against ~3s for generic `small`. The model is loaded at startup in a
+background thread, so the UI is up in about a second and your *first* utterance is no
+slower than your tenth — but the per-utterance wait stays. Beam size does not help
+(beam 1 and beam 5 both score 0.98; 10.0 vs 10.6 s/clip), because the cost is the
+model, not the search.
+
+If that pause bothers you, the fix is a *cloud* recogniser, not a smaller local one —
+set `OPENAI_API_KEY` and the chain prefers Whisper API automatically. Dropping back to
+`small` only makes it fast and wrong.
 
 Reproduce, or test your own voice — which is what really matters, since the app has to
 understand *you* rather than a synthesiser:

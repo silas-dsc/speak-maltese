@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -29,6 +30,12 @@ def _startup() -> None:
     log.info("TTS: %s | STT: %s | tutor: %s",
              tts.available() or "none", stt.available() or "none",
              CFG.capabilities()["tutor_provider"] or "none")
+
+    # Warm the local recogniser off the request path. The Maltese fine-tune is a
+    # whisper-large, so loading it lazily would put several seconds onto the first
+    # thing the learner says. In a thread so the UI is up immediately.
+    if "faster_whisper" in stt.available():
+        threading.Thread(target=stt.preload, name="stt-preload", daemon=True).start()
 
 
 # ── Bootstrap ──────────────────────────────────────────────────────────────

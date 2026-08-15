@@ -23,6 +23,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -103,7 +104,21 @@ async def _elevenlabs(audio: bytes, mime: str) -> str:
         return r.json().get("text", "")
 
 
-def _faster_whisper(audio: bytes, mime: str) -> str:
+def preload() -> None:
+    """Load the local model now rather than on the learner's first sentence.
+
+    The Maltese fine-tune is a whisper-large, so a cold load costs several seconds.
+    Paying that at boot means the first thing you say is answered as fast as the
+    tenth. Safe to call when faster-whisper is not the active backend — it simply
+    warms a model that may go unused.
+    """
+    try:
+        _load_whisper()
+    except Exception as exc:  # noqa: BLE001 — warming is best-effort
+        log.warning("could not preload local STT: %s", exc)
+
+
+def _load_whisper():
     global _whisper_model
     from faster_whisper import WhisperModel
 
@@ -113,13 +128,20 @@ def _faster_whisper(audio: bytes, mime: str) -> str:
             device = "cpu"
         compute = "int8" if device == "cpu" else "float16"
         log.info("loading faster-whisper %s on %s", CFG.whisper_model, device)
+        t0 = time.time()
         _whisper_model = WhisperModel(CFG.whisper_model, device=device, compute_type=compute)
+        log.info("local STT ready in %.1fs", time.time() - t0)
+    return _whisper_model
+
+
+def _faster_whisper(audio: bytes, mime: str) -> str:
+    model = _load_whisper()
 
     with tempfile.NamedTemporaryFile(suffix=f".{_ext(mime)}", delete=False) as fh:
         fh.write(audio)
         path = fh.name
     try:
-        segments, _info = _whisper_model.transcribe(
+        segments, _info = model.transcribe(
             path, language="mt", vad_filter=True, beam_size=5,
         )
         return " ".join(s.text for s in segments)

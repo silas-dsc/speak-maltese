@@ -17,6 +17,7 @@ Corrective-feedback design (this is the bit that matters pedagogically):
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -24,6 +25,8 @@ import httpx
 
 from .config import CFG
 from . import curriculum, db, text
+
+log = logging.getLogger("speak-maltese.tutor")
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -108,7 +111,29 @@ loanwords (`mela`, `ċaw`, `grazzi`, `orrajt`, `skużi`) are correct Maltese —
 9. Set `difficulty_signal` honestly so the app can adapt.
 
 # Output
-Return ONE JSON object matching the schema. No markdown, no prose outside the JSON."""
+Return ONE JSON object in exactly this shape. No markdown, no prose outside the JSON,
+no other keys. Every field is required; use "" or [] when there is nothing to say.
+
+{
+  "correction": {
+    "needed": true,
+    "corrected_mt": "the learner's sentence, fully correct, in Maltese",
+    "severity": "minor",
+    "issues": [
+      {"kind": "grammar", "said": "what they wrote", "should_be": "the fix",
+       "why": "one short line of English"}
+    ],
+    "repeat_prompt_mt": "short correct Maltese sentence for them to say aloud",
+    "repeat_prompt_en": "its English"
+  },
+  "praise": "one short encouraging line in English, or \\"\\"",
+  "reply_mt": "YOUR REPLY, IN MALTESE, 1-2 sentences, ending in a question",
+  "reply_en": "the English translation of reply_mt",
+  "gloss": [{"mt": "word", "en": "gloss"}],
+  "new_vocab": [{"mt": "word", "en": "meaning", "pos": "noun", "note": ""}],
+  "difficulty_signal": "ok",
+  "tip": ""
+}"""
 
 
 def _reference_block() -> str:
@@ -146,15 +171,19 @@ def build_prompt(user_text: str, scenario: dict | None, profile: dict,
     known = ", ".join(profile["known_words"][:150]) or "(nothing yet — start from zero)"
     phrases = "; ".join(profile["known_phrases"][:40]) or "(none yet)"
 
+    # Ordered most-static first. The instructions and the grammar reference are
+    # identical on every turn, so putting them at the front lets a local runtime
+    # reuse the cached prefix instead of reprocessing ~2.5k tokens each time; only
+    # the learner-specific tail below changes.
     system = (
         f"{SYSTEM}\n"
+        f"\n# Maltese reference (authoritative — follow it)\n{_reference_block()}\n"
         f"{scenario_block}"
         f"\n# Learner\nCEFR level: {profile['level']} · {profile['learned_count']} items learned\n"
         f"Known words: {known}\n"
         f"Known phrases: {phrases}\n"
         f"{target_block}"
         f"{err_block}"
-        f"\n# Maltese reference (authoritative — follow it)\n{_reference_block()}\n"
     )
 
     messages: list[dict] = []
@@ -191,8 +220,61 @@ async def respond(user_text: str, session_id: str, scenario_id: str | None) -> d
         )
 
     data = _coerce(raw)
+    if not _usable_reply(data.get("reply_mt")):
+        # Smaller local models routinely ignore the schema and answer in their own
+        # shape, or in English. Rather than showing the learner an empty turn, ask
+        # once more for just the reply — a far easier request than the full object.
+        data = await _repair_reply(data, system, messages)
     _lint(user_text, data)
     _persist(session_id, scenario_id, user_text, data)
+    return data
+
+
+# A model that half-follows the schema can spill raw JSON into a field. Showing the
+# learner `{"correction": {"id": "1"…` is worse than showing nothing, so these are
+# treated as no reply at all and sent back for repair.
+_JSON_LEAK = re.compile(r'\{\s*"|"\s*:\s*"|\\n|^\s*[\[{]')
+
+
+def _usable_reply(reply: str | None) -> bool:
+    reply = (reply or "").strip()
+    if not reply:
+        return False
+    return not _JSON_LEAK.search(reply)
+
+
+REPAIR_SYSTEM = (
+    "You are a Maltese conversation partner. Reply ONLY with a JSON object of exactly "
+    'two keys: {"reply_mt": "...", "reply_en": "..."}. `reply_mt` must be 1-2 short '
+    "sentences of natural Maltese ending in a question. `reply_en` is its English "
+    "translation. No other keys, no prose, no markdown."
+)
+
+
+async def _repair_reply(data: dict, system: str, messages: list[dict]) -> dict:
+    """Second, much simpler ask when the model gave us no usable Maltese reply."""
+    scene = system.split("# Learner")[0][-600:]
+    try:
+        if CFG.anthropic_key:
+            raw = await _call_anthropic(REPAIR_SYSTEM + "\n" + scene, messages)
+        else:
+            raw = await _call_openai(REPAIR_SYSTEM + "\n" + scene, messages)
+        fixed = _coerce(raw)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("reply repair failed: %s", exc)
+        fixed = {}
+
+    reply = (fixed.get("reply_mt") or "").strip()
+    if _usable_reply(reply):
+        data["reply_mt"] = reply
+        data["reply_en"] = (fixed.get("reply_en") or data.get("reply_en") or "").strip()
+        return data
+
+    # Still nothing. Keep the conversation alive rather than showing a blank turn.
+    data["reply_mt"] = "Skużani, ma fhimtx sew. Tista' tgħidli mill-ġdid?"
+    data["reply_en"] = "Sorry, I didn't quite understand. Could you tell me again?"
+    data["tip"] = (data.get("tip")
+                   or "The local model returned nothing usable for that turn.")
     return data
 
 

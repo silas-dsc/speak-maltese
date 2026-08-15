@@ -115,6 +115,24 @@ def test_tutor_lint_repairs_the_models_own_output():
     assert data["correction"]["repeat_prompt_mt"] == "Jien mill-Awstralja."
 
 
+@pytest.mark.parametrize("reply,ok", [
+    ("Ċertament! Liema tip ta' kafè tixtieq?", True),
+    ("Mela int mill-Awstralja! X'ġabek Malta?", True),
+    ("", False),
+    ("   ", False),
+    ('{"correction": {"id": "1", "severity": "minor"}}', False),
+    ('inti mill-Awstralja.\\n\\nQed nistenna', False),
+    ('{"reply_mt": "Bonġu"', False),
+])
+def test_json_leakage_is_not_shown_to_the_learner(reply, ok):
+    """A local model that half-follows the schema can spill raw JSON into reply_mt.
+    Showing that to a learner is worse than showing nothing, so it must be treated
+    as no reply and sent back for repair."""
+    from backend import tutor
+
+    assert tutor._usable_reply(reply) is ok
+
+
 def test_tutor_lint_is_silent_on_correct_maltese():
     from backend import tutor
 

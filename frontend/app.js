@@ -627,6 +627,50 @@ async function loadStats() {
     : '<li class="n">No corrections logged yet.</li>';
 }
 
+/* ── Vocabulary browser ────────────────────────────────────────────────────
+   The deck is 470 curated items and until now none of it was visible: you met a
+   word only when the scheduler chose to show it. This lets you look. */
+
+let vocabTimer = null;
+
+async function loadVocab() {
+  const q = $('vocabSearch').value.trim();
+  const topic = $('vocabTopic').value;
+  const params = new URLSearchParams({ limit: '300' });
+  if (q) params.set('q', q);
+  if (topic) params.set('topic', topic);
+
+  const { cards } = await api(`/api/cards?${params}`);
+  $('vocabCount').textContent = cards.length >= 300 ? '300+ shown' : `${cards.length} shown`;
+
+  $('vocabList').innerHTML = cards.map((c) => {
+    const state = c.state === 'review' ? 'known' : c.state === 'new' ? 'new' : 'learning';
+    return `<div class="vocab-row" data-say="${escapeHtml(c.mt)}">
+        <button class="vocab-play" aria-label="Play ${escapeHtml(c.mt)}">🔊</button>
+        <span class="vocab-mt">${escapeHtml(c.mt)}</span>
+        <span class="vocab-en">${escapeHtml(c.en)}</span>
+        <span class="vocab-tag ${state}">${state}</span>
+      </div>`;
+  }).join('') || '<p class="vocab-empty">Nothing matches.</p>';
+
+  $('vocabList').querySelectorAll('.vocab-row').forEach((row) => {
+    row.querySelector('.vocab-play').onclick = () => speak(row.dataset.say);
+  });
+}
+
+async function initVocab() {
+  const { cards } = await api('/api/cards?limit=1000');
+  const topics = [...new Set(cards.map((c) => c.topic).filter(Boolean))].sort();
+  $('vocabTopic').innerHTML = '<option value="">All topics</option>'
+    + topics.map((t) => `<option value="${t}">${t}</option>`).join('');
+  $('vocabSearch').addEventListener('input', () => {
+    clearTimeout(vocabTimer);
+    vocabTimer = setTimeout(loadVocab, 180);
+  });
+  $('vocabTopic').addEventListener('change', loadVocab);
+  await loadVocab();
+}
+
 /* ── Reference ─────────────────────────────────────────────────────────── */
 
 async function loadGrammar() {
@@ -710,6 +754,9 @@ function switchView(name) {
   if (name === 'review' && !state.card) loadQueue().catch((e) => toast(e.message));
   if (name === 'progress') loadStats().catch((e) => toast(e.message));
   if (name === 'drill' && !drill.dialogue) loadDrills().catch((e) => toast(e.message));
+  if (name === 'reference' && !$('vocabList').children.length) {
+    initVocab().catch((e) => toast(e.message));
+  }
 }
 
 document.querySelectorAll('.tab').forEach((t) => {

@@ -294,6 +294,26 @@ def suspend(payload: dict = Body(...)) -> dict:
 
 # ── Static frontend ────────────────────────────────────────────────────────
 
+@app.middleware("http")
+async def cache_headers(request: Request, call_next):
+    """Keep the shell fresh and the assets cheap.
+
+    StaticFiles alone let a browser hold on to an old app.js or style.css
+    indefinitely — which showed up as new CSS simply not applying after an edit.
+    The shell now always revalidates (cheap: a 304 when unchanged), while content
+    that is addressed by name and never edited in place is cached hard.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path in ("/", "/index.html", "/app.js", "/style.css", "/sw.js",
+                "/manifest.webmanifest"):
+        response.headers["Cache-Control"] = "no-cache"
+    elif path.startswith("/img/"):
+        response.headers.setdefault("Cache-Control", "public, max-age=604800")
+    return response
+
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")

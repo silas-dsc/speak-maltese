@@ -598,3 +598,29 @@ input[type="range"] { accent-color: var(--red); }
 .summary-phrases .mt { font-family: var(--font-mt); font-size: .95rem; }
 .summary-phrases .en { font-size: .78rem; color: var(--text-dim); text-align: right; }
 .summary-actions { display: flex; gap: 8px; margin-top: 15px; }
+
+/* ── Vocabulary browser ──────────────────────────────────────────────── */
+
+.vocab-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.vocab-controls input { flex: 1 1 220px; }
+.vocab-count { font-size: .74rem; color: var(--text-dim); margin-left: auto; }
+.vocab-list { max-height: 58vh; overflow-y: auto; display: flex; flex-direction: column; }
+.vocab-row {
+  display: grid; grid-template-columns: 30px minmax(0,1.1fr) minmax(0,1.3fr) 62px;
+  align-items: center; gap: 10px;
+  padding: 7px 4px; border-bottom: 1px solid var(--border);
+}
+.vocab-row:hover { background: var(--surface-2); }
+.vocab-play { border: 0; background: transparent; cursor: pointer; font-size: .82rem; opacity: .55; }
+.vocab-play:hover { opacity: 1; }
+.vocab-mt { font-family: var(--font-mt); font-size: 1rem; }
+.vocab-en { font-size: .85rem; color: var(--text-dim); }
+.vocab-tag {
+  font-size: .6rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  text-align: center; padding: 2px 5px; border-radius: 5px;
+}
+.vocab-tag.known { background: var(--green-soft); color: var(--green); }
+.vocab-tag.learning { background: var(--amber-soft); color: var(--amber); }
+.vocab-tag.new { background: var(--surface-2); color: var(--text-dim); }
+.vocab-empty { color: var(--text-dim); font-size: .88rem; }
+@media (max-width: 720px) { .vocab-row { grid-template-columns: 26px 1fr 1fr 0; } .vocab-tag { display: none; } }

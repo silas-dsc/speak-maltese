@@ -1,0 +1,16 @@
+{
+  "name": "Nitkellmu — Speak Maltese",
+  "short_name": "Nitkellmu",
+  "description": "Learn Maltese by talking: scripted conversation, phonetic grading, spaced repetition.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14120f",
+  "theme_color": "#cf142b",
+  "categories": ["education"],
+  "icons": [
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

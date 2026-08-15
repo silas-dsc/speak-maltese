@@ -18,8 +18,8 @@ are needed for anything** — speech in, speech out and conversation all run loc
 
 ## What it does
 
-**Talk (`Taħdita`)** — Pick a scene (introductions, the café, asking directions) and
-work through it out loud. Hold the mic or type. Each line comes back as Maltese audio
+**Talk (`Taħdita`)** — Pick one of **23 scenes** (introductions, the café, the
+market, the doctor, the phone, getting unstuck…) and work through it out loud. Hold the mic or type. Each line comes back as Maltese audio
 plus the written Maltese and a translation you can hide.
 
 Every reply is authored and pre-voiced, and what you say is matched against a list of
@@ -27,6 +27,13 @@ accepted answers *phonetically* — so `nixtiek kafe jek jogobok` is accepted fo
 `Nixtieq kafè, jekk jogħġbok.` A right answer moves the conversation on; a near miss
 or a wrong one shows you the target and asks for it again, and phrases you get right
 are scheduled into the review deck.
+
+Each scene has its own illustration, and finishing one ends with a summary: how many
+you got first try, how many took a retry, seconds per turn, and the phrases that went
+into your review deck. Completed scenes are ticked in the picker.
+
+Nobody gets stuck: a personal answer (your name, your town) is never graded, and after
+two attempts on any line the conversation moves on regardless.
 
 Measured end to end, speech in to spoken Maltese reply out: **0.3s**, of which the
 matching is about 10ms.

@@ -267,3 +267,45 @@ def test_app_js_defines_everything_it_calls():
     # `obj.method(` and `x?.fn(` are properties, not free identifiers.
     missing = {m for m in missing if not re.search(rf"[.?]\s*{re.escape(m)}\s*\(", src)}
     assert not missing, f"called but never defined in app.js: {sorted(missing)}"
+
+
+# ── Offline shell ──────────────────────────────────────────────────────────
+
+def test_service_worker_and_manifest_are_served(client):
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200
+    assert "javascript" in sw.headers["content-type"]
+
+    mf = client.get("/manifest.webmanifest")
+    assert mf.status_code == 200
+    data = mf.json()
+    assert data["start_url"] == "/"
+    assert data["display"] == "standalone"
+    for icon in data["icons"]:
+        assert client.get(icon["src"]).status_code == 200, icon["src"]
+
+
+def test_service_worker_never_caches_live_state():
+    """Caching /api/queue or /api/stats would show yesterday's schedule. Only the
+    shell and the (immutable) synthesised audio may be served from cache."""
+    sw = (Path(__file__).resolve().parent.parent / "frontend" / "sw.js").read_text()
+    assert "url.pathname === '/api/tts'" in sw
+    assert "url.pathname.startsWith('/api/')" in sw
+    assert "return;" in sw.split("startsWith('/api/')")[1][:40]
+
+
+def test_service_worker_survives_a_missing_asset():
+    """cache.addAll is atomic — one 404 and the app caches nothing at all."""
+    sw = (Path(__file__).resolve().parent.parent / "frontend" / "sw.js").read_text()
+    assert "allSettled" in sw, "shell precache must tolerate a missing file"
+
+
+def test_scene_images_exist_for_every_dialogue():
+    """A scene with no picture degrades to no header, but the set should be
+    complete — a gap here means generate_scene_images.py was not re-run."""
+    from backend import dialogue
+
+    img_dir = Path(__file__).resolve().parent.parent / "frontend" / "img"
+    missing = [d["id"] for d in dialogue.all_dialogues()
+               if not (img_dir / f"scene-{d['id']}.webp").exists()]
+    assert not missing, f"scenes without art: {missing}"

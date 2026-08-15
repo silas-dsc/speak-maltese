@@ -765,4 +765,12 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('pointerdown', prewarmMic, { once: true });
 window.addEventListener('keydown', prewarmMic, { once: true });
 
+// Offline support. Registered last so a failure here can never stop the app
+// booting — it is an enhancement, not a dependency.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 boot();

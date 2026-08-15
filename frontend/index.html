@@ -38,6 +38,14 @@
         pre-voiced, so it answers the moment you stop speaking.</p>
     </div>
 
+    <figure class="scene-hero" id="sceneHero" hidden>
+      <!-- No loading="lazy": the figure starts hidden until the image resolves,
+           and a lazy image inside a hidden element never enters the viewport, so it
+           would never load at all. These are ~9 KB each. -->
+      <img id="sceneImg" alt="" width="640" height="320" decoding="async">
+      <figcaption id="sceneCaption"></figcaption>
+    </figure>
+
     <div class="chat" id="drillChat" aria-live="polite"></div>
 
     <div class="composer">

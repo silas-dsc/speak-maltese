@@ -245,24 +245,66 @@ function updateCounts(counts) {
    under a millisecond, and its audio is already cached, so the only wait is
    speech recognition. */
 
-const drill = { dialogue: null, node: null, busy: false, attempts: 0 };
+const drill = {
+  dialogue: null, node: null, busy: false, attempts: 0, dialogues: [],
+  // Per-run tally, so finishing a scene ends with something to look at rather
+  // than just stopping.
+  run: { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: 0 },
+};
+
+/** Scenes you have finished, so the picker can show progress across sessions. */
+const doneScenes = {
+  key: 'sm.completedScenes',
+  all() { try { return JSON.parse(localStorage.getItem(this.key)) || {}; } catch { return {}; } },
+  mark(id) {
+    const a = this.all();
+    a[id] = (a[id] || 0) + 1;
+    localStorage.setItem(this.key, JSON.stringify(a));
+  },
+};
 
 async function loadDrills() {
   const { dialogues } = await api('/api/drill/dialogues');
+  drill.dialogues = dialogues;
   const sel = $('drillSelect');
-  sel.innerHTML = dialogues
-    .map((d) => `<option value="${d.id}">${d.name} — ${d.name_en} · ${d.level}</option>`)
-    .join('');
+  renderDrillOptions();
   sel.onchange = () => startDrill(sel.value);
   if (!drill.dialogue) await startDrill(dialogues[0]?.id);
+}
+
+/** Re-renders the picker so finished scenes are ticked. */
+function renderDrillOptions() {
+  const done = doneScenes.all();
+  const sel = $('drillSelect');
+  const current = sel.value;
+  sel.innerHTML = drill.dialogues
+    .map((d) => `<option value="${d.id}">${done[d.id] ? '✓ ' : ''}${d.name} — ${d.name_en} · ${d.level}</option>`)
+    .join('');
+  if (current) sel.value = current;
 }
 
 async function startDrill(id) {
   if (!id) return;
   drill.dialogue = id;
+  drill.run = { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
   $('drillChat').innerHTML = '';
+  showSceneImage(id);
   const node = await post('/api/drill/start', { dialogue: id });
   presentDrillNode(node);
+}
+
+/* Scene art is decoration: if an image is missing the header simply stays hidden,
+   because a broken-image icon above a conversation is worse than no picture. */
+function showSceneImage(id) {
+  const hero = $('sceneHero');
+  const img = $('sceneImg');
+  const meta = drill.dialogues?.find((d) => d.id === id);
+  img.onerror = () => { hero.hidden = true; };
+  img.onload = () => { hero.hidden = false; };
+  img.alt = meta ? `${meta.name_en}` : '';
+  $('sceneCaption').textContent = meta ? `${meta.name} · ${meta.name_en}` : '';
+  hero.hidden = true;
+  img.src = `/img/scene-${id}.webp`;
 }
 
 function presentDrillNode(node) {
@@ -271,6 +313,47 @@ function presentDrillNode(node) {
   $('drillExpect').textContent = node.expect_en ? `→ ${node.expect_en}` : '';
   drillBubble('tutor', node.say_mt, node.say_en);
   if (state.settings.autoplay) speak(node.say_mt);
+}
+
+function showRunSummary() {
+  const { first, retried, movedOn, learned, startedAt } = drill.run;
+  const total = first + retried + movedOn;
+  const secs = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+  const scene = drill.dialogues.find((d) => d.id === drill.dialogue);
+  const phrases = learned.slice(0, 8)
+    .map((p) => `<li><span class="mt">${escapeHtml(p.mt)}</span>
+                     <span class="en">${escapeHtml(p.en || '')}</span></li>`).join('');
+
+  const el = document.createElement('div');
+  el.className = 'turn tutor run-summary';
+  el.innerHTML = `
+    <div class="bubble">
+      <p class="mt">Spiċċajna. Prosit!</p>
+      <p class="en">That's the scene finished — well done.</p>
+      <div class="summary-stats">
+        <span><b>${first}</b> first try</span>
+        <span><b>${retried}</b> on a retry</span>
+        ${movedOn ? `<span><b>${movedOn}</b> waved through</span>` : ''}
+        <span><b>${Math.round(secs / Math.max(1, total))}s</b> a turn</span>
+      </div>
+      ${phrases ? `<p class="summary-label">Added to your review deck</p>
+                   <ul class="summary-phrases">${phrases}</ul>` : ''}
+      <div class="summary-actions">
+        <button class="ghost-btn" data-again>Again</button>
+        <button class="primary-btn" data-next>Next scene</button>
+      </div>
+    </div>`;
+  $('drillChat').append(el);
+  $('drillChat').scrollTop = $('drillChat').scrollHeight;
+  speak(scene ? 'Prosit! Spiċċajna.' : 'Prosit!');
+
+  el.querySelector('[data-again]').onclick = () => startDrill(drill.dialogue);
+  el.querySelector('[data-next]').onclick = () => {
+    const ids = drill.dialogues.map((d) => d.id);
+    const next = ids[(ids.indexOf(drill.dialogue) + 1) % ids.length];
+    $('drillSelect').value = next;
+    startDrill(next);
+  };
 }
 
 function drillBubble(role, mt, en, extraClass = '') {
@@ -323,11 +406,21 @@ async function answerDrill(said) {
 
     if (state.settings.autoplay) await speak(r.reply_mt);
 
+    // Tally before advancing: a first-time hit is worth more than a third attempt.
+    if (r.verdict === 'correct') {
+      if (r.moved_on) drill.run.movedOn += 1;
+      else if (drill.attempts === 0) drill.run.first += 1;
+      else drill.run.retried += 1;
+      if (r.matched_mt) drill.run.learned.push({ mt: r.matched_mt, en: r.matched_en });
+    }
+
     if (r.advance && r.next) {
       setTimeout(() => presentDrillNode(r.next), 450);
     } else if (r.finished) {
       $('drillExpect').textContent = '';
-      drillBubble('tutor', 'Spiċċajna. Prosit!', 'We’re done. Well done!');
+      doneScenes.mark(drill.dialogue);
+      renderDrillOptions();
+      showRunSummary();
       updateCounts((await api('/api/bootstrap')).counts);
     }
   } catch (err) {

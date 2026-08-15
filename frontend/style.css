@@ -561,3 +561,40 @@ input[type="range"] { accent-color: var(--red); }
   display: block; font-style: normal; font-family: var(--font);
   font-size: .8rem; color: var(--text-dim); margin-top: 2px;
 }
+
+/* ── Scene art ───────────────────────────────────────────────────────── */
+
+.scene-hero {
+  margin: 0 auto 4px; padding: 0 20px;
+  max-width: 820px; width: 100%;
+}
+.scene-hero img {
+  display: block; width: 100%;
+  /* Capped: the conversation is the content and the picture is a signpost, so it
+     takes a slim band rather than half the screen. */
+  height: clamp(84px, 14vh, 132px); object-fit: cover; object-position: center 58%;
+  border-radius: var(--radius); border: 1px solid var(--border);
+}
+.scene-hero figcaption {
+  margin-top: 5px; margin-bottom: 2px;
+  font-size: .72rem; color: var(--text-dim); letter-spacing: .03em;
+}
+@media (max-width: 720px) { .scene-hero { padding: 0 12px; } }
+
+/* ── End-of-scene summary ────────────────────────────────────────────── */
+
+.run-summary .bubble { border-color: var(--green); }
+.summary-stats {
+  display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 11px 0 0;
+  font-size: .78rem; color: var(--text-dim);
+}
+.summary-stats b { color: var(--text); font-size: .95rem; }
+.summary-label {
+  margin: 13px 0 5px; font-size: .68rem; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.summary-phrases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.summary-phrases li { display: flex; justify-content: space-between; gap: 14px; }
+.summary-phrases .mt { font-family: var(--font-mt); font-size: .95rem; }
+.summary-phrases .en { font-size: .78rem; color: var(--text-dim); text-align: right; }
+.summary-actions { display: flex; gap: 8px; margin-top: 15px; }

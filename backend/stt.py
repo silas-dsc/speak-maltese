@@ -8,7 +8,10 @@ Provider notes:
   straight from MediaRecorder. Best accuracy-per-effort with a key.
 * **ElevenLabs Scribe** — strong on Maltese, also accepts webm.
 * **faster-whisper** — runs locally with no key, decodes webm via PyAV. Slower on
-  first use (model download) but keeps the app fully offline-capable.
+  first use (model download) but keeps the app fully offline-capable. `SM_WHISPER_MODEL`
+  takes a plain size *or* any CTranslate2 repo on the Hub, so it can load a
+  Maltese-fine-tuned Whisper instead of the generic multilingual one — worth doing,
+  since generic Whisper is weak on a language with this little training data.
 * **Azure** — good, but its short-audio REST endpoint wants WAV/OGG-Opus, so it is
   tried last and only when ffmpeg is available for transcoding.
 """

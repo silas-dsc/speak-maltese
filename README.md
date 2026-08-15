@@ -169,6 +169,47 @@ whether a reply is a *good* conversational turn — still degrades on a small mo
 a hosted model remains noticeably better company. Local is genuinely usable; it is not
 equal.
 
+## Maltese-specific models on Hugging Face
+
+Filtering the Hub's `mt` tag is misleading — nearly everything under it is a *massively
+multilingual* model that merely lists Maltese. The genuinely Maltese-trained models are
+few, small, and mostly academic. The ones that matter here:
+
+**Speech recognition** — the most useful category for this app.
+
+| model | notes |
+|---|---|
+| [`carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2`](https://huggingface.co/carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2) | Whisper-large + 64h Maltese, already in **CTranslate2** format → drop-in for the `faster_whisper` backend. CC-BY-4.0. |
+| [`sam8000/whisper-large-v3-turbo-maltese-malta`](https://huggingface.co/sam8000/whisper-large-v3-turbo-maltese-malta) | Newer base, but transformers format — needs `ct2-transformers-converter` first. MIT. |
+| [`oddadmix/MasriSwitch-Gemma3n-Transcriber-v1`](https://huggingface.co/oddadmix/MasriSwitch-Gemma3n-Transcriber-v1) | Handles Maltese↔English code-switching, which is how Maltese is actually spoken. GGUF builds exist. |
+
+To use the Maltese-tuned recogniser instead of generic Whisper:
+
+```bash
+SM_WHISPER_MODEL=carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2
+```
+
+`faster-whisper` resolves that repo id through the Hub. ~3 GB on first run. *Verified
+that the repo is CT2-ready (`model.bin` + `vocabulary.json`); not benchmarked here.*
+
+**Language models** — [`MLRS/BERTu`](https://huggingface.co/MLRS/BERTu) is the
+reference Maltese encoder (University of Malta), with POS/NER/sentiment heads
+alongside it. It is a masked LM, so it *cannot* run the conversation — useful for
+grammar tooling, not for chat. There are Maltese SFT/DPO fine-tunes of the very
+EuroLLM this app recommends (`jjzha/EuroLLM-9B-Instruct-2512-*maltese*`), but they ship
+as unmerged LoRA adapters with no stated licence, so they need merging and quantising
+before Ollama can serve them. `st192011/Maltese-EuroLLM-1.7B-*` is Maltese-tuned and
+has GGUF builds, but at 1.7B it is well below what the tutor needs.
+
+**Text to speech** — thin. `MohamedGomaa30/spark-tts-normazlied-masri-mega` is a
+Maltese SparkTTS, and Meta's `facebook/mms-tts-mlt` (already an option here via
+`SM_TTS_PROVIDER=mms`) remains the most practical offline voice. Neither matches the
+Azure `mt-MT` neural voices.
+
+The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs are not
+ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
+rule-based `lint_fusion` safety net.
+
 ## About the 2000-word list
 
 The requested source, [commonlyusedwords.com's 2000 most common Maltese

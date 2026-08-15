@@ -207,6 +207,11 @@ _MT_FORMS = {
     "uġigħ", "deni", "strieħ", "ifiq", "mort", "qgħadt", "noħroġ", "ħbieb",
     "weekend", "kilo", "tuffieħ", "mejda", "inbid", "ħut", "kont", "jiswa",
     "tirrakkomanda", "għandix", "nirrakkomanda", "tixtiequ", "tixorbu",
+    # broken plurals and imperatives the decks store only in their base form
+    "kotba", "djar", "toroq", "irġiel", "nisa", "tfal", "aħwa", "ulied",
+    "kmamar", "ħwienet", "knejjes", "ċwievet", "snin", "xhur", "ijiem",
+    "ipprova", "ħares", "agħżel", "ejjew", "ixgħel", "iftaħ", "agħlaq",
+    "nistrieħ", "sibthom", "narahomx", "infittex", "nqum",
 }
 
 _MT_MARKERS_CACHE: set[str] | None = None

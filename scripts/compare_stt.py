@@ -160,7 +160,59 @@ def _read_manifest() -> list[dict]:
 
 # ── Comparison ─────────────────────────────────────────────────────────────
 
+def _run_wav2vec2(name: str, rows: list[dict]) -> tuple[list[dict], float, float]:
+    """CTC path. One forward pass over the real audio length — no decoder loop and
+    no 30-second padding, which is where the order-of-magnitude comes from."""
+    import torch
+    from faster_whisper.audio import decode_audio
+    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    t0 = time.time()
+    processor = Wav2Vec2Processor.from_pretrained(name)
+    model = Wav2Vec2ForCTC.from_pretrained(name).to(device).eval()
+    load_s = time.time() - t0
+
+    results, start = [], time.time()
+    for i, row in enumerate(rows, 1):
+        path = CLIPS / row["file"]
+        if not path.exists():
+            continue
+        wave = decode_audio(str(path), sampling_rate=16000)
+        inputs = processor(wave, sampling_rate=16000, return_tensors="pt")
+        with torch.no_grad():
+            logits = model(inputs.input_values.to(device)).logits
+        hyp = processor.batch_decode(torch.argmax(logits, dim=-1))[0]
+        results.append(_score_row(hyp, row["text"]))
+        print(f"  {i:>3}/{len(rows)}  score {results[-1]['score']:.2f}  {hyp[:58]}", flush=True)
+    return results, load_s, time.time() - start
+
+
+def _score_row(hyp: str, ref: str) -> dict:
+    return {
+        "ref": ref, "hyp": hyp,
+        "wer": wer(hyp, ref), "fwer": wer(hyp, ref, folded=True),
+        "cer": cer(hyp, ref), "score": text.score(hyp, ref),
+    }
+
+
 def run_model(name: str, rows: list[dict], device: str, beam: int) -> dict:
+    # wav2vec2 checkpoints are CTC, not Whisper — different loader entirely.
+    if "wav2vec2" in name or "w2v" in name:
+        print(f"\n▸ loading {name}  (CTC)", flush=True)
+        results, load_s, elapsed = _run_wav2vec2(name, rows)
+        n = len(results) or 1
+        return {
+            "model": name, "n": len(results), "load_s": load_s,
+            "sec_per_clip": elapsed / n,
+            "wer": sum(r["wer"] for r in results) / n,
+            "fwer": sum(r["fwer"] for r in results) / n,
+            "cer": sum(r["cer"] for r in results) / n,
+            "score": sum(r["score"] for r in results) / n,
+            "pass_rate": sum(1 for r in results if r["score"] >= 0.78) / n,
+            "results": results,
+        }
+
     from faster_whisper import WhisperModel
 
     print(f"\n▸ loading {name}  (first run downloads it)", flush=True)

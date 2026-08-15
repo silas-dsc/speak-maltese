@@ -46,6 +46,11 @@ class Config:
     stt_provider: str = field(default_factory=lambda: os.getenv("SM_STT_PROVIDER", "auto"))
     whisper_model: str = field(default_factory=lambda: os.getenv("SM_WHISPER_MODEL", "small"))
     whisper_device: str = field(default_factory=lambda: os.getenv("SM_WHISPER_DEVICE", "auto"))
+    # Maltese wav2vec2 CTC — the fast local path. Non-autoregressive and unpadded,
+    # so it costs ~0.1s where Whisper costs ~8s, at the same measured accuracy.
+    w2v_model: str = field(default_factory=lambda: os.getenv(
+        "SM_W2V_MODEL", "carlosdanielhernandezmena/wav2vec2-large-xlsr-53-maltese-64h"))
+    w2v_device: str = field(default_factory=lambda: os.getenv("SM_W2V_DEVICE", "auto"))
 
     # ── Learning behaviour ─────────────────────────────────────────────────
     daily_new_limit: int = field(default_factory=lambda: int(os.getenv("SM_DAILY_NEW", "12")))
@@ -84,6 +89,10 @@ class Config:
         if self.stt_provider != "auto":
             return [self.stt_provider]
         chain: list[str] = []
+        # Local and ~80x faster than the local Whisper at the same accuracy, so it
+        # goes ahead of the cloud options too: nothing over the network competes
+        # with 0.1s on-device.
+        chain.append("wav2vec2")
         if self.openai_key:
             chain.append("openai_whisper")
         if self.elevenlabs_key:

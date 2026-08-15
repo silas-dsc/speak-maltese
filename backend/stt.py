@@ -60,6 +60,8 @@ async def _dispatch(provider: str, audio: bytes, mime: str) -> str | None:
         return await _openai(audio, mime)
     if provider == "elevenlabs":
         return await _elevenlabs(audio, mime)
+    if provider == "wav2vec2":
+        return await asyncio.to_thread(_wav2vec2, audio, mime)
     if provider == "faster_whisper":
         return await asyncio.to_thread(_faster_whisper, audio, mime)
     if provider == "azure":
@@ -104,6 +106,60 @@ async def _elevenlabs(audio: bytes, mime: str) -> str:
         return r.json().get("text", "")
 
 
+_w2v = None
+
+
+def _load_wav2vec2():
+    """Maltese wav2vec2 CTC, on Apple Silicon's GPU where available.
+
+    This is the fast path, and the reason is structural rather than a matter of
+    model size. Whisper is autoregressive and pads every input to a fixed 30-second
+    window, so a three-word answer costs the same as a monologue. A CTC model is a
+    single forward pass over the audio you actually recorded — no decoder loop, no
+    padding — which on a 2-second utterance is the difference between ~8s and ~0.1s
+    at the same accuracy.
+
+    Output is lowercase and unpunctuated. That is fine here: the drill matches
+    phonetically, and the tutor reads it as input rather than showing it.
+    """
+    global _w2v
+    if _w2v is not None:
+        return _w2v
+    import torch
+    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+    device = CFG.w2v_device
+    if device == "auto":
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+    log.info("loading wav2vec2 %s on %s", CFG.w2v_model, device)
+    t0 = time.time()
+    processor = Wav2Vec2Processor.from_pretrained(CFG.w2v_model)
+    model = Wav2Vec2ForCTC.from_pretrained(CFG.w2v_model).to(device).eval()
+    log.info("wav2vec2 ready in %.1fs", time.time() - t0)
+    _w2v = (processor, model, device)
+    return _w2v
+
+
+def _wav2vec2(audio: bytes, mime: str) -> str:
+    import torch
+    from faster_whisper.audio import decode_audio  # PyAV: handles webm/opus
+
+    processor, model, device = _load_wav2vec2()
+
+    with tempfile.NamedTemporaryFile(suffix=f".{_ext(mime)}", delete=False) as fh:
+        fh.write(audio)
+        path = fh.name
+    try:
+        wave = decode_audio(path, sampling_rate=16000)
+        inputs = processor(wave, sampling_rate=16000, return_tensors="pt")
+        with torch.no_grad():
+            logits = model(inputs.input_values.to(device)).logits
+        ids = torch.argmax(logits, dim=-1)
+        return processor.batch_decode(ids)[0]
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
 def preload() -> None:
     """Load the local model now rather than on the learner's first sentence.
 
@@ -112,10 +168,14 @@ def preload() -> None:
     tenth. Safe to call when faster-whisper is not the active backend — it simply
     warms a model that may go unused.
     """
-    try:
-        _load_whisper()
-    except Exception as exc:  # noqa: BLE001 — warming is best-effort
-        log.warning("could not preload local STT: %s", exc)
+    chain = CFG.stt_chain()
+    for loader, name in ((_load_wav2vec2, "wav2vec2"), (_load_whisper, "faster_whisper")):
+        if name not in chain:
+            continue
+        try:
+            loader()
+        except Exception as exc:  # noqa: BLE001 — warming is best-effort
+            log.warning("could not preload %s: %s", name, exc)
 
 
 def _load_whisper():
@@ -204,6 +264,12 @@ def available() -> list[str]:
             out.append(p)
         elif p == "azure" and CFG.azure_speech_key and shutil.which("ffmpeg"):
             out.append(p)
+        elif p == "wav2vec2":
+            try:
+                import transformers, torch  # noqa: F401
+                out.append(p)
+            except ImportError:
+                pass
         elif p == "faster_whisper":
             try:
                 import faster_whisper  # noqa: F401

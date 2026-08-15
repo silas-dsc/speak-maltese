@@ -169,6 +169,25 @@ whether a reply is a *good* conversational turn — still degrades on a small mo
 a hosted model remains noticeably better company. Local is genuinely usable; it is not
 equal.
 
+## Pre-rendered audio
+
+Everything the app *says* is authored — scripted dialogue lines, deck words and
+phrases, example sentences — so none of it has to be synthesised while you wait:
+
+```bash
+python scripts/prebuild_audio.py
+```
+
+831 lines, **10.9 MB, 142 seconds, once**. After that every drill reply and review
+card plays instantly and text-to-speech never touches the network again. The scripted
+dialogue lines are also warmed automatically at startup, so the fast mode is snappy
+even if you skip this.
+
+The cache is keyed on (provider, voice, rate), so `--voice mt-MT-JosephNeural` or a
+different `--rate` renders a separate set. Already-cached lines are skipped, so
+re-running after editing a dialogue costs only the new lines. `data/audio_cache/` is
+gitignored; commit it if you want clone-and-run with no network at all.
+
 ## Maltese-specific models on Hugging Face
 
 Filtering the Hub's `mt` tag is misleading — nearly everything under it is a *massively
@@ -182,6 +201,32 @@ few, small, and mostly academic. The ones that matter here:
 | [`carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2`](https://huggingface.co/carlosdanielhernandezmena/whisper-large-maltese-8k-steps-64h-ct2) | Whisper-large + 64h Maltese, already in **CTranslate2** format → drop-in for the `faster_whisper` backend. CC-BY-4.0. |
 | [`sam8000/whisper-large-v3-turbo-maltese-malta`](https://huggingface.co/sam8000/whisper-large-v3-turbo-maltese-malta) | Newer base, but transformers format — needs `ct2-transformers-converter` first. MIT. |
 | [`oddadmix/MasriSwitch-Gemma3n-Transcriber-v1`](https://huggingface.co/oddadmix/MasriSwitch-Gemma3n-Transcriber-v1) | Handles Maltese↔English code-switching, which is how Maltese is actually spoken. GGUF builds exist. |
+
+**The default is not Whisper at all.** A Maltese **wav2vec2 CTC** model measures
+identically and runs ~30× faster:
+
+| model | fWER | app score | **would pass** | **s/clip** |
+|---|---|---|---|---|
+| **wav2vec2-large-xlsr-53-maltese-64h** (CTC, Metal) | **5.3%** | **0.98** | **96%** | **0.3** |
+| whisper-large-maltese-…-ct2 (CPU) | 5.3% | 0.98 | 96% | 8.9 |
+
+Same accuracy to the decimal, a thirtieth of the time. The reason is architectural,
+not a matter of size — and it is the same fact that made the turbo Whisper pointless.
+Whisper decodes autoregressively and pads every input to a fixed **30-second** window,
+so a three-word answer costs what a monologue costs. A CTC model is a **single forward
+pass over the audio you actually recorded**: no decoder loop, no padding. On Apple
+Silicon it runs on the GPU through PyTorch's Metal backend.
+
+It transcribes lowercase and unpunctuated (`bonġu`, `noqgħod ta' sliema`, `kollox
+tajjeb ħafna grazzi`) with the diacritics intact, which is exactly what both the
+phonetic matcher and the tutor want.
+
+End to end, speech in to spoken Maltese reply out, in scripted mode: **0.30s**.
+
+Set `SM_W2V_DEVICE=cpu` to force it off the GPU, or `SM_STT_PROVIDER=faster_whisper`
+to go back to Whisper.
+
+### Whisper comparison
 
 **Measured**, with `scripts/compare_stt.py` on 25 deck sentences spoken by the app's
 own `mt-MT` voice:

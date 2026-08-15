@@ -9,10 +9,13 @@ httpx>=0.27
 # study, use a real AZURE_SPEECH_KEY for anything else.
 edge-tts>=6.1
 
-# Local, key-less Maltese STT. Comment out if you only ever use a cloud STT key.
+# Local, key-less Maltese STT.
+#   - wav2vec2 (torch + transformers) is the default and the fast path: a CTC
+#     model runs on Apple Silicon's GPU in ~0.1s an utterance.
+#   - faster-whisper is the fallback, and still needed for audio decoding.
 faster-whisper>=1.0
+torch>=2.2
+transformers>=4.44
 
-# Fully offline Maltese TTS (facebook/mms-tts-mlt). Heavy — opt in with
-# SM_TTS_PROVIDER=mms after installing these.
-# torch>=2.2
-# transformers>=4.40
+# Fully offline Maltese TTS (facebook/mms-tts-mlt) — opt in with SM_TTS_PROVIDER=mms.
+# It needs no extra packages beyond torch/transformers above.

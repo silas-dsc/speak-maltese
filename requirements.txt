@@ -1,0 +1,18 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+python-dotenv>=1.0
+httpx>=0.27
+
+# Key-less Maltese TTS: Edge Read-Aloud exposes the same mt-MT-GraceNeural /
+# mt-MT-JosephNeural voices as Azure. Unofficial endpoint — fine for personal
+# study, use a real AZURE_SPEECH_KEY for anything else.
+edge-tts>=6.1
+
+# Local, key-less Maltese STT. Comment out if you only ever use a cloud STT key.
+faster-whisper>=1.0
+
+# Fully offline Maltese TTS (facebook/mms-tts-mlt). Heavy — opt in with
+# SM_TTS_PROVIDER=mms after installing these.
+# torch>=2.2
+# transformers>=4.40

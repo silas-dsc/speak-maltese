@@ -1,0 +1,123 @@
+id	mt	en	tier	topic	literal	note
+# Formulaic chunks. These are the highest-value items in the app: fluent speech is
+# mostly prefabricated sequences, so these are drilled as whole units, not word by word.
+p001	Bonġu!	Good morning!	1	greetings	good day	until about noon
+p002	Bonswà!	Good evening!	1	greetings	good evening
+p003	Il-lejl it-tajjeb.	Good night.	1	greetings	the night the good	said when parting at night
+p004	Saħħa!	Hi! / Bye! / Cheers!	1	greetings	health	informal, very common
+p005	Ċaw!	Bye!	1	greetings		informal, from Italian
+p006	Merħba!	Welcome!	1	greetings
+p007	Kif int?	How are you?	1	greetings	how you	to one person
+p008	Kif intom?	How are you all?	1	greetings	how you-pl
+p009	Tajjeb, grazzi. U int?	Fine, thanks. And you?	1	greetings
+p010	Kollox sew?	Everything OK?	1	greetings	everything right
+p011	Mhux ħażin.	Not bad.	1	greetings	not bad
+p012	X'jismek?	What's your name?	1	introductions	what-name-your
+p013	Jisimni Silas.	My name is Silas.	1	introductions	names-me Silas	replace with your name
+p014	Għandi pjaċir.	Pleased to meet you.	1	introductions	I-have pleasure
+p015	Minn fejn int?	Where are you from?	1	introductions	from where you
+p016	Jien mill-Awstralja.	I'm from Australia.	1	introductions	I from-the-Australia	minn + il- → mill-
+p017	Noqgħod Tas-Sliema.	I live in Sliema.	1	introductions	I-stay Sliema
+p018	Kemm għandek żmien?	How old are you?	1	introductions	how-much you-have age
+p019	Għandi tletin sena.	I'm thirty years old.	1	introductions	I-have thirty year
+p020	X'taħdem?	What do you do for work?	1	introductions	what-you-work
+p021	Naħdem bħala ħaddiem tal-IT.	I work as an IT worker.	2	introductions
+p022	Jien miżżewweġ.	I'm married.	2	introductions		f: miżżewġa
+p023	Għandi żewġt itfal.	I have two children.	2	family	I-have two children
+p024	Ma nifhimx.	I don't understand.	1	learning	not I-understand-not
+p025	Nifhem ftit.	I understand a little.	1	learning
+p026	Ma nafx.	I don't know.	1	learning	not I-know-not
+p027	Titkellem bl-Ingliż?	Do you speak English?	1	learning	you-speak with-the-English
+p028	Nitkellem ftit Malti.	I speak a little Maltese.	1	learning
+p029	Bil-mod, jekk jogħġbok.	Slowly, please.	1	learning	with-the-slow if it-pleases-you
+p030	Tista' tirrepeti?	Can you repeat?	1	learning	you-can you-repeat
+p031	Erġa' għid, jekk jogħġbok.	Say it again, please.	1	learning	again say
+p032	Kif tgħid dan bil-Malti?	How do you say this in Maltese?	1	learning	how you-say this with-the-Maltese
+p033	Xi tfisser din il-kelma?	What does this word mean?	1	learning	what it-means this the-word
+p034	Kif tinkiteb?	How is it written?	2	learning	how it-is-written
+p035	Skużi, ma smajtx.	Sorry, I didn't hear.	2	learning	excuse, not I-heard-not
+p036	Grazzi tal-għajnuna.	Thanks for the help.	2	politeness	thanks of-the-help
+p037	M'hemmx problema.	No problem.	1	politeness	there-isn't-not problem
+p038	Jiddispjaċini.	I'm sorry.	1	politeness	it-displeases-me
+p039	Skużani.	Excuse me / Sorry.	1	politeness	excuse-me
+p040	Bi pjaċir.	With pleasure.	2	politeness
+p041	Nixtieq kafè, jekk jogħġbok.	I'd like a coffee, please.	1	cafe	I-would-like coffee
+p042	Kafè bil-ħalib.	Coffee with milk.	1	cafe	coffee with-the-milk
+p043	Ilma, jekk jogħġbok.	Water, please.	1	cafe
+p044	Kemm jiswa?	How much does it cost?	1	shopping	how-much it-is-worth
+p045	Il-kont, jekk jogħġbok.	The bill, please.	1	restaurant
+p046	Nista' nħallas bil-karta?	Can I pay by card?	2	shopping	I-can I-pay with-the-card
+p047	Mejda għal tnejn, jekk jogħġbok.	A table for two, please.	2	restaurant
+p048	X'tirrakkomanda?	What do you recommend?	2	restaurant	what-you-recommend
+p049	Kollox tajjeb ħafna, grazzi.	Everything was very good, thanks.	2	restaurant
+p050	Ħa nieħu dan.	I'll take this one.	2	shopping	going I-take this
+p051	Għandkom xi ħaġa oħra?	Do you have anything else?	2	shopping	you-pl-have some thing other
+p052	Dan għoli wisq.	This is too expensive.	2	shopping	this high too-much
+p053	Qed nara biss, grazzi.	I'm just looking, thanks.	2	shopping	prog. I-see only
+p054	Fejn hu l-banju?	Where is the bathroom?	1	directions	where he the-bathroom
+p055	Fejn hi l-istazzjon?	Where is the station?	1	directions	where she the-station	"hi" because stazzjon takes f. agreement here
+p056	Kif nasal sal-Belt?	How do I get to Valletta?	2	directions	how I-arrive to-the-city
+p057	Hu bogħod minn hawn?	Is it far from here?	2	directions	he far from here
+p058	Dur lejn il-lemin.	Turn right.	2	directions	turn towards the-right
+p059	Mur dritt sal-pjazza.	Go straight to the square.	2	directions
+p060	Ninsab mitluf.	I'm lost.	2	directions	I-find-myself lost	f: mitlufa
+p061	Tista' turini fuq il-mappa?	Can you show me on the map?	2	directions
+p062	X'ħin hu?	What time is it?	1	time	what-hour he
+p063	Hi s-siegħa.	It's one o'clock.	2	time	she the-hour
+p064	Fit-tlieta u nofs.	At half past three.	2	time	at-the-three and half
+p065	Illum x'jum hu?	What day is it today?	2	time
+p066	Narak għada.	See you tomorrow.	1	greetings	I-see-you tomorrow
+p067	Narak dalwaqt.	See you soon.	1	greetings
+p068	Sa mbagħad!	See you later!	2	greetings	until then
+p069	Il-ġurnata t-tajba!	Have a good day!	2	greetings
+p070	Ħu ħsieb.	Take care.	2	greetings	take care
+p071	It-temp sabiħ illum.	The weather is nice today.	2	weather
+p072	Qed tagħmel ix-xita.	It's raining.	2	weather	prog. it-makes the-rain
+p073	Hemm sħana kbira.	It's very hot.	2	weather	there-is heat big
+p074	Illum hemm il-bard.	It's cold today.	2	weather
+p075	Hemm ħafna riħ.	It's very windy.	2	weather
+p076	Jien bil-ġuħ.	I'm hungry.	1	feelings	I with-the-hunger
+p077	Jien bil-għatx.	I'm thirsty.	1	feelings
+p078	Inħossni għajjien.	I feel tired.	2	feelings	I-feel-myself tired	f: għajjiena
+p079	Ma niflaħx.	I'm not feeling well.	2	health	not I-can-bear-not
+p080	Għandi uġigħ ta' ras.	I have a headache.	2	health	I-have pain of head
+p081	Irrid nara tabib.	I need to see a doctor.	2	health
+p082	Għinni, jekk jogħġbok!	Help me, please!	2	health
+p083	Nista' ngħinek?	Can I help you?	1	politeness	I-can I-help-you
+p084	X'qed tagħmel?	What are you doing?	1	conversation	what prog. you-make
+p085	X'ġara?	What happened?	2	conversation	what happened
+p086	X'taħseb?	What do you think?	2	conversation	what-you-think
+p087	Naħseb li iva.	I think so.	2	conversation	I-think that yes
+p088	Naqbel miegħek.	I agree with you.	2	conversation	I-agree with-you
+p089	Ma naqbilx.	I don't agree.	2	conversation
+p090	Għandek raġun.	You're right.	2	conversation	you-have reason
+p091	Veru?	Really?	2	conversation	true
+p092	Mhux ta' b'xejn!	No wonder!	3	conversation	not of with-nothing
+p093	Ejja mmorru.	Let's go.	2	conversation	come we-go
+p094	Nista' nistaqsik xi ħaġa?	Can I ask you something?	2	conversation
+p095	Xi trid tagħmel illejla?	What do you want to do tonight?	2	conversation
+p096	Jogħġobni ħafna.	I like it a lot.	1	feelings	it-pleases-me a-lot
+p097	Ma jogħġobnix.	I don't like it.	2	feelings
+p098	Inħobb il-baħar.	I love the sea.	1	feelings
+p099	Kemm hu sabiħ!	How beautiful it is!	2	feelings	how-much he beautiful
+p100	Prosit!	Well done!	2	politeness		also used to congratulate
+p101	Awguri!	Best wishes!	2	politeness
+p102	Il-festa t-tajba!	Happy feast!	3	culture		said around village festas
+p103	Sellili għal ommok.	Say hi to your mother.	3	politeness	greet-for-me to mother-your
+p104	Nixtieq nirriżerva mejda.	I'd like to book a table.	3	restaurant
+p105	Għal xi ħin?	For what time?	3	restaurant	for what time
+p106	Kemm indumu?	How long will we be?	3	travel	how-much we-last
+p107	Fejn nista' nsib taxi?	Where can I find a taxi?	3	travel
+p108	X'ħin jitlaq ix-xarabank?	What time does the bus leave?	3	travel
+p109	Biljett wieħed, jekk jogħġbok.	One ticket, please.	3	travel
+p110	Insejt il-mowbajl tiegħi.	I forgot my phone.	3	conversation
+p111	Nista' nidħol?	May I come in?	2	politeness	I-can I-enter
+p112	Oqgħod bilqiegħda.	Have a seat.	3	politeness	stay seated
+p113	Tinkwetax.	Don't worry.	2	politeness	don't-worry-not
+p114	Ħu paċenzja bija.	Bear with me.	3	learning	take patience with-me
+p115	Qed nitgħallem il-Malti.	I'm learning Maltese.	1	learning	prog. I-learn the-Maltese
+p116	Ilni sena nitgħallem.	I've been learning for a year.	3	learning	I-last year I-learn
+p117	Trid tipprattika miegħi?	Do you want to practise with me?	3	learning
+p118	Għamilt żball?	Did I make a mistake?	2	learning
+p119	Kif ngħid dan sew?	How do I say this correctly?	2	learning
+p120	Grazzi tal-paċenzja.	Thanks for your patience.	2	learning

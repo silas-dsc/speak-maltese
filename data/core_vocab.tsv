@@ -1,0 +1,356 @@
+id	mt	en	pos	tier	topic	ex_mt	ex_en	note
+# Curated high-frequency Maltese. Tier 1 = learn first. Verbs are given in the 1sg
+# present ("I ..."), which is what you actually say; `note` holds the 3ms perfect
+# (the dictionary/root form) so you can look them up.
+v001	jien	I	pron	1	core	Jien minn Malta.	I am from Malta.	also "jiena"
+v002	int	you (sg)	pron	1	core	Int minn hawn?	Are you from here?	also "inti"
+v003	hu	he	pron	1	core	Hu ħabib tiegħi.	He is a friend of mine.	also "huwa"
+v004	hi	she	pron	1	core	Hi tgħix il-Belt.	She lives in Valletta.	also "hija"
+v005	aħna	we	pron	1	core	Aħna mmorru d-dar.	We are going home.
+v006	intom	you (pl)	pron	1	core	Intom lesti?	Are you (all) ready?
+v007	huma	they	pron	1	core	Huma jaħdmu hawn.	They work here.
+v008	u	and	conj	1	core	Jien u int.	Me and you.
+v009	imma	but	conj	1	core	Irrid niġi, imma ma nistax.	I want to come, but I can't.	also "iżda" (formal)
+v010	jew	or	conj	1	core	Te jew kafè?	Tea or coffee?
+v011	għax	because	conj	1	core	Ma ġejtx għax kont għajjien.	I didn't come because I was tired.	full form "għaliex"
+v012	li	that (rel.)	conj	1	core	Il-ktieb li qrajt.	The book that I read.
+v013	jekk	if	conj	1	core	Jekk trid, nista' ngħinek.	If you want, I can help you.
+v014	meta	when	conj	1	core	Meta tasal?	When do you arrive?
+v015	biex	in order to	conj	1	core	Ġejt biex nitgħallem.	I came in order to learn.
+v016	iva	yes	part	1	core	Iva, grazzi.	Yes, thanks.
+v017	le	no	part	1	core	Le, grazzi.	No, thanks.
+v018	forsi	maybe	adv	1	core	Forsi għada.	Maybe tomorrow.
+v019	ma ... x	not	part	1	grammar	Ma nifhimx.	I don't understand.	verb is wrapped: ma + verb + x
+v020	mhux	not (non-verbal)	part	1	grammar	Mhux tajjeb.	Not good.	negates nouns/adjectives
+v021	fi	in	prep	1	core	Noqgħod fi Tas-Sliema.	I live in Sliema.	becomes f' before a vowel: f'Malta
+v022	fuq	on / about	prep	1	core	Il-ktieb fuq il-mejda.	The book on the table.
+v023	taħt	under	prep	1	core	Il-qattus taħt is-siġġu.	The cat is under the chair.
+v024	ma'	with	prep	1	core	Niġi miegħek.	I'll come with you.	miegħi, miegħek, miegħu...
+v025	mingħajr	without	prep	1	core	Kafè mingħajr zokkor.	Coffee without sugar.
+v026	minn	from	prep	1	core	Jien minn l-Awstralja.	I'm from Australia.
+v027	għal	for / to	prep	1	core	Dan għalik.	This is for you.	għalija, għalik, għalih...
+v028	ta'	of	prep	1	core	Il-karozza ta' ħija.	My brother's car.
+v029	bi	with (by means of)	prep	1	core	Nitkellem bil-Malti.	I speak in Maltese.	b' before a vowel; bil- + article
+v030	sa	until / up to	prep	1	core	Naħdem sa l-erbgħa.	I work until four.
+v031	lejn	towards	prep	1	core	Immur lejn il-baħar.	I'm going towards the sea.
+v032	ħdejn	next to	prep	1	core	Il-ħanut ħdejn il-knisja.	The shop next to the church.
+v033	quddiem	in front of	prep	1	core	Nistennik quddiem id-dar.	I'll wait for you in front of the house.
+v034	wara	behind / after	prep	1	core	Wara l-ikel.	After the meal.
+v035	bejn	between	prep	1	core	Bejn it-tnejn u t-tlieta.	Between two and three.
+v036	x'	what	q	1	questions	X'inhu dan?	What is this?	"xiex" when standing alone
+v037	min	who	q	1	questions	Min hu dak?	Who is that?
+v038	fejn	where	q	1	questions	Fejn hu l-banju?	Where is the bathroom?
+v039	kif	how	q	1	questions	Kif int?	How are you?
+v040	kemm	how much / how many	q	1	questions	Kemm jiswa?	How much does it cost?
+v041	liema	which	q	1	questions	Liema wieħed trid?	Which one do you want?
+v042	għaliex	why	q	1	questions	Għaliex ma ġejtx?	Why didn't you come?
+v043	għandi	I have	verb	1	verbs	Għandi żewġt itfal.	I have two children.	għandi, għandek, għandu, għandha, għandna, għandkom, għandhom
+v044	m'għandix	I don't have	verb	1	verbs	M'għandix ħin.	I don't have time.	negative of għandi
+v045	nkun	I am / I will be	verb	1	verbs	Ninsab tajjeb.	I'm well.	3ms perfect: kien. Often dropped in the present.
+v046	irrid	I want	verb	1	verbs	Irrid nitgħallem il-Malti.	I want to learn Maltese.	root: ried. irrid, trid, irid, trid, irridu...
+v047	nixtieq	I would like	verb	1	verbs	Nixtieq kafè, jekk jogħġbok.	I'd like a coffee, please.	politer than "irrid"
+v048	nista'	I can	verb	1	verbs	Nista' ngħinek?	Can I help you?	root: seta'
+v049	naf	I know	verb	1	verbs	Ma nafx.	I don't know.	root: af
+v050	nifhem	I understand	verb	1	verbs	Ma nifhimx.	I don't understand.	root: fehem
+v051	nitkellem	I speak	verb	1	verbs	Titkellem bl-Ingliż?	Do you speak English?	root: tkellem
+v052	ngħid	I say	verb	1	verbs	Kif tgħid dan bil-Malti?	How do you say this in Maltese?	root: qal
+v053	immur	I go	verb	1	verbs	Immur ix-xogħol.	I'm going to work.	root: mar
+v054	niġi	I come	verb	1	verbs	Niġi għada.	I'll come tomorrow.	root: ġie
+v055	nagħmel	I do / I make	verb	1	verbs	X'qed tagħmel?	What are you doing?	root: għamel
+v056	nara	I see	verb	1	verbs	Narak għada.	See you tomorrow.	root: ra
+v057	nisma'	I hear / I listen	verb	1	verbs	Nisma' l-mużika.	I listen to music.	root: sema'
+v058	nieħu	I take	verb	1	verbs	Ħa nieħu dan.	I'll take this one.	root: ħa
+v059	nagħti	I give	verb	1	verbs	Tini l-melħ, jekk jogħġbok.	Pass me the salt, please.	root: ta
+v060	niekol	I eat	verb	1	food	Niekol il-ħut.	I eat fish.	root: kiel
+v061	nixrob	I drink	verb	1	food	Nixrob l-ilma.	I drink water.	root: xorob
+v062	naħdem	I work	verb	1	verbs	Naħdem f'uffiċċju.	I work in an office.	root: ħadem
+v063	noqgħod	I live / I stay	verb	1	verbs	Noqgħod Tas-Sliema.	I live in Sliema.	root: qagħad
+v064	nitgħallem	I learn	verb	1	verbs	Qed nitgħallem il-Malti.	I'm learning Maltese.	root: tgħallem
+v065	naħseb	I think	verb	1	verbs	Naħseb li iva.	I think so.	root: ħaseb
+v066	nħobb	I love / I like	verb	1	verbs	Inħobb il-baħar.	I love the sea.	root: ħabb
+v067	jogħġobni	I like it	verb	1	verbs	Jogħġobni ħafna.	I like it a lot.	lit. "it pleases me"
+v068	qed	-ing (progressive)	part	1	grammar	Qed naqra.	I am reading.	qed / qiegħed + present verb
+v069	ħa	going to (future)	part	1	grammar	Ħa mmur id-dar.	I'm going to go home.	also "se" / "sa"
+v070	llum	today	adv	1	time	Illum is-Sibt.	Today is Saturday.
+v071	għada	tomorrow	adv	1	time	Narak għada.	See you tomorrow.
+v072	ilbieraħ	yesterday	adv	1	time	Ilbieraħ kont għajjien.	Yesterday I was tired.
+v073	issa	now	adv	1	time	Irrid immur issa.	I have to go now.
+v074	dejjem	always	adv	1	time	Dejjem nixrob il-kafè.	I always drink coffee.
+v075	qatt	never / ever	adv	1	time	Qatt ma kont Malta.	I've never been to Malta.
+v076	xi kultant	sometimes	adv	1	time	Xi kultant nimxi.	Sometimes I walk.
+v077	ħafna	a lot / very	adv	1	core	Grazzi ħafna.	Thank you very much.
+v078	ftit	a little	adv	1	core	Nitkellem ftit Malti.	I speak a little Maltese.
+v079	biss	only	adv	1	core	Wieħed biss.	Only one.
+v080	ukoll	also	adv	1	core	Jien ukoll.	Me too.
+v081	hawn	here	adv	1	core	Ejja hawn.	Come here.
+v082	hemm	there	adv	1	core	Hemm ħanut hemmhekk.	There's a shop over there.	"hemm" also = "there is"
+v083	dan	this (m)	det	1	core	Dan tajjeb.	This is good.	f: din, pl: dawn
+v084	dak	that (m)	det	1	core	Dak il-bini.	That building.	f: dik, pl: dawk
+v085	il-	the	det	1	grammar	Il-ktieb fuq il-mejda.	The book is on the table.	assimilates: id-dar, ix-xemx, is-sena, ir-raġel
+v086	tajjeb	good	adj	1	adjectives	Kollox tajjeb.	Everything's good.	f: tajba, pl: tajbin
+v087	ħażin	bad	adj	1	adjectives	It-temp ħażin illum.	The weather is bad today.	f: ħażina
+v088	kbir	big	adj	1	adjectives	Dar kbira.	A big house.	f: kbira, pl: kbar
+v089	żgħir	small	adj	1	adjectives	Kafè żgħir.	A small coffee.	f: żgħira, pl: żgħar
+v090	sabiħ	beautiful / nice	adj	1	adjectives	Ġurnata sabiħa!	A beautiful day!	f: sabiħa
+v091	ġdid	new	adj	1	adjectives	Karozza ġdida.	A new car.	f: ġdida
+v092	kollox	everything	pron	1	core	Kollox sew?	Is everything OK?
+v093	xejn	nothing	pron	1	core	Xejn, grazzi.	Nothing, thanks.	also = zero
+v094	ħadd	nobody	pron	1	core	M'hemm ħadd.	There's nobody.
+v095	kulħadd	everybody	pron	1	core	Kulħadd jaf.	Everybody knows.
+v096	xi ħaġa	something	pron	1	core	Trid xi ħaġa?	Do you want something?
+v097	ħaġa	thing	noun	1	core	Ħaġa waħda.	One thing.	pl: affarijiet
+v098	ħin	time (amount)	noun	1	time	M'għandix ħin.	I don't have time.
+v099	darba	once / a time	noun	1	time	Darba fil-ġimgħa.	Once a week.
+v100	sew	right / OK	adj	1	core	Sew, mela.	OK then.
+# ── Tier 2 ────────────────────────────────────────────────────────────────
+v101	raġel	man / husband	noun	2	people	Ir-raġel tagħha.	Her husband.	pl: irġiel
+v102	mara	woman / wife	noun	2	people	Mara Maltija.	A Maltese woman.	pl: nisa
+v103	tifel	boy	noun	2	people	Tifel żgħir.	A little boy.	pl: tfal (children)
+v104	tifla	girl	noun	2	people	It-tifla tiegħi.	My daughter.	pl: tfal
+v105	tfal	children	noun	2	family	Għandi żewġt itfal.	I have two children.
+v106	omm	mother	noun	2	family	L-omm tiegħi.	My mother.	also "ommi"
+v107	missier	father	noun	2	family	Missieri jaħdem hemm.	My father works there.
+v108	ħu	brother	noun	2	family	Ħija jgħix Għawdex.	My brother lives in Gozo.	"ħija" = my brother
+v109	oħt	sister	noun	2	family	Oħti hi għalliema.	My sister is a teacher.	pl: aħwa (siblings)
+v110	iben	son	noun	2	family	Ibni għandu ħames snin.	My son is five.	pl: ulied
+v111	bint	daughter	noun	2	family	Binti tmur l-iskola.	My daughter goes to school.
+v112	familja	family	noun	2	family	Il-familja tiegħi kbira.	My family is big.
+v113	nannu	grandfather	noun	2	family	In-nannu tiegħi Malti.	My grandfather is Maltese.
+v114	nanna	grandmother	noun	2	family	In-nanna tagħmel il-pastizzi.	Grandma makes pastizzi.
+v115	ħabib	friend (m)	noun	2	people	Hu ħabib tiegħi.	He's a friend of mine.	f: ħabiba, pl: ħbieb
+v116	dar	house / home	noun	2	places	Immur id-dar.	I'm going home.	pl: djar
+v117	kamra	room	noun	2	places	Il-kamra tiegħi żgħira.	My room is small.	pl: kmamar
+v118	kċina	kitchen	noun	2	places	Il-kċina nadifa.	The kitchen is clean.
+v119	banju	bathroom	noun	2	places	Fejn hu l-banju?	Where is the bathroom?
+v120	bieb	door	noun	2	places	Agħlaq il-bieb.	Close the door.	pl: bibien
+v121	tieqa	window	noun	2	places	Iftaħ it-tieqa.	Open the window.	pl: twieqi
+v122	mejda	table	noun	2	places	Mejda għal tnejn.	A table for two.	pl: mwejjed
+v123	siġġu	chair	noun	2	places	Oqgħod fuq is-siġġu.	Sit on the chair.	pl: siġġijiet
+v124	sodda	bed	noun	2	places	Fis-sodda.	In bed.
+v125	triq	street / road	noun	2	places	It-triq ħdejn il-baħar.	The road by the sea.	pl: toroq
+v126	belt	city / town	noun	2	places	Il-Belt Valletta.	Valletta.	"il-Belt" = Valletta
+v127	raħal	village	noun	2	places	Raħal żgħir.	A small village.	pl: rħula
+v128	skola	school	noun	2	places	It-tfal fl-iskola.	The children are at school.	l-iskola
+v129	xogħol	work	noun	2	work	Immur ix-xogħol.	I'm going to work.
+v130	uffiċċju	office	noun	2	work	Naħdem f'uffiċċju.	I work in an office.
+v131	ħanut	shop	noun	2	places	Il-ħanut miftuħ.	The shop is open.	pl: ħwienet
+v132	suq	market	noun	2	places	Immur is-suq.	I'm going to the market.
+v133	knisja	church	noun	2	places	Il-knisja fil-pjazza.	The church is in the square.	pl: knejjes
+v134	sptar	hospital	noun	2	places	Fejn hu l-isptar?	Where is the hospital?	l-isptar
+v135	baħar	sea	noun	2	nature	Il-baħar kalm illum.	The sea is calm today.
+v136	xemx	sun	noun	2	nature	Ix-xemx qawwija.	The sun is strong.
+v137	ilma	water	noun	2	food	Ilma, jekk jogħġbok.	Water, please.	l-ilma
+v138	ikel	food	noun	2	food	L-ikel Malti tajjeb.	Maltese food is good.
+v139	ħobż	bread	noun	2	food	Ħobż tal-Malti.	Maltese bread.
+v140	kafè	coffee	noun	2	food	Kafè bil-ħalib.	Coffee with milk.
+v141	te	tea	noun	2	food	Te bil-lumi.	Tea with lemon.
+v142	ħalib	milk	noun	2	food	Ħalib frisk.	Fresh milk.
+v143	inbid	wine	noun	2	food	Inbid aħmar.	Red wine.
+v144	birra	beer	noun	2	food	Birra kiesħa.	A cold beer.
+v145	ħut	fish	noun	2	food	Ħut frisk mis-suq.	Fresh fish from the market.
+v146	laħam	meat	noun	2	food	Ma nikolx laħam.	I don't eat meat.
+v147	ħaxix	vegetables	noun	2	food	Ħaxix frisk.	Fresh vegetables.	also = grass
+v148	frott	fruit	noun	2	food	Nixtri l-frott.	I buy fruit.
+v149	ġobon	cheese	noun	2	food	Ġobon tan-nagħaġ.	Sheep's cheese.
+v150	bajd	eggs	noun	2	food	Żewġ bajdiet.	Two eggs.	sg: bajda
+v151	melħ	salt	noun	2	food	Ftit melħ.	A little salt.
+v152	zokkor	sugar	noun	2	food	Mingħajr zokkor.	Without sugar.
+v153	flus	money	noun	2	shopping	M'għandix flus.	I don't have money.	plural in form
+v154	kont	bill / account	noun	2	shopping	Il-kont, jekk jogħġbok.	The bill, please.
+v155	ristorant	restaurant	noun	2	places	Ristorant tajjeb ħdejn hawn?	A good restaurant near here?
+v156	karozza	car	noun	2	travel	Il-karozza tiegħi ħamra.	My car is red.	pl: karozzi
+v157	xarabank	bus	noun	2	travel	Nieħu x-xarabank.	I take the bus.	also "karozza tal-linja"
+v158	ajruport	airport	noun	2	travel	Immur l-ajruport.	I'm going to the airport.
+v159	ktieb	book	noun	2	objects	Qed naqra ktieb.	I'm reading a book.	pl: kotba
+v160	telefon	phone	noun	2	objects	It-telefon tiegħi.	My phone.	also "mowbajl"
+v161	isem	name	noun	2	people	X'jismek?	What's your name?	pl: ismijiet
+v162	sena	year	noun	2	time	Din is-sena.	This year.	pl: snin
+v163	xahar	month	noun	2	time	Ix-xahar id-dieħel.	Next month.	pl: xhur
+v164	ġimgħa	week	noun	2	time	Din il-ġimgħa.	This week.	also = Friday
+v165	jum	day	noun	2	time	Jum sabiħ.	A nice day.	also "ġurnata"
+v166	siegħa	hour / o'clock	noun	2	time	Fis-siegħa.	At one o'clock.	pl: sigħat
+v167	filgħodu	in the morning	adv	2	time	Nqum kmieni filgħodu.	I get up early in the morning.
+v168	filgħaxija	in the evening	adv	2	time	Narak filgħaxija.	See you this evening.
+v169	billejl	at night	adv	2	time	Naħdem billejl.	I work at night.
+v170	nixtri	I buy	verb	2	verbs	Nixtri l-ħobż.	I buy the bread.	root: xtara
+v171	nħallas	I pay	verb	2	verbs	Inħallas bil-karta.	I pay by card.	root: ħallas
+v172	naqra	I read	verb	2	verbs	Naqra kuljum.	I read every day.	root: qara
+v173	nikteb	I write	verb	2	verbs	Nikteb ittra.	I write a letter.	root: kiteb
+v174	niftaħ	I open	verb	2	verbs	Niftaħ it-tieqa.	I open the window.	root: fetaħ
+v175	nagħlaq	I close	verb	2	verbs	Nagħlaq il-bieb.	I close the door.	root: għalaq
+v176	nibda	I begin	verb	2	verbs	Nibda fit-tmienja.	I start at eight.	root: beda
+v177	nispiċċa	I finish	verb	2	verbs	Nispiċċa fil-ħamsa.	I finish at five.	root: spiċċa
+v178	nistenna	I wait	verb	2	verbs	Nistenniek hawn.	I'll wait for you here.	root: stenna
+v179	nsib	I find	verb	2	verbs	Ma nsibhiex.	I can't find it (f).	root: sab
+v180	nistaqsi	I ask	verb	2	verbs	Nista' nistaqsi xi ħaġa?	Can I ask something?	root: staqsa
+v181	nwieġeb	I answer	verb	2	verbs	Inwieġeb dalwaqt.	I'll answer soon.	root: wieġeb
+v182	ngħin	I help	verb	2	verbs	Nista' ngħinek?	Can I help you?	root: għen
+v183	nħares	I look	verb	2	verbs	Ħares hawn.	Look here.	root: ħares
+v184	nimxi	I walk	verb	2	verbs	Nimxi sal-baħar.	I walk to the sea.	root: mexa
+v185	niġri	I run	verb	2	verbs	Niġri kuljum.	I run every day.	root: ġera
+v186	norqod	I sleep	verb	2	verbs	Norqod kmieni.	I sleep early.	root: raqad
+v187	nqum	I get up	verb	2	verbs	Nqum fis-sitta.	I get up at six.	root: qam
+v188	niftakar	I remember	verb	2	verbs	Ma niftakarx.	I don't remember.	root: ftakar
+v189	ninsa	I forget	verb	2	verbs	Insejt.	I forgot.	root: nesa
+v190	nħossni	I feel	verb	2	verbs	Inħossni għajjien.	I feel tired.	root: ħass
+v191	għajjien	tired	adj	2	adjectives	Jien għajjien.	I'm tired.	f: għajjiena
+v192	ferħan	happy	adj	2	adjectives	Ferħan ħafna.	Very happy.	f: ferħana
+v193	bil-ġuħ	hungry	adj	2	adjectives	Jien bil-ġuħ.	I'm hungry.	lit. "with hunger"
+v194	bil-għatx	thirsty	adj	2	adjectives	Jien bil-għatx.	I'm thirsty.
+v195	sħun	hot	adj	2	adjectives	Il-kafè sħun.	The coffee is hot.	f: sħuna
+v196	kiesaħ	cold	adj	2	adjectives	Ilma kiesaħ.	Cold water.	f: kiesħa
+v197	faċli	easy	adj	2	adjectives	Mhux faċli.	It's not easy.
+v198	diffiċli	difficult	adj	2	adjectives	Il-Malti diffiċli!	Maltese is difficult!
+v199	twil	long / tall	adj	2	adjectives	Triq twila.	A long road.	f: twila
+v200	qasir	short	adj	2	adjectives	Ħin qasir.	A short time.	f: qasira
+v201	qadim	old (thing)	adj	2	adjectives	Bini qadim.	An old building.	f: qadima
+v202	xiħ	old (person)	adj	2	adjectives	Raġel xiħ.	An old man.	f: xiħa
+v203	għoli	high / expensive	adj	2	adjectives	Għoli wisq.	Too expensive.	f: għolja
+v204	irħis	cheap	adj	2	adjectives	Irħis ħafna.	Very cheap.	f: irħisa
+v205	nadif	clean	adj	2	adjectives	Kamra nadifa.	A clean room.	f: nadifa
+v206	miftuħ	open	adj	2	adjectives	Il-ħanut miftuħ.	The shop is open.	f: miftuħa
+v207	magħluq	closed	adj	2	adjectives	Magħluq il-Ħadd.	Closed on Sunday.	f: magħluqa
+v208	frisk	fresh	adj	2	adjectives	Ħobż frisk.	Fresh bread.	f: friska
+v209	kmieni	early	adv	2	time	Ġejt kmieni.	I came early.
+v210	tard	late	adv	2	time	Wasalt tard.	I arrived late.
+v211	malajr	quickly	adv	2	core	Ejja malajr!	Come quickly!
+v212	bil-mod	slowly	adv	2	core	Bil-mod, jekk jogħġbok.	Slowly, please.
+v213	aħmar	red	adj	2	colours	Inbid aħmar.	Red wine.	f: ħamra
+v214	abjad	white	adj	2	colours	Qmis bajda.	A white shirt.	f: bajda
+v215	iswed	black	adj	2	colours	Kafè iswed.	Black coffee.	f: sewda
+v216	aħdar	green	adj	2	colours	Dawl aħdar.	A green light.	f: ħadra
+v217	blu	blue	adj	2	colours	Il-baħar blu.	The sea is blue.	invariable
+v218	isfar	yellow	adj	2	colours	Isfar bħax-xemx.	Yellow like the sun.	f: safra
+v219	wieħed	one	num	2	numbers	Wieħed biss.	Only one.	f: waħda
+v220	tnejn	two	num	2	numbers	Mejda għal tnejn.	A table for two.
+v221	tlieta	three	num	2	numbers	Fit-tlieta.	At three o'clock.
+v222	erbgħa	four	num	2	numbers	Erbgħa min-nies.	Four people.
+v223	ħamsa	five	num	2	numbers	Ħamsa u għoxrin.	Twenty-five.
+v224	sitta	six	num	2	numbers	Fis-sitta ta' filgħodu.	At six in the morning.
+v225	sebgħa	seven	num	2	numbers	Sebat ijiem.	Seven days.
+v226	tmienja	eight	num	2	numbers	Nibda fit-tmienja.	I start at eight.
+v227	disgħa	nine	num	2	numbers	Disgħa u nofs.	Half past nine.
+v228	għaxra	ten	num	2	numbers	Għaxar ewro.	Ten euros.	before a noun: għaxar
+v229	għoxrin	twenty	num	2	numbers	Għoxrin sena.	Twenty years.
+v230	mija	hundred	num	2	numbers	Mitt ewro.	A hundred euros.	before a noun: mitt
+v231	elf	thousand	num	2	numbers	Elf grazzi.	A thousand thanks.
+v232	nofs	half	noun	2	numbers	Nofs siegħa.	Half an hour.
+v233	It-Tnejn	Monday	noun	2	time	Narak it-Tnejn.	See you on Monday.
+v234	It-Tlieta	Tuesday	noun	2	time	It-Tlieta filgħaxija.	Tuesday evening.
+v235	L-Erbgħa	Wednesday	noun	2	time	L-Erbgħa li ġejja.	Next Wednesday.
+v236	Il-Ħamis	Thursday	noun	2	time	Kull nhar ta' Ħamis.	Every Thursday.
+v237	Il-Ġimgħa	Friday	noun	2	time	Il-Ġimgħa filgħaxija.	Friday evening.
+v238	Is-Sibt	Saturday	noun	2	time	Is-Sibt ma naħdimx.	On Saturday I don't work.
+v239	Il-Ħadd	Sunday	noun	2	time	Il-Ħadd immorru l-baħar.	On Sunday we go to the sea.
+v240	temp	weather	noun	2	weather	It-temp sabiħ illum.	The weather is nice today.
+v241	xita	rain	noun	2	weather	Qed tagħmel ix-xita.	It's raining.
+v242	riħ	wind	noun	2	weather	Hemm ħafna riħ.	It's very windy.
+v243	sħana	heat	noun	2	weather	Hemm sħana kbira.	It's very hot.
+v244	bard	cold (weather)	noun	2	weather	Illum hemm il-bard.	It's cold today.
+v245	sħab	clouds	noun	2	weather	Hemm is-sħab.	It's cloudy.
+# ── Tier 3 ────────────────────────────────────────────────────────────────
+v246	għalliem	teacher (m)	noun	3	work	Missieri għalliem.	My father is a teacher.	f: għalliema
+v247	tabib	doctor	noun	3	health	Irrid nara tabib.	I need to see a doctor.	f: tabiba
+v248	student	student	noun	3	work	Jien student.	I'm a student.	f: studenta
+v249	pulizija	police	noun	3	places	Fejn hu l-għassa tal-pulizija?	Where is the police station?
+v250	spiżerija	pharmacy	noun	3	health	Hemm spiżerija hawn qrib?	Is there a pharmacy nearby?
+v251	saħħa	health	noun	3	health	Saħħa!	Cheers! / Bye!	also a toast and a farewell
+v252	uġigħ	pain	noun	3	health	Għandi uġigħ ta' ras.	I have a headache.
+v253	ras	head	noun	3	body	Uġigħ ta' ras.	A headache.	pl: irjus
+v254	għajn	eye	noun	3	body	Għajnejja jweġġgħu.	My eyes hurt.	dual: għajnejn
+v255	id	hand	noun	3	body	Idejja kesħin.	My hands are cold.	dual: idejn
+v256	sieq	foot / leg	noun	3	body	Sieqi tuġagħni.	My foot hurts.	dual: saqajn
+v257	qalb	heart	noun	3	body	Minn qalbi.	From my heart.	pl: qlub
+v258	stonku	stomach	noun	3	body	Uġigħ ta' stonku.	A stomach ache.
+v259	xagħar	hair	noun	3	body	Xagħar iswed.	Black hair.
+v260	ilsien	tongue / language	noun	3	learning	L-ilsien Malti.	The Maltese language.	also "lingwa"
+v261	kelma	word	noun	3	learning	Kelma waħda.	One word.	pl: kliem
+v262	sentenza	sentence	noun	3	learning	Sentenza sħiħa.	A full sentence.
+v263	mistoqsija	question	noun	3	learning	Għandi mistoqsija.	I have a question.
+v264	tweġiba	answer	noun	3	learning	It-tweġiba t-tajba.	The right answer.
+v265	żball	mistake	noun	3	learning	Għamilt żball.	I made a mistake.	pl: żbalji
+v266	eżempju	example	noun	3	learning	Per eżempju.	For example.
+v267	paċenzja	patience	noun	3	core	Ħu paċenzja.	Be patient.
+v268	ġurnata	day (whole)	noun	3	time	Ġurnata twila.	A long day.
+v269	lejl	night	noun	3	time	Il-lejl it-tajjeb.	Good night.
+v270	għodwa	morning	noun	3	time	Għodwa t-tajba.	Good morning.
+v271	waranofsinhar	afternoon	noun	3	time	Il-waranofsinhar.	The afternoon.
+v272	sajf	summer	noun	3	time	Fis-sajf nagħmlu l-baħar.	In summer we go swimming.
+v273	xitwa	winter	noun	3	time	Fix-xitwa tagħmel ix-xita.	In winter it rains.
+v274	Malti	Maltese	adj	3	culture	Jien nitgħallem il-Malti.	I'm learning Maltese.	f: Maltija, pl: Maltin
+v275	Ingliż	English	adj	3	culture	Titkellem bl-Ingliż?	Do you speak English?	f: Ingliża
+v276	pajjiż	country	noun	3	travel	Minn liema pajjiż int?	Which country are you from?	pl: pajjiżi
+v277	festa	feast / party	noun	3	culture	Il-festa tar-raħal.	The village feast.
+v278	mużika	music	noun	3	hobbies	Nisma' l-mużika.	I listen to music.
+v279	film	film	noun	3	hobbies	Rajt film tajjeb.	I saw a good film.	pl: films
+v280	logħba	game	noun	3	hobbies	Logħba futbol.	A football game.
+v281	nilgħab	I play	verb	3	hobbies	Nilgħab il-futbol.	I play football.	root: lagħab
+v282	nkanta	I sing	verb	3	hobbies	Inkanta fid-doċċa.	I sing in the shower.	root: kanta
+v283	nogħdos	I swim	verb	3	hobbies	Nagħmel il-baħar kuljum.	I swim every day.	commonly "nagħmel il-baħar"
+v284	nsuq	I drive	verb	3	travel	Insuq bil-mod.	I drive slowly.	root: saq
+v285	nivvjaġġa	I travel	verb	3	travel	Inħobb nivvjaġġa.	I love to travel.
+v286	nasal	I arrive	verb	3	travel	Nasal fis-sitta.	I arrive at six.	root: wasal
+v287	nitlaq	I leave	verb	3	travel	Nitlaq għada.	I leave tomorrow.	root: telaq
+v288	nidħol	I enter	verb	3	verbs	Nista' nidħol?	May I come in?	root: daħal
+v289	noħroġ	I go out	verb	3	verbs	Noħroġ mal-ħbieb.	I go out with friends.	root: ħareġ
+v290	nibgħat	I send	verb	3	verbs	Nibgħatlek messaġġ.	I'll send you a message.	root: bagħat
+v291	nġib	I bring	verb	3	verbs	Inġib l-inbid.	I'll bring the wine.	root: ġab
+v292	nuri	I show	verb	3	verbs	Nurik it-triq.	I'll show you the way.	root: wera
+v293	nispjega	I explain	verb	3	learning	Tista' tispjega?	Can you explain?
+v294	nirrepeti	I repeat	verb	3	learning	Tista' tirrepeti?	Can you repeat?	also "erġa' għid"
+v295	nipprova	I try	verb	3	verbs	Nipprova mill-ġdid.	I'll try again.
+v296	nemmen	I believe	verb	3	verbs	Nemmen li iva.	I believe so.	root: emmen
+v297	nixtieq nkun naf	I'd like to know	verb	3	learning	Nixtieq inkun naf kif.	I'd like to know how.
+v298	nirringrazzja	I thank	verb	3	core	Nirringrazzjak.	I thank you.
+v299	niddispjaċini	I'm sorry	verb	3	core	Jiddispjaċini ħafna.	I'm very sorry.	usually "jiddispjaċini"
+v300	nifraħ	I'm glad	verb	3	core	Nifraħ għalik.	I'm glad for you.	root: feraħ
+v301	dawl	light	noun	3	objects	Ixgħel id-dawl.	Turn on the light.
+v302	ċavetta	key	noun	3	objects	Fejn iċ-ċavetta?	Where's the key?	pl: ċwievet
+v303	borża	bag	noun	3	objects	Il-borża tiegħi.	My bag.	pl: boroż
+v304	ħwejjeġ	clothes	noun	3	objects	Ħwejjeġ ġodda.	New clothes.
+v305	qmis	shirt	noun	3	objects	Qmis bajda.	A white shirt.	pl: qomos
+v306	żarbun	shoes	noun	3	objects	Żarbun ġdid.	New shoes.
+v307	karta	card / paper	noun	3	shopping	Inħallas bil-karta.	I pay by card.	pl: karti
+v308	prezz	price	noun	3	shopping	X'inhu l-prezz?	What's the price?
+v309	bejgħ	sale	noun	3	shopping	Hemm bejgħ.	There's a sale.
+v310	kbir wisq	too big	adj	3	shopping	Dan kbir wisq.	This is too big.	"wisq" = too much
+v311	ieħor	another (m)	det	3	core	Wieħed ieħor.	Another one.	f: oħra, pl: oħrajn
+v312	stess	same / self	det	3	core	L-istess ħaġa.	The same thing.
+v313	kull	every	det	3	core	Kull jum.	Every day.
+v314	kuljum	every day	adv	3	time	Naħdem kuljum.	I work every day.
+v315	xi	some / a	det	3	core	Xi ħadd.	Someone.
+v316	bosta	many	det	3	core	Bosta nies.	Many people.
+v317	nies	people	noun	3	people	Ħafna nies.	Many people.	plural of "persuna"
+v318	post	place	noun	3	places	Post sabiħ.	A beautiful place.	pl: postijiet
+v319	naħa	side / area	noun	3	places	Fuq din in-naħa.	On this side.
+v320	lemin	right	noun	3	directions	Dur lejn il-lemin.	Turn right.
+v321	xellug	left	noun	3	directions	Il-bini fuq ix-xellug.	The building is on the left.
+v322	dritt	straight	adv	3	directions	Mur dritt.	Go straight.
+v323	qrib	near	adj	3	directions	Qrib ħafna.	Very near.
+v324	bogħod	far	adj	3	directions	Bogħod minn hawn?	Is it far from here?
+v325	dur	turn (imperative)	verb	3	directions	Dur lejn ix-xellug.	Turn left.	root: dar
+v326	mur	go (imperative)	verb	3	directions	Mur dritt sal-pjazza.	Go straight to the square.	root: mar
+v327	ejja	come (imperative)	verb	3	core	Ejja hawn.	Come here.	pl: ejjew
+v328	ħu	take (imperative)	verb	3	core	Ħu dan.	Take this.
+v329	agħti	give (imperative)	verb	3	core	Agħtini l-ilma.	Give me the water.
+v330	oqgħod	stay / sit (imperative)	verb	3	core	Oqgħod bilqiegħda.	Sit down.
+v331	ara	look (imperative)	verb	3	core	Ara hawn!	Look here!
+v332	isma'	listen (imperative)	verb	3	core	Isma' ftit.	Listen a moment.
+v333	erġa'	again (do again)	verb	3	learning	Erġa' għid.	Say it again.	erġa' + verb
+v334	ftakar	remember (imperative)	verb	3	learning	Ftakar din il-kelma.	Remember this word.
+v335	skużi	excuse me	interj	3	politeness	Skużi, fejn hu s-suq?	Excuse me, where is the market?	"skużani" to one person
+v336	grazzi	thank you	interj	3	politeness	Grazzi ħafna.	Thank you very much.
+v337	jekk jogħġbok	please	interj	3	politeness	Kafè, jekk jogħġbok.	Coffee, please.	pl/formal: jekk jogħġobkom
+v338	prego	you're welcome	interj	3	politeness	Prego!	You're welcome!	also "m'hemmx imniex"
+v339	mela	of course / well then	interj	3	core	Mela iva!	Of course yes!	very common filler
+v340	orrajt	all right	interj	3	core	Orrajt, sew.	All right, fine.	from English
+v341	tassew	really	adv	3	core	Tassew?	Really?	also "verament"
+v342	żgur	sure / certainly	adv	3	core	Żgur!	Sure!
+v343	dalwaqt	soon	adv	3	time	Nasal dalwaqt.	I'll arrive soon.
+v344	għadni	I still am	verb	3	grammar	Għadni ma spiċċajtx.	I haven't finished yet.	għadni, għadek, għadu...
+v345	diġà	already	adv	3	time	Diġà spiċċajt.	I've already finished.
+v346	aktar	more	adv	3	core	Aktar minn hekk.	More than that.	also "iktar"
+v347	inqas	less	adv	3	core	Inqas mill-bieraħ.	Less than yesterday.
+v348	l-aħjar	the best	adj	3	core	L-aħjar wieħed.	The best one.
+v349	l-agħar	the worst	adj	3	core	L-agħar jum.	The worst day.
+v350	bħal	like / as	prep	3	core	Bħalek.	Like you.	bħali, bħalek, bħalu...

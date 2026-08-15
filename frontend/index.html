@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nitkellmu — Speak Maltese</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🇲🇹</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">Nitkellmu</span>
+    <span class="brand-sub">Maltese, by talking</span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" data-view="talk" role="tab">Taħdita<em>Talk</em></button>
+    <button class="tab" data-view="review" role="tab">Reviżjoni<em>Review</em><span class="badge" id="dueBadge" hidden>0</span></button>
+    <button class="tab" data-view="progress" role="tab">Progress<em>Stats</em></button>
+    <button class="tab" data-view="reference" role="tab">Gwida<em>Guide</em></button>
+  </nav>
+  <div class="topbar-right">
+    <span class="level-chip" id="levelChip">A0</span>
+    <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ══ TALK ══════════════════════════════════════════════════════════ -->
+  <section class="view is-active" id="view-talk">
+    <div class="scenario-bar">
+      <label class="sr-only" for="scenarioSelect">Scenario</label>
+      <select id="scenarioSelect"></select>
+      <button class="ghost-btn" id="restartBtn">Start over</button>
+      <p class="scenario-goal" id="scenarioGoal"></p>
+    </div>
+
+    <div class="chat" id="chat" aria-live="polite"></div>
+
+    <div class="composer">
+      <div class="composer-hints" id="hints"></div>
+      <div class="composer-row">
+        <button class="mic" id="micBtn" aria-label="Hold to speak">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11a6 6 0 0 1-12 0M12 17v4M8.5 21h7"/></svg>
+          <span class="mic-ring"></span>
+        </button>
+        <div class="composer-text">
+          <input type="text" id="textInput" placeholder="…jew ikteb hawn (or type here)" autocomplete="off" spellcheck="false">
+          <button class="send-btn" id="sendBtn" aria-label="Send">→</button>
+        </div>
+      </div>
+      <p class="composer-status" id="composerStatus">Hold the mic, or press <kbd>space</kbd></p>
+    </div>
+  </section>
+
+  <!-- ══ REVIEW ════════════════════════════════════════════════════════ -->
+  <section class="view" id="view-review">
+    <div class="review-shell" id="reviewShell">
+      <div class="review-empty" id="reviewEmpty">
+        <h2>Xejn x'tirrepeti bħalissa</h2>
+        <p>Nothing due right now. Have a conversation — new words you meet there get
+           scheduled automatically — or pull in some new material below.</p>
+        <button class="primary-btn" id="startNewBtn">Learn new words</button>
+      </div>
+
+      <article class="card" id="reviewCard" hidden>
+        <div class="card-meta">
+          <span class="pill" id="cardMode">produce</span>
+          <span class="pill ghost" id="cardTopic"></span>
+          <span class="pill ghost" id="cardState"></span>
+          <span class="card-progress" id="cardProgress"></span>
+        </div>
+
+        <div class="card-face">
+          <p class="card-prompt-label" id="promptLabel"></p>
+          <h2 class="card-prompt" id="cardPrompt"></h2>
+          <button class="speaker-btn" id="cardPlay" hidden aria-label="Play audio">🔊</button>
+          <p class="card-sub" id="cardSub"></p>
+        </div>
+
+        <div class="card-answer" id="cardAnswer" hidden>
+          <h3 class="answer-mt" id="answerMt"></h3>
+          <p class="answer-en" id="answerEn"></p>
+          <p class="answer-note" id="answerNote"></p>
+          <p class="answer-example" id="answerExample"></p>
+        </div>
+
+        <div class="attempt" id="attemptBox" hidden>
+          <div class="attempt-diff" id="attemptDiff"></div>
+          <p class="attempt-verdict" id="attemptVerdict"></p>
+        </div>
+
+        <div class="card-actions">
+          <div class="speak-row" id="speakRow" hidden>
+            <button class="mic mic-sm" id="cardMic" aria-label="Hold to answer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11a6 6 0 0 1-12 0M12 17v4M8.5 21h7"/></svg>
+              <span class="mic-ring"></span>
+            </button>
+            <input type="text" id="cardInput" placeholder="say it, or type it">
+            <button class="ghost-btn" id="skipBtn">Show me</button>
+          </div>
+
+          <div class="grade-row" id="gradeRow" hidden>
+            <button class="grade g1" data-grade="1"><b>Again</b><span id="int1"></span></button>
+            <button class="grade g2" data-grade="2"><b>Hard</b><span id="int2"></span></button>
+            <button class="grade g3" data-grade="3"><b>Good</b><span id="int3"></span></button>
+            <button class="grade g4" data-grade="4"><b>Easy</b><span id="int4"></span></button>
+          </div>
+
+          <button class="primary-btn wide" id="revealBtn">Show answer <kbd>space</kbd></button>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══ PROGRESS ══════════════════════════════════════════════════════ -->
+  <section class="view" id="view-progress">
+    <div class="stat-grid" id="statGrid"></div>
+    <div class="panel">
+      <h3>Reviews over time</h3>
+      <div class="spark" id="historyChart"></div>
+    </div>
+    <div class="panel">
+      <h3>Topic coverage</h3>
+      <div class="topics" id="topicList"></div>
+    </div>
+    <div class="panel two-up">
+      <div>
+        <h3>Sticky words</h3>
+        <ul class="plain-list" id="weakList"></ul>
+      </div>
+      <div>
+        <h3>Mistake patterns</h3>
+        <ul class="plain-list" id="errorList"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ REFERENCE ═════════════════════════════════════════════════════ -->
+  <section class="view" id="view-reference">
+    <div class="panel prose" id="grammarPane">Loading…</div>
+  </section>
+
+</main>
+
+<!-- ══ SETTINGS ════════════════════════════════════════════════════════ -->
+<dialog id="settingsDialog">
+  <form method="dialog" class="settings">
+    <h2>Settings</h2>
+
+    <label class="field">
+      <span>Voice</span>
+      <select id="voiceSelect">
+        <option value="mt-MT-GraceNeural">Grace — mt-MT (female)</option>
+        <option value="mt-MT-JosephNeural">Joseph — mt-MT (male)</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Speaking rate <em id="rateLabel">0.95×</em></span>
+      <input type="range" id="rateRange" min="0.6" max="1.2" step="0.05" value="0.95">
+    </label>
+
+    <label class="field check">
+      <input type="checkbox" id="showEnglish" checked>
+      <span>Show English translation by default</span>
+    </label>
+
+    <label class="field check">
+      <input type="checkbox" id="autoplay" checked>
+      <span>Auto-play Maltese audio</span>
+    </label>
+
+    <div class="caps" id="capsBox"></div>
+
+    <menu>
+      <button class="primary-btn" value="ok">Done</button>
+    </menu>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

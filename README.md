@@ -186,10 +186,29 @@ few, small, and mostly academic. The ones that matter here:
 **Measured**, with `scripts/compare_stt.py` on 25 deck sentences spoken by the app's
 own `mt-MT` voice:
 
-| model | WER | fWER | CER | app score | **would pass** | s/clip |
-|---|---|---|---|---|---|---|
-| **whisper-large-maltese-…-ct2** | 50.3% | **5.3%** | 8.0% | **0.98** | **96%** | 8.7 |
-| whisper `small` (generic) | 127% | 120% | 48.4% | 0.40 | **4%** | 3.3 |
+| model | size | WER | fWER | CER | app score | **would pass** | s/clip |
+|---|---|---|---|---|---|---|---|
+| **whisper-large-maltese-…-ct2** | 3.1 GB | 50.3% | **5.3%** | 8.0% | **0.98** | **96%** | 8.8 |
+| whisper-large-v3-**turbo**-maltese (converted) | 787 MB | 30.8% | 21.3% | 8.7% | 0.93 | 84% | 8.0 |
+| whisper `small` (generic) | 484 MB | 129% | 118% | 47.2% | 0.42 | **4%** | 3.5 |
+
+**The turbo fine-tune was tried and rejected.** `sam8000/whisper-large-v3-turbo-maltese-malta`
+ships in transformers format; `scripts/convert_turbo.sh` converts it to CTranslate2
+(its repo has no `tokenizer.json`, so one is built from the `vocab.json`/`merges.txt`
+pair). It is a quarter the size and **only 9% faster** — 8.0s against 8.8s — while
+dropping 12 points of pass rate.
+
+That 9% is the interesting part, and it explains why chasing a smaller model is a dead
+end here. Turbo's savings are all in the *decoder* (4 layers instead of 32); the
+encoder is unchanged, and Whisper always pads its input to a fixed 30-second window.
+For a three-word answer the encoder is essentially the entire cost, so a lighter
+decoder buys almost nothing. Beam size showed the same thing (beam 1 vs 5: 10.0s vs
+10.6s). **On CPU, ~8s per utterance is the floor for any large-encoder Maltese model**,
+and every Maltese fine-tune that exists is large-based.
+
+So the options for speed are a cloud recogniser (`OPENAI_API_KEY`, and the chain
+prefers it automatically) — or not waiting on the tutor at all, which is what
+[scripted mode](#two-conversation-modes) is for.
 
 Not a marginal gain: **4% → 96%** of utterances the app would mark correct. Generic
 `small` does not merely mis-hear Maltese, it hallucinates — `Tinkwetax.` came back as

@@ -3,29 +3,33 @@
 A conversational Maltese tutor that listens, speaks, shows you the writing, corrects
 you gently, and schedules everything you meet with spaced repetition.
 
+**There is no LLM.** Conversations are scripted and pre-voiced, and answers are graded
+by phonetic match, so a turn comes back in about a hundredth of a second instead of
+ten seconds. See [why](#why-no-llm).
+
 ```bash
 ./run.sh
 ```
 
-Then open <http://127.0.0.1:8137>. First run creates `.venv` and `.env`; add an
-`ANTHROPIC_API_KEY` to `.env` to enable conversation. Speech in and out work with no
-keys at all.
+Then open <http://127.0.0.1:8137>. First run creates `.venv` and `.env`. **No API keys
+are needed for anything** — speech in, speech out and conversation all run locally.
 
 ---
 
 ## What it does
 
-**Talk (`Taħdita`)** — Pick a scene (café, market, directions, doctor, the village
-festa…) and talk. Hold the mic or type. Every tutor turn comes back as Maltese audio
-plus the written Maltese, an English translation you can hide, and a word-by-word
-gloss you can unfold when a sentence won't come apart.
+**Talk (`Taħdita`)** — Pick a scene (introductions, the café, asking directions) and
+work through it out loud. Hold the mic or type. Each line comes back as Maltese audio
+plus the written Maltese and a translation you can hide.
 
-**Gentle correction** — When you get something wrong, the tutor answers *what you
-meant* first, then shows a small amber card: the corrected sentence, at most two
-issues with a one-line reason, and a **repeat prompt**. You say the corrected version
-back into the mic; it is scored, and once you land it the sentence is added to your
-review deck. Corrections you never repeat still get logged, and the tutor is told
-about your recent mistakes on every turn so it watches for repeats.
+Every reply is authored and pre-voiced, and what you say is matched against a list of
+accepted answers *phonetically* — so `nixtiek kafe jek jogobok` is accepted for
+`Nixtieq kafè, jekk jogħġbok.` A right answer moves the conversation on; a near miss
+or a wrong one shows you the target and asks for it again, and phrases you get right
+are scheduled into the review deck.
+
+Measured end to end, speech in to spoken Maltese reply out: **0.3s**, of which the
+matching is about 10ms.
 
 **Review (`Reviżjoni`)** — FSRS-5 spaced repetition over the whole deck, in three
 retrieval directions that rotate per card:
@@ -46,11 +50,9 @@ make most.
 
 **Guide (`Gwida`)** — A compact reference: the sounds English speakers get wrong
 (`q`, `għ`, `ħ`, `x`, `ż`), article assimilation, the `ma … x` negation frame, verb
-prefixes, `għandi`, broken plurals, counting forms. The same file is fed to the tutor
-as grounding on every turn, so the app and the tutor can't drift apart.
+prefixes, `għandi`, broken plurals, counting forms.
 
-Keyboard: `space` reveals / grades Good, `1`–`4` grade, `r` replays audio, and in the
-Talk view holding `space` is push-to-talk.
+Keyboard (Review): `space` reveals then grades Good, `1`–`4` grade directly, `r` replays.
 
 ---
 
@@ -63,16 +65,16 @@ Each of these is a deliberate choice, not a default:
 - **Chunks before words.** Phrases interleave with single words in the new-card
   queue, because fluent speech is largely prefabricated sequences. You always leave a
   session with something *sayable*.
-- **Comprehensible input at i+1.** The tutor is handed your known-word pool every
-  turn and told to stay inside it plus at most two new items.
+- **Comprehensible input at i+1.** Dialogues are levelled, and each scene reuses what
+  the earlier ones taught plus a little that is new.
 - **Production over recognition.** Recognition and production are tracked separately
   per card, and the queue biases toward whichever is lagging.
 - **Interleaving, not blocking.** New cards are spread through the review queue
   rather than front-loaded, and topics are mixed.
-- **Recast + prompted repetition.** The correction pattern with the strongest
-  evidence behind it: reply to the meaning, model the correct form, elicit it back.
-- **Errors become cards.** A correction you had to work for is exactly the item worth
-  scheduling.
+- **Prompted repetition.** A wrong answer is not just marked wrong: the correct form
+  is shown and spoken, and you say it back before moving on.
+- **Errors become cards.** A phrase you had to work for is exactly the item worth
+  scheduling, so correct answers go straight into the deck.
 - **Spacing to a retention target.** FSRS-5 schedules to 90% recall (configurable)
   instead of a fixed multiplier ladder.
 
@@ -98,7 +100,7 @@ Deliberately **not** used: the browser's `speechSynthesis` (no OS ships a Maltes
 voice, and an Italian voice reading Maltese teaches wrong pronunciation) and gTTS
 (Google Translate has no Maltese audio — it returns *"Unsupported language 'mt'"*).
 
-**In (STT).** The chain is `openai_whisper → elevenlabs → faster_whisper → azure`.
+**In (STT).** The chain is `wav2vec2 → openai_whisper → elevenlabs → faster_whisper → azure`.
 Browser `SpeechRecognition` is unusable here for the same reason, so audio is recorded
 in the page and posted to the backend. `faster-whisper` runs locally with no key, so
 speech input works out of the box; the first run downloads the model.
@@ -110,83 +112,46 @@ and splits at hyphens — so `jien mill Awstralja` scores 1.00 against
 
 ---
 
-## Running the tutor on a free local model
+## Why no LLM
 
-Yes — but check the model first. Maltese is low-resource enough that most models will
-generate *confident, wrong* Maltese, which for a correcting tutor is worse than no
-tutor. `scripts/check_tutor_model.py` measures a model on the five things the tutor
-actually has to do, with deterministic grading:
+An open-ended tutor was built first, and measured, and then removed. The measurements
+are why.
 
-```bash
-ollama pull hf.co/bartowski/EuroLLM-9B-Instruct-GGUF:Q4_K_M
-python scripts/check_tutor_model.py --base-url http://localhost:11434/v1 \
-       --model hf.co/bartowski/EuroLLM-9B-Instruct-GGUF:Q4_K_M --trials 4
-```
+Maltese is low-resource enough that most models produce *confident, wrong* Maltese —
+which for something that corrects you is worse than nothing. Every model was graded on
+five things the tutor actually had to do, grounded (with `grammar_notes.md` in context)
+and over repeated trials, because low-resource output is high-variance:
 
-Then point the app at it — no API key needed:
+| model | mean | article fusion | counting | stays in Maltese | JSON |
+|---|---|---|---|---|---|
+| EuroLLM-9B-Instruct Q4_K_M | 82% | 1/4 ⚠ | 4/4 | 4/4 | 4/4 |
+| gemma3:12b | 58% | 0/3 | 0/3 | 3/3 | 2/3 |
+| qwen3.5:9b | 53% | 0/3 | 0/3 | 3/3 | 0/3 |
+| Maltese-EuroLLM-**1.7B** | unusable | — | — | — | — |
+| qwen3:4b | unusable | — | — | — | — |
 
-```bash
-SM_OPENAI_BASE_URL=http://localhost:11434/v1
-SM_OPENAI_MODEL=hf.co/bartowski/EuroLLM-9B-Instruct-GGUF:Q4_K_M
-```
+[EuroLLM](https://huggingface.co/utter-project/EuroLLM-9B-Instruct) was the best of
+them — EU-funded, trained on all 24 official EU languages including Maltese — and it
+still missed `minn` + `il-` → `mill-` three times in four, the commonest error an
+English speaker makes. Size is not the constraint: gemma3:12b is larger and 24 points
+worse. **A model card listing Maltese is not evidence.**
 
-**Measured on this machine** — grounded, i.e. with `grammar_notes.md` in context as
-the live tutor does. Trials shown as *passed / run*, because low-resource output is
-high-variance and a single run is misleading:
+The smallest option was tried last, since a tiny model would at least have been fast:
+`Maltese-EuroLLM-1.7B` is Maltese-specific *and* 1 GB, and it returns a bare newline —
+it is a base continuation model, not chat-tuned. There is no small Maltese LLM.
 
-| model | mean | article fusion | counting form | no copula | stays in Maltese | JSON |
-|---|---|---|---|---|---|---|
-| **EuroLLM-9B-Instruct** Q4_K_M | **82%** ✅ | 1/4 ⚠ | 4/4 | 4/4 | 4/4 | 4/4 |
-| gemma3:12b | 58% | 0/3 | 0/3 | 3/3 | 3/3 | 2/3 |
-| qwen3.5:9b | 53% | 0/3 | 0/3 | 3/3 | 3/3 | 0/3 |
-| qwen3:4b | unusable | — | — | — | — | — |
+And even the good one was slow: **8–25 seconds a turn** locally, against 0.3s for the
+scripted path. For something meant to feel like conversation, that is the whole game.
 
-[EuroLLM](https://huggingface.co/utter-project/EuroLLM-9B-Instruct) is the one to use.
-It is EU-funded and trained on all 24 official EU languages, Maltese included, and it
-is the only local model tested that both corrects reliably and returns clean JSON.
-~5.6 GB, a couple of seconds per turn on Apple silicon.
+So the trade was made deliberately: **scripted replies, phonetic grading.** Grading is
+imperfect — a near-miss occasionally re-prompts when a person would have let it go —
+but the Maltese you *hear* is authored and correct by construction, which is the right
+side to be wrong on. What was lost is open-endedness: you cannot say anything you like
+and be understood.
 
-Bigger general-purpose models do not rescue this — gemma3:12b is larger than EuroLLM
-and scores 24 points lower, because size is not the constraint, Maltese in the
-training mix is. qwen3.5:9b never once produced usable structured output (it is a
-reasoning model and buried the JSON in its thinking), "corrected" a sentence while
-leaving the error in it, and invented the non-word *tfaliet*. qwen3:4b asserted that
-the Maltese for "I" is *Naw*. **A model card listing Maltese is not evidence — measure
-it.**
-
-**The gap, and the safety net.** EuroLLM's weak spot is preposition + article fusion
-(`minn` + `il-` → `mill-`), which it fixes about one time in four — and that is the
-single most common error an English speaker makes. But it is also *fully mechanical*,
-so it does not need a model at all. `text.lint_fusion` checks it by rule on every
-turn, regardless of backend, and will:
-
-1. repair the tutor's own output, so a "corrected" sentence never ships with the
-   error still in it, and
-2. raise the correction itself when you made the mistake and the model let it pass.
-
-That closes EuroLLM's main gap deterministically. Everything else — idiom, register,
-whether a reply is a *good* conversational turn — still degrades on a small model, so
-a hosted model remains noticeably better company. Local is genuinely usable; it is not
-equal.
-
-## Pre-rendered audio
-
-Everything the app *says* is authored — scripted dialogue lines, deck words and
-phrases, example sentences — so none of it has to be synthesised while you wait:
-
-```bash
-python scripts/prebuild_audio.py
-```
-
-831 lines, **10.9 MB, 142 seconds, once**. After that every drill reply and review
-card plays instantly and text-to-speech never touches the network again. The scripted
-dialogue lines are also warmed automatically at startup, so the fast mode is snappy
-even if you skip this.
-
-The cache is keyed on (provider, voice, rate), so `--voice mt-MT-JosephNeural` or a
-different `--rate` renders a separate set. Already-cached lines are skipped, so
-re-running after editing a dialogue costs only the new lines. `data/audio_cache/` is
-gitignored; commit it if you want clone-and-run with no network at all.
+The rule-based safety net that was written to cover EuroLLM's fusion blind spot lives
+on as `text.lint_fusion`, and now guards the authored dialogue instead: a test asserts
+that no line in any deck or dialogue contains an unfused preposition.
 
 ## Maltese-specific models on Hugging Face
 
@@ -336,13 +301,14 @@ the curated core, each flagged `unverified machine translation`.
 
 ## Configuration
 
-Everything is in `.env` (see `.env.example`). All of it is optional except the tutor.
+Everything is in `.env` (see `.env.example`). **All of it is optional** — the app runs
+with no keys at all.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Enables conversation. Without it, review drills still work. |
-| `SM_TUTOR_MODEL` | `claude-opus-5` | |
-| `OPENAI_API_KEY` / `SM_OPENAI_BASE_URL` | — | Alternative tutor; point at Ollama/LM Studio for fully local. Also enables Whisper STT. |
+| `SM_W2V_MODEL` | Maltese wav2vec2 | The default recogniser. |
+| `SM_W2V_DEVICE` | `auto` | `mps` on Apple Silicon, else `cpu`. |
+| `OPENAI_API_KEY` | — | Optional cloud Whisper STT. Not needed; the local default is faster and measures the same. |
 | `AZURE_SPEECH_KEY` | — | Official `mt-MT` voices + Azure STT. |
 | `SM_TTS_PROVIDER` | `auto` | `azure` · `edge` · `elevenlabs` · `mms` |
 | `SM_STT_PROVIDER` | `auto` | `openai_whisper` · `elevenlabs` · `faster_whisper` · `azure` |
@@ -359,7 +325,8 @@ The settings dialog (⚙) shows which providers actually resolved.
 ```
 backend/
   main.py         FastAPI routes + static serving
-  tutor.py        LLM turn: correction + reply as one structured call
+  dialogue.py     scripted turns: match an answer, pick the canned reply
+  phonetics.py    Maltese phonetic keying, so matching survives ASR spelling
   srs.py          FSRS-5 scheduler
   text.py         Maltese folding, scoring, word diff, article assimilation
   curriculum.py   deck loading, queue building, i+1 learner profile
@@ -368,8 +335,8 @@ backend/
 data/
   core_vocab.tsv  350 curated words        ← edit these freely
   phrases.tsv     120 formulaic chunks
-  scenarios.json  13 conversation scenes
-  grammar_notes.md  learner reference + tutor grounding
+  dialogues.json  3 scripted conversations
+  grammar_notes.md  learner reference
 frontend/         index.html · app.js · style.css (no build step)
 ```
 
@@ -385,6 +352,8 @@ stable, since they key your review history.
 ./.venv/bin/python -m pytest tests/ -q
 ```
 
-39 tests covering the scheduler (interval growth, lapses, difficulty bounds,
-grade ordering), the Maltese text comparison (diacritic and hyphen tolerance,
-article assimilation, diffs) and deck integrity.
+77 tests covering the scheduler (interval growth, lapses, difficulty bounds, grade
+ordering), the Maltese text comparison (diacritic and hyphen tolerance, article
+assimilation, fusion linting, language classification), the phonetic matcher, the
+scripted dialogues (every authored line is checked for correct Maltese, and every
+node for reachability), and deck integrity.

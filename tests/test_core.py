@@ -85,54 +85,6 @@ def test_fusion_lint_leaves_correct_maltese_alone(ok):
     assert text.apply_fusion(ok) == ok
 
 
-def test_tutor_lint_raises_a_correction_the_model_missed():
-    """A weaker local model often replies without noticing the fusion error. The
-    lint must supply the correction rather than let it through silently."""
-    from backend import tutor
-
-    data = tutor._coerce('{"reply_mt": "Mela!", "reply_en": "So!", '
-                         '"correction": {"needed": false}}')
-    tutor._lint("Jien minn l-Awstralja.", data)
-    assert data["correction"]["needed"] is True
-    assert data["correction"]["corrected_mt"] == "Jien mill-Awstralja."
-    assert data["correction"]["repeat_prompt_mt"] == "Jien mill-Awstralja."
-    assert any(i["should_be"] == "mill-" for i in data["correction"]["issues"])
-
-
-def test_tutor_lint_repairs_the_models_own_output():
-    """Worse than missing the error: 'correcting' it into another broken sentence."""
-    from backend import tutor
-
-    data = tutor._coerce(json.dumps({
-        "reply_mt": "Mela int minn l-Awstralja!",
-        "reply_en": "So you're from Australia!",
-        "correction": {"needed": True, "corrected_mt": "Jien minn l-Awstralja.",
-                       "repeat_prompt_mt": "Jien minn l-Awstralja.", "issues": []},
-    }))
-    tutor._lint("Jien minn l-Awstralja.", data)
-    assert data["reply_mt"] == "Mela int mill-Awstralja!"
-    assert data["correction"]["corrected_mt"] == "Jien mill-Awstralja."
-    assert data["correction"]["repeat_prompt_mt"] == "Jien mill-Awstralja."
-
-
-@pytest.mark.parametrize("reply,ok", [
-    ("Ċertament! Liema tip ta' kafè tixtieq?", True),
-    ("Mela int mill-Awstralja! X'ġabek Malta?", True),
-    ("", False),
-    ("   ", False),
-    ('{"correction": {"id": "1", "severity": "minor"}}', False),
-    ('inti mill-Awstralja.\\n\\nQed nistenna', False),
-    ('{"reply_mt": "Bonġu"', False),
-])
-def test_json_leakage_is_not_shown_to_the_learner(reply, ok):
-    """A local model that half-follows the schema can spill raw JSON into reply_mt.
-    Showing that to a learner is worse than showing nothing, so it must be treated
-    as no reply and sent back for repair."""
-    from backend import tutor
-
-    assert tutor._usable_reply(reply) is ok
-
-
 @pytest.mark.parametrize("s,mt,en", [
     ("Ċertament! Liema tip ta' kafè tixtieq?", True, False),
     ("Jien għajjien illum.", True, False),
@@ -144,60 +96,6 @@ def test_json_leakage_is_not_shown_to_the_learner(reply, ok):
 def test_language_classification(s, mt, en):
     assert text.looks_maltese(s) is mt
     assert text.looks_english(s) is en
-
-
-def test_swapped_reply_fields_are_put_back():
-    """Observed live: the tutor put English in reply_mt and Maltese in reply_en, so
-    the learner was shown English where their Maltese practice should be."""
-    from backend import tutor
-
-    data = {"reply_mt": "Hello Sara. What do you mean? (Xi trid tgħid?)",
-            "reply_en": "Xi trid tgħid?", "correction": {"needed": False}}
-    tutor._classify_languages(data)
-    assert data["reply_mt"] == "Xi trid tgħid?"
-    assert text.looks_english(data["reply_en"])
-
-
-def test_english_in_the_maltese_slot_is_cleared_for_repair():
-    from backend import tutor
-
-    data = {"reply_mt": "Hello Sara, you mean that you want to hear.",
-            "reply_en": "Hello Sara, you mean.", "correction": {"needed": False}}
-    tutor._classify_languages(data)
-    assert data["reply_mt"] == "", "English must not be shown as Maltese"
-
-
-def test_good_maltese_reply_is_left_alone():
-    from backend import tutor
-
-    data = {"reply_mt": "Ċertament! Liema tip ta' kafè tixtieq?",
-            "reply_en": "Certainly! What kind of coffee would you like?",
-            "correction": {"needed": False}}
-    tutor._classify_languages(data)
-    assert data["reply_mt"] == "Ċertament! Liema tip ta' kafè tixtieq?"
-    assert data["reply_en"].startswith("Certainly!")
-
-
-def test_english_repeat_prompt_is_dropped():
-    """A repeat prompt in English would have the learner say the wrong language back."""
-    from backend import tutor
-
-    data = {"reply_mt": "Tajjeb ħafna! X'tixtieq?", "reply_en": "Very good!",
-            "correction": {"needed": True, "corrected_mt": "I am from Australia.",
-                           "repeat_prompt_mt": "I am from Australia.", "issues": []}}
-    tutor._classify_languages(data)
-    assert data["correction"]["repeat_prompt_mt"] == ""
-    assert data["correction"]["corrected_mt"] == ""
-
-
-def test_tutor_lint_is_silent_on_correct_maltese():
-    from backend import tutor
-
-    data = tutor._coerce('{"reply_mt": "Mela int mill-Awstralja!", "reply_en": "x", '
-                         '"correction": {"needed": false}}')
-    tutor._lint("Jien mill-Awstralja.", data)
-    assert data["correction"]["needed"] is False
-    assert data["correction"]["issues"] == []
 
 
 def _stt_metrics():
@@ -482,14 +380,6 @@ def test_decks_contain_no_unfused_prepositions():
                 for hit in text.lint_fusion(value):
                     offenders.append(f"{row['id']}.{col}: {value!r} → {hit['should_be']}")
     assert not offenders, "unfused preposition + article in the decks:\n" + "\n".join(offenders)
-
-
-def test_scenarios_are_well_formed():
-    scenarios = curriculum.load_scenarios()
-    assert len(scenarios) >= 10
-    for s in scenarios:
-        for key in ("id", "name", "name_en", "tutor_role", "opener_mt", "opener_en"):
-            assert s.get(key), f"{s.get('id')} missing {key}"
 
 
 def test_grammar_notes_present():

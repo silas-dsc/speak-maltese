@@ -5,11 +5,7 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   caps: null,
-  scenarios: [],
   settings: { voice: 'mt-MT-GraceNeural', rate: 0.95, show_english: true, autoplay: true },
-  sessionId: null,
-  scenario: 'intro',
-  busy: false,
   queue: [],
   qIndex: 0,
   card: null,
@@ -40,6 +36,12 @@ function toast(msg, ms = 3200) {
   el.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { el.hidden = true; }, ms);
+}
+
+function escapeHtml(s = '') {
+  return s.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
 }
 
 /* ── Audio ─────────────────────────────────────────────────────────────── */
@@ -203,30 +205,15 @@ async function boot() {
     return;
   }
   state.caps = data.capabilities;
-  state.scenarios = data.scenarios;
   state.settings = { ...state.settings, ...data.settings };
 
-  renderScenarios();
   applySettings();
   renderCaps();
   updateCounts(data.counts);
   $('levelChip').textContent = data.profile.level;
 
-  if (!state.caps.tutor) {
-    toast('No LLM key set — conversation is disabled, but review drills work. See .env', 9000);
-  }
-
-  await startSession(state.scenario);
+  await loadDrills();
   loadGrammar();
-}
-
-function renderScenarios() {
-  const sel = $('scenarioSelect');
-  sel.innerHTML = state.scenarios
-    .map((s) => `<option value="${s.id}">${s.name} — ${s.name_en} · ${s.level}</option>`)
-    .join('');
-  sel.value = state.scenario;
-  sel.addEventListener('change', () => startSession(sel.value));
 }
 
 function applySettings() {
@@ -241,7 +228,6 @@ function renderCaps() {
   const c = state.caps;
   const mark = (ok) => (ok ? '<span class="ok">✓</span>' : '<span class="off">✗</span>');
   $('capsBox').innerHTML = `
-    <div>${mark(c.tutor)} <b>Tutor</b> — ${c.tutor_provider || 'not configured'}</div>
     <div>${mark(c.tts.length)} <b>Speech out</b> — ${c.tts.join(', ') || 'none'}</div>
     <div>${mark(c.stt.length)} <b>Speech in</b> — ${c.stt.join(', ') || 'none'}</div>`;
 }
@@ -252,186 +238,6 @@ function updateCounts(counts) {
   const n = counts.due + Math.min(counts.new, 12);
   badge.textContent = n;
   badge.hidden = n === 0;
-}
-
-/* ── Conversation ──────────────────────────────────────────────────────── */
-
-async function startSession(scenarioId) {
-  state.scenario = scenarioId;
-  $('chat').innerHTML = '';
-  const s = state.scenarios.find((x) => x.id === scenarioId);
-  $('scenarioGoal').textContent = s ? s.goal_en : '';
-  const data = await post('/api/session', { scenario: scenarioId });
-  state.sessionId = data.session_id;
-  renderTutorTurn(data.opener, { autoplay: false });
-  renderHints();
-}
-
-function renderHints() {
-  const starters = [
-    ['Bonġu!', 'Good morning!'],
-    ['Ma nifhimx.', "I don't understand."],
-    ['Erġa’ għid, jekk jogħġbok.', 'Say that again, please.'],
-    ['Kif tgħid dan bil-Malti?', 'How do you say this in Maltese?'],
-    ['Bil-mod, jekk jogħġbok.', 'Slowly, please.'],
-  ];
-  $('hints').innerHTML = starters
-    .map(([mt, en]) => `<button class="hint-chip" data-say="${mt}" title="${en}">${mt}</button>`)
-    .join('');
-  $('hints').querySelectorAll('.hint-chip').forEach((b) => {
-    b.addEventListener('click', () => send(b.dataset.say));
-  });
-}
-
-function bubbleTools(mt) {
-  return `<div class="bubble-tools">
-      <button class="tool" data-play="${escapeAttr(mt)}">🔊 Play</button>
-      <button class="tool" data-slow="${escapeAttr(mt)}">🐢 Slow</button>
-      <button class="tool" data-toggle-en>👁 English</button>
-      <button class="tool" data-toggle-gloss>🔤 Word by word</button>
-    </div>`;
-}
-
-function escapeHtml(s = '') {
-  return s.replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
-const escapeAttr = escapeHtml;
-
-function renderUserTurn(text) {
-  const el = document.createElement('div');
-  el.className = 'turn user';
-  el.innerHTML = `<div class="bubble"><p class="mt">${escapeHtml(text)}</p></div>`;
-  $('chat').append(el);
-  scrollChat();
-}
-
-function renderTutorTurn(data, { autoplay = true } = {}) {
-  const chat = $('chat');
-  const wrap = document.createElement('div');
-  wrap.className = 'turn tutor';
-
-  const glossHtml = (data.gloss || [])
-    .map((g) => `<span><b>${escapeHtml(g.mt)}</b> ${escapeHtml(g.en)}</span>`).join('');
-
-  wrap.innerHTML = `
-    ${data.praise ? `<p class="praise">${escapeHtml(data.praise)}</p>` : ''}
-    <div class="bubble">
-      <p class="mt">${escapeHtml(data.reply_mt || '')}</p>
-      <p class="en" ${state.settings.show_english ? '' : 'hidden'}>${escapeHtml(data.reply_en || '')}</p>
-      <div class="gloss" hidden>${glossHtml}</div>
-      ${bubbleTools(data.reply_mt || '')}
-    </div>`;
-
-  const bubble = wrap.querySelector('.bubble');
-  bubble.querySelector('[data-play]').addEventListener('click', () => speak(data.reply_mt));
-  bubble.querySelector('[data-slow]').addEventListener('click', () => speak(data.reply_mt, { rate: 0.7 }));
-  bubble.querySelector('[data-toggle-en]').addEventListener('click', () => {
-    const en = bubble.querySelector('.en'); en.hidden = !en.hidden;
-  });
-  bubble.querySelector('[data-toggle-gloss]').addEventListener('click', () => {
-    const g = bubble.querySelector('.gloss'); g.hidden = !g.hidden;
-  });
-
-  chat.append(wrap);
-
-  if (data.correction?.needed) renderCorrection(data.correction);
-  if (data.tip) {
-    const tip = document.createElement('p');
-    tip.className = 'praise';
-    tip.textContent = `💡 ${data.tip}`;
-    chat.append(tip);
-  }
-
-  scrollChat();
-  if (autoplay && state.settings.autoplay) speak(data.reply_mt);
-}
-
-function renderCorrection(corr) {
-  const el = document.createElement('div');
-  el.className = 'turn tutor';
-
-  const issues = (corr.issues || []).slice(0, 2).map((i) => `
-    <li><b>${escapeHtml(i.said || '')}</b> → <b>${escapeHtml(i.should_be || '')}</b>
-        — ${escapeHtml(i.why || '')} <em>(${escapeHtml(i.kind || '')})</em></li>`).join('');
-
-  // Don't print the corrected sentence twice when it *is* the repeat prompt.
-  const showCorrected = corr.corrected_mt
-    && corr.corrected_mt.trim() !== (corr.repeat_prompt_mt || '').trim();
-
-  el.innerHTML = `
-    <div class="correction">
-      <h4>Kważi — almost</h4>
-      ${showCorrected ? `<div class="line fix">${escapeHtml(corr.corrected_mt)}</div>` : ''}
-      ${issues ? `<ul>${issues}</ul>` : ''}
-      ${corr.repeat_prompt_mt ? `
-        <div class="repeat-box">
-          <span class="say">Erġa’ għid: <b>${escapeHtml(corr.repeat_prompt_mt)}</b>${
-            corr.repeat_prompt_en ? `<em>${escapeHtml(corr.repeat_prompt_en)}</em>` : ''}</span>
-          <button class="tool" data-hear>🔊 Hear it</button>
-          <button class="mic mic-sm" data-repeat aria-label="Repeat it"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11a6 6 0 0 1-12 0M12 17v4M8.5 21h7"/></svg><span class="mic-ring"></span></button>
-          <span class="repeat-result"></span>
-        </div>` : ''}
-    </div>`;
-
-  $('chat').append(el);
-
-  const target = corr.repeat_prompt_mt;
-  if (target) {
-    const box = el.querySelector('.repeat-box');
-    const result = box.querySelector('.repeat-result');
-    box.querySelector('[data-hear]').addEventListener('click', () => speak(target, { rate: 0.82 }));
-    bindMic(box.querySelector('[data-repeat]'), {
-      target: () => target,
-      onStatus: (s) => { if (s) result.textContent = s; },
-      onResult: async (res) => {
-        const a = res.assessment || await post('/api/attempt', { said: res.text, target });
-        result.className = `repeat-result ${a.score >= 0.85 ? 'ok' : a.score >= 0.6 ? 'near' : 'bad'}`;
-        result.textContent = a.score >= 0.85
-          ? `✓ Prosit! (${Math.round(a.score * 100)}%)`
-          : `“${res.text}” — ${Math.round(a.score * 100)}%`;
-        if (a.score >= 0.85) {
-          box.classList.add('done');
-          post('/api/schedule-correction', {
-            mt: target,
-            en: corr.repeat_prompt_en || corr.issues?.[0]?.why || '',
-            why: corr.issues?.[0]?.why,
-            scenario: state.scenario,
-          }).catch(() => {});
-        } else {
-          speak(target, { rate: 0.75 });
-        }
-      },
-    });
-  }
-  scrollChat();
-}
-
-function scrollChat() {
-  const c = $('chat');
-  c.scrollTop = c.scrollHeight;
-}
-
-async function send(text) {
-  text = (text || '').trim();
-  if (!text || state.busy) return;
-  state.busy = true;
-  $('textInput').value = '';
-  renderUserTurn(text);
-  $('composerStatus').textContent = 'Qed jaħseb… (thinking)';
-  try {
-    const data = await post('/api/chat', {
-      text, session_id: state.sessionId, scenario: state.scenario,
-    });
-    renderTutorTurn(data);
-    updateCounts(data.counts);
-  } catch (err) {
-    toast(err.message, 6000);
-  } finally {
-    state.busy = false;
-    $('composerStatus').textContent = 'Hold the mic, or press space';
-  }
 }
 
 /* ── Drill: scripted conversation ──────────────────────────────────────────
@@ -797,19 +603,6 @@ document.querySelectorAll('.tab').forEach((t) => {
   t.addEventListener('click', () => switchView(t.dataset.view));
 });
 
-$('sendBtn').addEventListener('click', () => send($('textInput').value));
-$('textInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') send($('textInput').value);
-});
-$('restartBtn').addEventListener('click', () => startSession(state.scenario));
-
-bindMic($('micBtn'), {
-  onStatus: (s) => { $('composerStatus').textContent = s || 'Hold the mic, or press space'; },
-  onResult: async (res) => {
-    if (!res.text) { toast('Nothing heard — try again'); return; }
-    await send(res.text);
-  },
-});
 
 $('drillSend').addEventListener('click', () => answerDrill($('drillInput').value));
 $('drillInput').addEventListener('keydown', (e) => {
@@ -869,15 +662,6 @@ document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') { e.preventDefault(); state.revealed ? submitGrade(3) : reveal(); return; }
     if (['1', '2', '3', '4'].includes(e.key) && state.revealed) { submitGrade(Number(e.key)); return; }
     if (e.key === 'r' && state.card) { speak(state.card.mt); return; }
-  }
-  if ($('view-talk').classList.contains('is-active') && !typing && e.code === 'Space') {
-    e.preventDefault();
-    $('micBtn').dispatchEvent(new PointerEvent('pointerdown'));
-    const up = () => {
-      $('micBtn').dispatchEvent(new PointerEvent('pointerup'));
-      document.removeEventListener('keyup', up);
-    };
-    document.addEventListener('keyup', up, { once: true });
   }
 });
 

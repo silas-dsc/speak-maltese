@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import threading
-import uuid
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import CFG, FRONTEND_DIR
-from . import curriculum, db, dialogue, srs, stt, text, tts, tutor
+from . import curriculum, db, dialogue, srs, stt, text, tts
 
 logging.basicConfig(
     level=logging.DEBUG if CFG.debug else logging.INFO,
@@ -27,9 +26,7 @@ def _startup() -> None:
     db.init()
     seeded = curriculum.seed()
     log.info("decks loaded: %s", seeded)
-    log.info("TTS: %s | STT: %s | tutor: %s",
-             tts.available() or "none", stt.available() or "none",
-             CFG.capabilities()["tutor_provider"] or "none")
+    log.info("TTS: %s | STT: %s", tts.available() or "none", stt.available() or "none")
 
     # Warm the local recogniser off the request path. The Maltese fine-tune is a
     # whisper-large, so loading it lazily would put several seconds onto the first
@@ -77,7 +74,6 @@ def bootstrap() -> dict:
     caps["stt"] = stt.available()
     return {
         "capabilities": caps,
-        "scenarios": curriculum.load_scenarios(),
         "counts": db.counts(),
         "profile": {k: v for k, v in curriculum.learner_profile().items()
                     if k in ("level", "learned_count")},
@@ -103,48 +99,6 @@ def save_settings(payload: dict = Body(...)) -> dict:
 @app.get("/api/grammar")
 def grammar() -> dict:
     return {"markdown": curriculum.grammar_notes()}
-
-
-# ── Conversation ───────────────────────────────────────────────────────────
-
-@app.post("/api/session")
-def new_session(payload: dict = Body(default={})) -> dict:
-    sid = uuid.uuid4().hex[:12]
-    scenario_id = payload.get("scenario")
-    scenarios = {s["id"]: s for s in curriculum.load_scenarios()}
-    scenario = scenarios.get(scenario_id or "", scenarios.get("intro", {}))
-    opener = {
-        "reply_mt": scenario.get("opener_mt", "Bonġu! Kif int?"),
-        "reply_en": scenario.get("opener_en", "Good morning! How are you?"),
-        "correction": {"needed": False},
-        "gloss": [], "new_vocab": [], "difficulty_signal": "ok",
-    }
-    db.add_turn(sid, scenario_id, "tutor", opener["reply_mt"], opener["reply_en"], opener)
-    return {"session_id": sid, "scenario": scenario, "opener": opener}
-
-
-@app.post("/api/chat")
-async def chat(payload: dict = Body(...)) -> dict:
-    user_text = (payload.get("text") or "").strip()
-    if not user_text:
-        raise HTTPException(400, "text is required")
-    session_id = payload.get("session_id") or uuid.uuid4().hex[:12]
-    scenario_id = payload.get("scenario")
-    try:
-        data = await tutor.respond(user_text, session_id, scenario_id)
-    except tutor.TutorUnavailable as exc:
-        raise HTTPException(503, str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        log.exception("tutor failed")
-        raise HTTPException(502, f"tutor error: {exc}") from exc
-    data["session_id"] = session_id
-    data["counts"] = db.counts()
-    return data
-
-
-@app.get("/api/history")
-def get_history(session_id: str = Query(...), limit: int = 60) -> dict:
-    return {"turns": db.history(session_id, limit)}
 
 
 # ── Scripted conversation (no model in the loop) ───────────────────────────
@@ -335,20 +289,6 @@ def suspend(payload: dict = Body(...)) -> dict:
         conn.execute("UPDATE cards SET suspended=? WHERE id=?",
                      (1 if payload.get("suspended", True) else 0, payload["card_id"]))
     return {"ok": True}
-
-
-@app.post("/api/schedule-correction")
-def schedule_correction(payload: dict = Body(...)) -> dict:
-    """Turn a correction from the conversation into a scheduled card."""
-    mt = (payload.get("mt") or "").strip()
-    en = (payload.get("en") or "").strip()
-    if not mt:
-        raise HTTPException(400, "mt is required")
-    ids = curriculum.register_new_vocab(
-        [{"mt": mt, "en": en or mt, "note": payload.get("why")}],
-        payload.get("scenario"),
-    )
-    return {"card_ids": ids}
 
 
 # ── Static frontend ────────────────────────────────────────────────────────

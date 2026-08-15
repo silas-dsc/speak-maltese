@@ -5,8 +5,8 @@ The pedagogy encoded here:
 * **Frequency ordering** — tier 1 items first, so early effort buys the most coverage.
 * **Chunks before words** — phrases interleave with vocab (`db.new_cards`), because
   fluent speech is largely prefabricated sequences, not words assembled from scratch.
-* **i+1 comprehensible input** — the tutor is handed the learner's *known* pool and
-  asked to stay inside it plus a couple of new items per turn.
+* **Production over recognition** — scripted turns and review both make the learner
+  *say* things, which is the harder and more transferable direction.
 * **Interleaving** — review queues mix topics and card kinds rather than blocking.
 * **Retrieval practice** — every session includes production (speaking), not just
   recognition; the two are tracked separately per card.
@@ -15,7 +15,6 @@ The pedagogy encoded here:
 from __future__ import annotations
 
 import csv
-import json
 import random
 from pathlib import Path
 
@@ -24,7 +23,6 @@ from . import db
 
 VOCAB_TSV = DATA_DIR / "core_vocab.tsv"
 PHRASES_TSV = DATA_DIR / "phrases.tsv"
-SCENARIOS_JSON = DATA_DIR / "scenarios.json"
 GRAMMAR_MD = DATA_DIR / "grammar_notes.md"
 IMPORT_TSV = DATA_DIR / "frequency_import.tsv"  # optional, produced by scripts/
 
@@ -41,12 +39,6 @@ def _read_tsv(path: Path) -> list[dict]:
             continue
         rows.append({k: (v.strip() if isinstance(v, str) else v) for k, v in r.items()})
     return rows
-
-
-def load_scenarios() -> list[dict]:
-    if not SCENARIOS_JSON.exists():
-        return []
-    return json.loads(SCENARIOS_JSON.read_text(encoding="utf-8"))["scenarios"]
 
 
 def grammar_notes() -> str:
@@ -153,7 +145,7 @@ def _pick_mode(card: dict) -> str:
 
 
 def learner_profile() -> dict:
-    """Compact snapshot handed to the tutor model each turn."""
+    """Compact snapshot of what the learner knows, for the UI and the queue."""
     known = db.known_cards(300)
     c = db.counts()
     errors = db.recent_errors(10)
@@ -182,26 +174,8 @@ def _estimate_level(learned: int) -> str:
     return "B2"
 
 
-def target_items(scenario_id: str | None, n: int = 4) -> list[dict]:
-    """Items the tutor should try to elicit this turn: whatever is due or new and
-    relevant to the current scenario."""
-    scenarios = {s["id"]: s for s in load_scenarios()}
-    topics = scenarios.get(scenario_id, {}).get("topics") or None
-    pool = db.due_cards(n * 2, topics) + db.new_cards(n, topics)
-    random.shuffle(pool)
-    seen, out = set(), []
-    for c in pool:
-        if c["id"] in seen:
-            continue
-        seen.add(c["id"])
-        out.append({"id": c["id"], "mt": c["mt"], "en": c["en"], "kind": c["kind"]})
-        if len(out) >= n:
-            break
-    return out
-
-
-def register_new_vocab(items: list[dict], scenario: str | None) -> list[str]:
-    """Persist vocabulary the tutor introduced mid-conversation as new cards."""
+def register_new_vocab(items: list[dict], topic: str | None = None) -> list[str]:
+    """Persist a phrase met in conversation as a new card."""
     rows, ids = [], []
     for it in items:
         mt = (it.get("mt") or "").strip()
@@ -211,8 +185,8 @@ def register_new_vocab(items: list[dict], scenario: str | None) -> list[str]:
         cid = "t" + _slug(mt)
         rows.append({
             "id": cid, "kind": "phrase" if " " in mt else "vocab", "mt": mt, "en": en,
-            "pos": it.get("pos"), "tier": 3, "topic": scenario or "conversation",
-            "note": it.get("note"), "source": "tutor",
+            "pos": it.get("pos"), "tier": 3, "topic": topic or "conversation",
+            "note": it.get("note"), "source": "drill",
         })
         ids.append(cid)
     if rows:

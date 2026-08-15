@@ -24,13 +24,8 @@ def _b(name: str, default: bool = False) -> bool:
 
 @dataclass
 class Config:
-    # ── LLM tutor ──────────────────────────────────────────────────────────
-    anthropic_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
-    tutor_model: str = field(default_factory=lambda: os.getenv("SM_TUTOR_MODEL", "claude-opus-5"))
-    # Any OpenAI-compatible endpoint (Ollama, LM Studio, OpenRouter) as an alternative.
+    # Only used to reach Whisper's transcription endpoint; there is no LLM here.
     openai_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    openai_base: str = field(default_factory=lambda: os.getenv("SM_OPENAI_BASE_URL", ""))
-    openai_model: str = field(default_factory=lambda: os.getenv("SM_OPENAI_MODEL", "gpt-4o-mini"))
 
     # ── Text to speech ─────────────────────────────────────────────────────
     # Azure is the only major cloud with genuine mt-MT neural voices.
@@ -63,12 +58,6 @@ class Config:
     # ── Capability report, surfaced in the UI ──────────────────────────────
     def capabilities(self) -> dict:
         return {
-            "tutor": bool(self.anthropic_key) or bool(self.openai_key) or bool(self.openai_base),
-            "tutor_provider": (
-                "anthropic" if self.anthropic_key
-                else "openai" if (self.openai_key or self.openai_base)
-                else None
-            ),
             "tts": self.tts_chain(),
             "stt": self.stt_chain(),
         }

@@ -133,6 +133,63 @@ def test_json_leakage_is_not_shown_to_the_learner(reply, ok):
     assert tutor._usable_reply(reply) is ok
 
 
+@pytest.mark.parametrize("s,mt,en", [
+    ("Ċertament! Liema tip ta' kafè tixtieq?", True, False),
+    ("Jien għajjien illum.", True, False),
+    ("Sarah huwa ismek. U inti?", True, False),
+    ("Hello Sara. What do you mean?", False, True),
+    ("Good morning! I'm Marija. What's your name?", False, True),
+    ("Hello Sara, you mean that you want to hear what the other person said.", False, True),
+])
+def test_language_classification(s, mt, en):
+    assert text.looks_maltese(s) is mt
+    assert text.looks_english(s) is en
+
+
+def test_swapped_reply_fields_are_put_back():
+    """Observed live: the tutor put English in reply_mt and Maltese in reply_en, so
+    the learner was shown English where their Maltese practice should be."""
+    from backend import tutor
+
+    data = {"reply_mt": "Hello Sara. What do you mean? (Xi trid tgħid?)",
+            "reply_en": "Xi trid tgħid?", "correction": {"needed": False}}
+    tutor._classify_languages(data)
+    assert data["reply_mt"] == "Xi trid tgħid?"
+    assert text.looks_english(data["reply_en"])
+
+
+def test_english_in_the_maltese_slot_is_cleared_for_repair():
+    from backend import tutor
+
+    data = {"reply_mt": "Hello Sara, you mean that you want to hear.",
+            "reply_en": "Hello Sara, you mean.", "correction": {"needed": False}}
+    tutor._classify_languages(data)
+    assert data["reply_mt"] == "", "English must not be shown as Maltese"
+
+
+def test_good_maltese_reply_is_left_alone():
+    from backend import tutor
+
+    data = {"reply_mt": "Ċertament! Liema tip ta' kafè tixtieq?",
+            "reply_en": "Certainly! What kind of coffee would you like?",
+            "correction": {"needed": False}}
+    tutor._classify_languages(data)
+    assert data["reply_mt"] == "Ċertament! Liema tip ta' kafè tixtieq?"
+    assert data["reply_en"].startswith("Certainly!")
+
+
+def test_english_repeat_prompt_is_dropped():
+    """A repeat prompt in English would have the learner say the wrong language back."""
+    from backend import tutor
+
+    data = {"reply_mt": "Tajjeb ħafna! X'tixtieq?", "reply_en": "Very good!",
+            "correction": {"needed": True, "corrected_mt": "I am from Australia.",
+                           "repeat_prompt_mt": "I am from Australia.", "issues": []}}
+    tutor._classify_languages(data)
+    assert data["correction"]["repeat_prompt_mt"] == ""
+    assert data["correction"]["corrected_mt"] == ""
+
+
 def test_tutor_lint_is_silent_on_correct_maltese():
     from backend import tutor
 

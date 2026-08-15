@@ -142,7 +142,12 @@ def _faster_whisper(audio: bytes, mime: str) -> str:
         path = fh.name
     try:
         segments, _info = model.transcribe(
-            path, language="mt", vad_filter=True, beam_size=5,
+            path, language="mt", beam_size=5,
+            vad_filter=True,
+            # Pad the detected speech region so VAD cannot shave the onset or tail
+            # off a short utterance — a lost initial consonant turns "Bonġu" into
+            # "onġu". Measured no accuracy cost on clean audio.
+            vad_parameters={"speech_pad_ms": 400},
         )
         return " ".join(s.text for s in segments)
     finally:

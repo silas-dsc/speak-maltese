@@ -220,6 +220,7 @@ async def respond(user_text: str, session_id: str, scenario_id: str | None) -> d
         )
 
     data = _coerce(raw)
+    _classify_languages(data)
     if not _usable_reply(data.get("reply_mt")):
         # Smaller local models routinely ignore the schema and answer in their own
         # shape, or in English. Rather than showing the learner an empty turn, ask
@@ -234,6 +235,45 @@ async def respond(user_text: str, session_id: str, scenario_id: str | None) -> d
 # learner `{"correction": {"id": "1"…` is worse than showing nothing, so these are
 # treated as no reply at all and sent back for repair.
 _JSON_LEAK = re.compile(r'\{\s*"|"\s*:\s*"|\\n|^\s*[\[{]')
+
+
+def _classify_languages(data: dict) -> None:
+    """Check on the wire that each field is in the language it claims.
+
+    Weak models fill these the wrong way round, or answer the whole turn in English.
+    Both are cheap to detect and the swap costs nothing to undo — far better than
+    another round trip, and it stops the learner being shown English where their
+    Maltese practice should be.
+    """
+    mt = text.strip_translation(data.get("reply_mt") or "")
+    en = (data.get("reply_en") or "").strip()
+
+    # Straight swap: Maltese sitting in reply_en and English in reply_mt.
+    if text.looks_english(mt) and text.looks_maltese(en):
+        log.info("tutor returned reply_mt/reply_en swapped — correcting")
+        data["reply_mt"], data["reply_en"] = en, mt
+        mt, en = en, mt
+
+    # English in the Maltese slot with nothing better available: drop it so the
+    # repair path runs, rather than teaching English as though it were Maltese.
+    if mt and not text.looks_maltese(mt) and text.looks_english(mt):
+        log.info("tutor reply_mt was English — sending for repair")
+        data["reply_en"] = en or mt
+        data["reply_mt"] = ""
+        return
+
+    data["reply_mt"] = mt
+
+    # The corrected form and the repeat prompt must be Maltese too — a repeat prompt
+    # in English would have the learner say the wrong language back.
+    corr = data.get("correction") or {}
+    for field in ("corrected_mt", "repeat_prompt_mt"):
+        value = text.strip_translation(corr.get(field) or "")
+        if value and text.looks_english(value) and not text.looks_maltese(value):
+            log.info("tutor %s was English — dropping", field)
+            corr[field] = ""
+        else:
+            corr[field] = value
 
 
 def _usable_reply(reply: str | None) -> bool:

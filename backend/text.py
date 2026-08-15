@@ -158,6 +158,94 @@ def definite(word: str) -> str:
     return f"il-{w}"
 
 
+# ── Language classification ────────────────────────────────────────────────
+#
+# The tutor contract says reply_mt is Maltese and reply_en is English. A weak model
+# breaks that constantly — answering in English, or filling the fields the wrong way
+# round. Rather than trusting it, every turn is classified on the way out.
+
+# ħ ġ ż ċ and the digraph għ are near-unique to Maltese orthography.
+_MT_CHARS = re.compile(r"[ħĦġĠżŻċĊ]|għ", re.I)
+
+_EN_MARKERS = {
+    "the", "and", "you", "your", "what", "who", "where", "when", "how", "why",
+    "is", "are", "was", "were", "do", "does", "did", "have", "has", "had",
+    "with", "for", "from", "that", "this", "would", "will", "can", "could",
+    "want", "hello", "good", "morning", "please", "thanks", "thank", "sorry",
+    "mean", "means", "say", "said", "tell", "like", "there", "here", "about",
+    "name", "person", "i", "am", "my", "we", "they", "she", "her", "his",
+    "of", "to", "it", "be", "been", "at", "on", "by", "or", "but", "if",
+    "not", "very", "much", "many", "need", "should", "must", "let", "get",
+    "going", "come", "see", "know", "think", "time", "day", "yes", "please",
+}
+
+# High-frequency inflected forms the decks store only in a base form, plus the
+# pronoun set — without these a short, perfectly good Maltese sentence like
+# "Sarah huwa ismek. U inti?" scores as unknown.
+_MT_EXTRA = {
+    "jien", "jiena", "int", "inti", "hu", "huwa", "hi", "hija", "aħna", "intom",
+    "huma", "ismi", "ismek", "ismu", "isimha", "jisimni", "jismek", "jisimhom",
+    "tiegħi", "tiegħek", "tiegħu", "tagħha", "tagħna", "tagħkom", "tagħhom",
+    "għandi", "għandek", "għandu", "għandha", "għandna", "għandkom", "għandhom",
+    "mhux", "mhix", "hemm", "hawn", "issa", "illum", "għada", "mela", "iva",
+    "grazzi", "bonġu", "saħħa", "jekk", "jogħġbok", "kif", "fejn", "kemm",
+    "liema", "għaliex", "għax", "biex", "imma", "jew", "wkoll", "ukoll",
+}
+
+_MT_MARKERS_CACHE: set[str] | None = None
+
+
+def maltese_markers() -> set[str]:
+    """Maltese vocabulary drawn from the app's own decks, so it grows with them."""
+    global _MT_MARKERS_CACHE
+    if _MT_MARKERS_CACHE is not None:
+        return _MT_MARKERS_CACHE
+    from . import curriculum
+
+    # Words that are also ordinary English/Italian would fire on the wrong language.
+    ambiguous = {"u", "le", "ma", "no", "si", "e", "a", "in", "me", "te", "la", "il"}
+    markers: set[str] = set()
+    try:
+        rows = (curriculum._read_tsv(curriculum.VOCAB_TSV)
+                + curriculum._read_tsv(curriculum.PHRASES_TSV))
+    except Exception:  # noqa: BLE001 — classification must never break a turn
+        rows = []
+    for row in rows:
+        for word in re.split(r"[\s\-]+", (row.get("mt") or "").lower()):
+            word = word.strip(".,!?;:'’\"")
+            if len(word) >= 2 and word not in ambiguous:
+                markers.add(word)
+    markers |= {"mill", "fil", "tal", "bil", "sal", "mal", "għall", "lill", "fl", "bl"}
+    markers |= _MT_EXTRA
+    _MT_MARKERS_CACHE = markers
+    return markers
+
+
+def _words(s: str) -> set[str]:
+    return {w.strip(".,!?;:'’\"()").lower() for w in (s or "").split()}
+
+
+def looks_maltese(s: str) -> bool:
+    w = _words(s)
+    hits = len(w & maltese_markers())
+    return hits >= 2 or (hits >= 1 and bool(_MT_CHARS.search(s or "")))
+
+
+def looks_english(s: str) -> bool:
+    w = _words(s)
+    en = len(w & _EN_MARKERS)
+    return en >= 2 and en > len(w & maltese_markers())
+
+
+_PARENTHETICAL = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]\s*$")
+
+
+def strip_translation(s: str) -> str:
+    """Drop a trailing parenthetical gloss — models like to append `(Xi trid tgħid?)`
+    to an English sentence, which belongs in reply_en, not reply_mt."""
+    return _PARENTHETICAL.sub("", normalise(s)).strip()
+
+
 PREP_FUSION = {
     "fi": "fil-", "f'": "fil-", "bi": "bil-", "b'": "bil-", "ta'": "tal-",
     "ta": "tal-", "minn": "mill-", "ma'": "mal-", "għal": "għall-",

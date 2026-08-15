@@ -61,32 +61,59 @@ function speak(text, { rate } = {}) {
 
 /* ── Recording ─────────────────────────────────────────────────────────── */
 
+/* The microphone stream is acquired once and kept open for the session.
+   getUserMedia costs 100-500ms, and previously that was paid *after* the button
+   was pressed — so the first syllable was simply never recorded. That is what
+   turned "Bonġu" into "onġi" and "Silas" into "salas": the recogniser was not
+   mishearing the onset, it never received it. */
+let sharedStream = null;
+
+async function ensureStream() {
+  if (sharedStream?.active) return sharedStream;
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone not available');
+  sharedStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    },
+  });
+  return sharedStream;
+}
+
+/** Warm the mic on the first interaction so the first recording isn't the slow one. */
+function prewarmMic() {
+  ensureStream().catch(() => { /* permission comes later, on first real use */ });
+}
+
 class Recorder {
-  constructor() { this.chunks = []; this.rec = null; this.stream = null; }
+  constructor() { this.chunks = []; this.rec = null; }
 
   async start() {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone not available');
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-    });
+    const stream = await ensureStream();
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
       .find((m) => MediaRecorder.isTypeSupported(m)) || '';
     this.chunks = [];
-    this.rec = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined);
+    this.rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     this.rec.ondataavailable = (e) => { if (e.data.size) this.chunks.push(e.data); };
-    this.rec.start();
+    // Small timeslice so audio is flushed continuously rather than in one lump
+    // at stop, which shortens the gap between releasing and having a blob.
+    this.rec.start(200);
     this.startedAt = performance.now();
   }
 
   async stop() {
     if (!this.rec) return null;
     const done = new Promise((resolve) => { this.rec.onstop = resolve; });
+    // Let the tail of the final word land before cutting the recorder.
+    await new Promise((r) => setTimeout(r, 250));
     this.rec.stop();
     await done;
-    this.stream.getTracks().forEach((t) => t.stop());
+    // Keep the stream open for the next utterance — only the recorder stops.
     const blob = new Blob(this.chunks, { type: this.rec.mimeType || 'audio/webm' });
     const ms = performance.now() - this.startedAt;
-    this.rec = null; this.stream = null;
+    this.rec = null;
     return ms < 350 || blob.size < 1200 ? null : blob;
   }
 }
@@ -139,17 +166,25 @@ function bindMic(button, { onResult, onStatus, target }) {
     }
   }
 
+  let pendingStop = false;
+
   button.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    if (active) { pendingStop = true; return; }   // second tap of a toggle
     isHold = false;
-    holdTimer = setTimeout(() => { isHold = true; begin(); }, 140);
+    pendingStop = false;
+    // Start capturing immediately. Waiting even 140ms here clipped the first
+    // syllable off every utterance; hold-vs-tap is resolved on release instead,
+    // which costs no audio.
+    begin();
+    holdTimer = setTimeout(() => { isHold = true; }, 140);
   });
 
   const release = () => {
     clearTimeout(holdTimer);
-    if (isHold) end();
-    else if (active) end();
-    else begin();               // tap: start, next tap stops
+    if (pendingStop) { pendingStop = false; end(); return; }
+    if (isHold) { end(); return; }   // held down: push-to-talk, release sends
+    // Quick tap: keep recording until the next tap.
   };
   button.addEventListener('pointerup', (e) => { e.preventDefault(); release(); });
   button.addEventListener('pointerleave', () => { if (active && isHold) end(); });
@@ -735,5 +770,10 @@ document.addEventListener('keydown', (e) => {
     document.addEventListener('keyup', up, { once: true });
   }
 });
+
+// Acquire the mic on the first gesture, so the first recording does not pay the
+// getUserMedia cost mid-utterance.
+window.addEventListener('pointerdown', prewarmMic, { once: true });
+window.addEventListener('keydown', prewarmMic, { once: true });
 
 boot();

@@ -44,9 +44,25 @@ function open() {
         reviews.createIndex('cardId', 'cardId');
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // If another tab (or a delete) needs a version change, hold the door open
+      // for it. A connection nobody closes blocks the other side indefinitely,
+      // and the symptom is this tab's *next* open hanging with no error at all.
+      db.onversionchange = () => { db.close(); dbp = null; };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error || new Error('IndexedDB unavailable'));
     req.onblocked = () => reject(new Error('Another tab is holding an older database open'));
+
+    /* An open request that is queued behind a pending delete or upgrade never
+       fires success, error *or* blocked — it simply waits. Without a deadline the
+       app sits on "Loading your deck" forever showing nothing, which is what a
+       second tab or an interrupted reset actually produces. Fail loudly instead;
+       the splash turns it into a message and a reload fixes it. */
+    setTimeout(() => reject(new Error(
+      'The local database did not open — close other tabs with this app and reload')),
+      8000);
   });
   // Do not let one failure poison the page. `onblocked` clears as soon as the
   // other tab closes, and a quota hiccup can pass — caching the rejected promise

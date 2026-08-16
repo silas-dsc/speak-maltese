@@ -1,0 +1,84 @@
+name: Pages
+
+# Builds the static app and publishes it. The whole thing runs client-side —
+# scheduling, the Maltese grading, the scripted dialogue — so there is nothing to
+# host but files. Speech recognition is the one part with no static equivalent; it
+# runs on the device via WebGPU, fetching its weights from the Hugging Face Hub
+# because GitHub refuses single files over 100MB.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'data/**'
+      - 'backend/**'
+      - 'scripts/build_static.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; let a newer push win rather than queueing.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  MODELS_BASE: https://huggingface.co/silasdsc/speak-maltese-w2v2-web/resolve/main/
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Only what the build itself touches — no torch, no recogniser.
+      - run: pip install edge-tts python-dotenv
+
+      # The MP3s are rendered by edge-tts and committed, because a build that
+      # depends on an unofficial endpoint being up is a build that breaks without
+      # warning. This step only re-renders anything missing.
+      - name: Render any missing audio
+        run: python scripts/prebuild_audio.py --what all || true
+
+      - name: Build
+        run: python scripts/build_static.py --models-base "$MODELS_BASE"
+
+      - name: Check the build is actually complete
+        run: |
+          test -f dist/index.html
+          test -f dist/api/deck.json
+          test -f dist/api/dialogues.json
+          test -f dist/audio/index.json
+          python - <<'PY'
+          import json, pathlib
+          dist = pathlib.Path("dist")
+          idx = json.loads((dist / "audio/index.json").read_text())
+          missing = [f for f in idx.values() if not (dist / "audio" / f).exists()]
+          assert not missing, f"{len(missing)} manifest entries have no file"
+          cards = json.loads((dist / "api/deck.json").read_text())["cards"]
+          assert len(cards) > 400, f"only {len(cards)} cards"
+          print(f"{len(cards)} cards, {len(idx)} audio files")
+          PY
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

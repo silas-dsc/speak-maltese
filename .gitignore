@@ -5,7 +5,11 @@ __pycache__/
 data/progress.db
 data/progress.db-wal
 data/progress.db-shm
-data/audio_cache/
+# The rendered speech is committed, not ignored. It is 25MB across 1584 files,
+# which is a lot for a repo — but the static build has no server to synthesise on
+# demand, and rebuilding it depends on an unofficial Edge endpoint that can vanish
+# without notice. Losing it would mean an app that cannot speak.
+# data/audio_cache/
 data/frequency_import.tsv
 .DS_Store
 data/eval_clips/
@@ -17,3 +21,7 @@ data/.corpus_cache/
 # single files over 100MB. Rebuild with scripts/export_onnx_web.py, or host them
 # somewhere with a CDN and point localstt.js at it.
 web/models/
+
+# Build output. `python scripts/build_static.py` regenerates it, and CI builds its
+# own copy — committing it would double every audio file in the repo.
+dist/

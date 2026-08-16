@@ -5,11 +5,13 @@
    store.js for the database and schedule.js for the FSRS scheduling that used to
    run in Python. The server is stateless — decks, dialogue, recognition, speech. */
 
+import * as dialogueEngine from './dialogue.js';
 import * as localstt from './localstt.js';
 import * as splash from './splash.js';
 import * as store from './store.js';
 import * as schedule from './schedule.js';
 import * as srs from './srs.js';
+import * as mtext from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,6 +42,22 @@ async function api(path, opts = {}) {
 
 const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body) });
 
+/* ── Static mode ────────────────────────────────────────────────────────────
+   The same client runs two ways. Against the FastAPI app it posts to /api/*; on a
+   dumb host (GitHub Pages) there is no server, so the endpoints that were pure
+   computation run here instead — the Maltese rules, the dialogue matcher and the
+   scheduler are all ported and parity-tested against the Python they came from.
+   Speech recognition is the one thing with no static equivalent: it runs on the
+   device or not at all. */
+
+const STATIC = { on: false, audio: null, modelsBase: '/models/' };
+
+/** Pre-rendered speech, looked up by line rather than synthesised on demand. */
+function staticAudioUrl(line) {
+  const file = STATIC.audio?.[mtext.normalise(line)] ?? STATIC.audio?.[line];
+  return file ? `audio/${file}` : null;
+}
+
 function toast(msg, ms = 3200) {
   const el = $('toast');
   el.textContent = msg;
@@ -61,9 +79,18 @@ let currentAudio = null;
 function speak(text, { rate } = {}) {
   if (!text) return Promise.resolve();
   const r = rate ?? state.settings.rate;
-  const url = `/api/tts?text=${encodeURIComponent(text)}&rate=${r}&voice=${encodeURIComponent(state.settings.voice)}`;
+  // Static builds ship one render per line, at the default rate. A slow replay
+  // asks for a rate that was never rendered, so it falls back to the normal one
+  // played slower — <audio> can do that itself.
+  const url = STATIC.on
+    ? staticAudioUrl(text)
+    : `/api/tts?text=${encodeURIComponent(text)}&rate=${r}&voice=${encodeURIComponent(state.settings.voice)}`;
+  if (STATIC.on && !url) return Promise.resolve();
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   const audio = new Audio(url);
+  if (STATIC.on && rate && rate !== state.settings.rate) {
+    audio.playbackRate = Math.max(0.5, Math.min(1.5, rate / state.settings.rate));
+  }
   currentAudio = audio;
   return audio.play().catch((err) => {
     // Autoplay policies block the first sound until the user interacts.
@@ -155,8 +182,9 @@ async function transcribe(blob, target) {
         // Grading is a few microseconds of string comparison, but it lives on the
         // server with the Maltese rules, so it is one small stateless request.
         if (target) {
-          r.assessment = await post('/api/attempt', { said: r.text, target })
-            .catch(() => null);
+          r.assessment = STATIC.on
+            ? mtext.assess(r.text, target)
+            : await post('/api/attempt', { said: r.text, target }).catch(() => null);
         }
         return r;
       }
@@ -193,6 +221,7 @@ async function setLocalStt(on) {
   box.disabled = true;
   try {
     await localstt.load({
+      base: STATIC.modelsBase,
       onProgress: (f) => {
         note.textContent = f >= 1
           ? 'Loaded — recognition now runs on this device.'
@@ -289,7 +318,15 @@ function bindMic(button, { onResult, onStatus, target }) {
 async function boot() {
   let data;
   try {
-    data = await splash.run({ onDeck: (cards) => store.seedDeck(cards) });
+    data = await splash.run({
+      onDeck: (cards) => store.seedDeck(cards),
+      onStatic: ({ boot, dialogues, audio }) => {
+        STATIC.on = true;
+        STATIC.audio = audio;
+        STATIC.modelsBase = boot.models_base || STATIC.modelsBase;
+        dialogueEngine.load(dialogues);
+      },
+    });
   } catch (err) {
     splash.fail(err.message);
     return;
@@ -310,7 +347,8 @@ async function boot() {
   // Opted in on a previous visit: warm it in the background so the first thing
   // they say is not the slow one. The model is in the HTTP cache by now.
   if (state.settings.local_stt && localstt.supported()) {
-    localstt.load().catch(() => { /* the server path still works */ });
+    localstt.load({ base: STATIC.modelsBase })
+      .catch(() => { /* the server path still works, when there is one */ });
   }
 }
 
@@ -381,7 +419,10 @@ const doneScenes = {
 };
 
 async function loadDrills() {
-  const { dialogues } = await api('/api/drill/dialogues');
+  const { dialogues } = STATIC.on
+    ? { dialogues: dialogueEngine.all().map(({ id, name, name_en, level }) =>
+        ({ id, name, name_en, level })) }
+    : await api('/api/drill/dialogues');
   drill.dialogues = dialogues;
   const sel = $('drillSelect');
   renderDrillOptions();
@@ -429,7 +470,9 @@ async function startDrill(id) {
   drill.run = { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
   $('drillChat').innerHTML = '';
   showSceneImage(id);
-  const node = await post('/api/drill/start', { dialogue: id });
+  const node = STATIC.on
+    ? dialogueEngine.start(id)
+    : await post('/api/drill/start', { dialogue: id });
   presentDrillNode(node);
 }
 
@@ -522,9 +565,11 @@ async function answerDrill(said) {
   let holdBusy = false;
   try {
     const t0 = performance.now();
-    const r = await post('/api/drill/answer', {
-      dialogue: drill.dialogue, node: drill.node, said, attempts: drill.attempts,
-    });
+    const r = STATIC.on
+      ? dialogueEngine.evaluate(drill.dialogue, drill.node, said, drill.attempts)
+      : await post('/api/drill/answer', {
+        dialogue: drill.dialogue, node: drill.node, said, attempts: drill.attempts,
+      });
     if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 
@@ -666,7 +711,9 @@ async function gradeAttempt(said) {
   const c = state.card;
   if (!c || !said?.trim()) return;
   state.attempted = true;
-  const a = await post('/api/attempt', { said, target: c.mt });
+  const a = STATIC.on
+    ? mtext.assess(said, c.mt)
+    : await post('/api/attempt', { said, target: c.mt });
   // The score has a phonetic floor but the diff is spelling-level, so the two can
   // disagree: `birrakisħa` for `Birra kiesħa` is a perfect answer that still diffs
   // as a substitution. Showing red words under "nothing to fix" reads as a bug, so
@@ -823,7 +870,7 @@ async function initVocab() {
 
 async function loadGrammar() {
   try {
-    const { markdown } = await api('/api/grammar');
+    const { markdown } = await api(STATIC.on ? 'api/grammar.json' : '/api/grammar');
     $('grammarPane').innerHTML = renderMarkdown(markdown);
   } catch {
     $('grammarPane').textContent = 'Reference unavailable.';
@@ -993,7 +1040,7 @@ $('importFile').addEventListener('change', async (e) => {
 $('resetProgress').addEventListener('click', async () => {
   if (!confirm('Delete all your progress on this device? This cannot be undone.')) return;
   await store.reset();
-  const { cards } = await api('/api/deck');
+  const { cards } = await api(STATIC.on ? 'api/deck.json' : '/api/deck');
   await store.seedDeck(cards);
   toast('Starting over.');
   await refreshCounts();

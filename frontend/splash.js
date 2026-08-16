@@ -113,9 +113,35 @@ async function waitForModel(from, to, giveUpAfterMs = 4 * 60 * 1000) {
 }
 
 /** Run the whole startup. Resolves with the bootstrap payload. */
-export async function run({ onDeck } = {}) {
-  paint(0.03, STEPS[0][0]);
-  const boot = await wake();
+export async function run({ onDeck, onStatic } = {}) {
+  paint(0.03, 'Starting');
+
+  // A static build ships its answers as files. Try that first: it is one cheap
+  // request, it tells us there is no server to wait for, and on Pages there never
+  // was one to wake.
+  let boot = null;
+  try {
+    const res = await fetch('api/bootstrap.json');
+    if (res.ok) boot = await res.json();
+  } catch { /* not a static build */ }
+
+  if (boot?.static) {
+    paint(STEPS[0][1], 'Loading your deck');
+    const [deck, dialogues, audio] = await Promise.all([
+      (await fetchOk('api/deck.json')).json(),
+      (await fetchOk('api/dialogues.json')).json(),
+      (await fetchOk('audio/index.json')).json(),
+    ]);
+    await onStatic?.({ boot, dialogues, audio });
+    await onDeck?.(deck.cards);
+    paint(1, 'Mela — ejja nibdew!');
+    await sleep(280);
+    dismiss();
+    return boot;
+  }
+
+  paint(0.05, STEPS[0][0]);
+  boot = await wake();
   paint(STEPS[0][1], STEPS[1][0]);
 
   const { cards } = await (await fetchOk('/api/deck')).json();

@@ -163,7 +163,11 @@ class Recorder {
     const blob = new Blob(this.chunks, { type: this.rec.mimeType || 'audio/webm' });
     const ms = performance.now() - this.startedAt;
     this.rec = null;
-    return ms < 350 || blob.size < 1200 ? null : blob;
+    // Two ways to be empty. Under ~250ms nobody said a word — but the byte floor
+    // has to stay generous, because iOS records AAC in an MP4 container whose
+    // header alone is most of a short clip, and rejecting real speech as "too
+    // short" is far worse than sending a little silence to the recogniser.
+    return ms < 250 || blob.size < 600 ? null : blob;
   }
 }
 
@@ -291,6 +295,10 @@ function bindMic(button, { onResult, onStatus, target }) {
 
   button.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    // Keep every later event for this finger aimed at the button. Without it a
+    // few pixels of drift off a 54px target — which is most of what a thumb does
+    // on a phone — fires pointerleave and cuts the recording mid-word.
+    try { button.setPointerCapture(e.pointerId); } catch { /* older Safari */ }
     if (active) { pendingStop = true; return; }   // second tap of a toggle
     isHold = false;
     pendingStop = false;
@@ -308,7 +316,14 @@ function bindMic(button, { onResult, onStatus, target }) {
     // Quick tap: keep recording until the next tap.
   };
   button.addEventListener('pointerup', (e) => { e.preventDefault(); release(); });
-  button.addEventListener('pointerleave', () => { if (active && isHold) end(); });
+  // iOS fires this if it decides the gesture was a scroll after all. Send what we
+  // have rather than dropping it silently.
+  button.addEventListener('pointercancel', () => { if (active) end(); });
+  // Only a mouse leaving the button means "stopped pressing". A touch that moves
+  // is still a touch, and with pointer capture it will not fire this anyway.
+  button.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse' && active && isHold) end();
+  });
 
   return { begin, end, isActive: () => active };
 }

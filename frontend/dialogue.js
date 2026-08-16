@@ -72,22 +72,29 @@ function keys(s) {
   return text.normalise(s).split(/[\s-]+/).map(text.softKey).filter(Boolean);
 }
 
-/* `Iva, għandi ħuti`, `Le, jien turist`, `Bonġu, jien ħabib ta' Marija`: a yes, a no,
-   a greeting or a hesitation in front of the frame is still the frame — the accepted
-   answers open that way and so does the scene that prompts them, `Bonġu, min qed
-   jitkellem?`. Anything else in first place is not the frame. */
-const OPENERS = ['iva', 'le', 'mela', 'allura', 'ehm', 'emm', 'mm', 'ok',
-  'bonġu', 'bonswa', 'skużani', 'grazzi', 'merħba'].map(text.softKey);
+/** Phonetically the same word, counting a pronoun's long form as its short one.
+    `hu`/`huwa` and `hi`/`hija` are one word in Maltese but too short for the
+    similarity ratio to see it (0.67, where `jien`/`jiena` clears 0.89), so a key
+    that is the other with up to two letters added counts as the same word. */
+function sameWord(a, b) {
+  if (text.phoneticSimilarity(a, b) >= 0.8) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 2 && long.startsWith(short) && long.length - short.length <= 2;
+}
 
-/** Does the answer *start with* — and *end with* — the frame around its slot?
+/** Does the answer *open with* — and *close with* — the frame around its slot?
 
     An open question is a fixed Maltese frame with one variable in it, and the frame
-    is what the scene teaches. `Jien …` wants `Jien` first; `Għandi … sena` wants
-    `Għandi` first and `sena` last, whatever goes between them. The first word that
-    is not there stops the run — a keyword turning up mid-sentence is not the frame.
+    is what the scene teaches. `Jien …` wants `Jien` before the name; `Għandi … sena`
+    wants `Għandi` before the age and `sena` after it. The words before the slot are
+    looked for in order from the start, the words after it in order from the end
+    backwards, and what is left between the two runs is the slot — never judged.
 
-    The slot counts as one more thing to supply: `Jien Pietru` scores 1.0, `Jien`
-    alone 0.5, and an answer with none of the frame in it 0. */
+    Both runs may step over words the frame does not mention: `Iva, għandi ħuti`,
+    `Jien inħobb il-ħut`, `Tliet kmamar żgħar`. What they cannot do is change places
+    with the slot — `Pietru jien` has the keyword and nothing after it, and scores
+    half. The slot counts as one more thing to supply: `Jien Pietru` scores 1.0,
+    `Jien` alone 0.5, an answer with none of the frame in it 0. */
 function anchorScore(said, frame) {
   const parts = frame.split(SLOT);
   const slot = parts.length > 1;
@@ -98,27 +105,33 @@ function anchorScore(said, frame) {
   const total = wantPre.length + wantPost.length + (slot ? 1 : 0);
   if (!total) return 0;
 
-  const start = wantPre.length && got.length
-    && OPENERS.some((o) => text.phoneticSimilarity(got[0], o) >= 0.8) ? 1 : 0;
+  // Forwards from the start for what comes before the slot…
+  let i = 0;
   let preHits = 0;
-  for (let i = 0; i < wantPre.length; i += 1) {
-    if (start + i < got.length
-      && text.phoneticSimilarity(got[start + i], wantPre[i]) >= 0.8) preHits += 1;
-    else break;
+  for (const w of wantPre) {
+    let at = -1;
+    for (let k = i; k < got.length; k += 1) if (sameWord(got[k], w)) { at = k; break; }
+    if (at < 0) break;
+    i = at + 1;
+    preHits += 1;
   }
+  // …and backwards from the end for what comes after it, never crossing into the
+  // words the opening run already claimed.
+  let j = got.length - 1;
   let postHits = 0;
-  for (let i = 0; i < wantPost.length; i += 1) {
-    const j = got.length - 1 - i;
-    const w = wantPost[wantPost.length - 1 - i];
-    if (j >= 0 && text.phoneticSimilarity(got[j], w) >= 0.8) postHits += 1;
-    else break;
+  for (let n = wantPost.length - 1; n >= 0; n -= 1) {
+    let at = -1;
+    for (let k = j; k >= i; k -= 1) if (sameWord(got[k], wantPost[n])) { at = k; break; }
+    if (at < 0) break;
+    j = at - 1;
+    postHits += 1;
   }
 
   let hits = preHits + postHits;
-  // Something left over between the anchors is the answer to the question. It only
-  // counts once some of the frame is there, or every stray word would look like a
+  // Whatever is left between the two runs is the answer to the question. It counts
+  // only once some of the frame is there, or every stray word would look like a
   // filled slot and "hello" would score half marks for a name.
-  if (slot && hits && got.length - start - preHits - postHits > 0) hits += 1;
+  if (slot && hits && j >= i) hits += 1;
   return hits / total;
 }
 
@@ -130,11 +143,14 @@ function bestAnchor(said, frames) {
 /** Is this listed answer a deliberate step outside the frame?
 
     Most accepted answers on an open question are the frame with an example in the
-    slot — `Għandi tletin sena.` A few are an escape from it: `Dak sigriet!`,
-    `Ma niftakarx!`. Saying one of those is a real answer and keeps its ordinary
-    match score instead of being marked down against a frame it never used. */
+    slot — `Għandi tletin sena.` A few use none of it: `Dak sigriet!` for an age,
+    `Ma niftakarx!` for a name. Saying one of those is a real answer and keeps its
+    ordinary match score instead of being marked down against a frame it never used.
+
+    None of it, not some of it: an answer that half-uses the frame is graded on the
+    frame like any other, which keeps a sloppy frame visible. */
 function outsideFrames(candidate, frames) {
-  return !!candidate && bestAnchor(candidate.mt, frames) < 1;
+  return !!candidate && bestAnchor(candidate.mt, frames) === 0;
 }
 
 /** How much of an accepted answer the learner produced, in order.
@@ -206,8 +222,14 @@ export function evaluate(did, nid, said, attempts = 0) {
       const anchor = bestAnchor(said, frames);
       // Unless what they said is one of the deliberate steps outside the frame.
       // `Dak sigriet!` is a real answer to how old you are, and how near they came
-      // to *it* is a real score — better than the 0 its frame would give.
-      if (!(outsideFrames(match, frames) && score > anchor)) { score = anchor; frameScored = true; }
+      // to *it* is a real score — better than the 0 its frame would give. Near it,
+      // though: below the bar the rest of the app calls "almost", the answer is
+      // neither the frame nor the sentence, and 31% of a line nobody was aiming at
+      // is not feedback.
+      if (!(outsideFrames(match, frames) && score > anchor && score >= CLOSE)) {
+        score = anchor;
+        frameScored = true;
+      }
       // `framed` is whichever example answer is nearest, for the correction card;
       // it is null when nothing overlapped at all, and then the ordinary match is
       // still the best line to show.

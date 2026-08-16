@@ -465,8 +465,12 @@ def test_decks_articles_assimilate():
     ("greet", "g1", "Mela, jien Pietru", 1.0),   # a hesitation in front is still the frame
     ("greet", "g1", "Jien", 0.5),                # frame right, nothing said in it
     ("greet", "g1", "Pietru", 0.0),              # the name alone is not the sentence
-    ("greet", "g1", "Pietru jien", 0.0),         # nor is the keyword trailing behind it
+    ("greet", "g1", "Pietru jien", 0.5),         # keyword there, but nothing after it
     ("greet", "g1", "hello", 0.0),
+    # The frame with the learner's own words around it is still the frame.
+    ("likes", "l1", "Jien inħobb il-ħut", 1.0),
+    ("home", "h3", "Għandi ħames kmamar fid-dar", 1.0),
+    ("people", "o2", "Huwa għalliem", 1.0),      # hu/huwa is one word
     # `Għandi … sena` — both ends, with the age itself unjudged in between.
     ("family", "f4", "Għandi ħamsa u tletin sena", 1.0),
     ("family", "f4", "Andi hamsa u tletin sena", 1.0),   # recogniser drops għ and ħ
@@ -524,8 +528,7 @@ def test_open_question_escape_answers_keep_their_score():
     for did, nid, said in (("family", "f4", "Dak sigriet!"),
                            ("people", "o1", "Ma niftakarx!"),
                            ("home", "h3", "Kamra waħda biss."),
-                           ("feelings", "z1", "Ninsab imdejjaq"),   # near one, not exact
-                           ("likes", "l1", "Ma niekolx")):
+                           ("feelings", "z1", "Ninsab imdejjaq")):  # near one, not exact
         r = dialogue.evaluate(did, nid, said)
         assert r["score"] >= dialogue.CLOSE, f"{said!r} scored {r['score']}"
         assert r["frame_scored"] is False, f"{said!r} reported as a frame score"
@@ -533,13 +536,28 @@ def test_open_question_escape_answers_keep_their_score():
 
 def test_open_question_takes_a_greeting_before_the_frame():
     """`Bonġu, min qed jitkellem?` is answered `Bonġu, jien …` — the scene prompts the
-    greeting and lists one of its own answers with it. A yes, a no, a greeting or a
-    hesitation in front of the frame is still the frame; anything else is not."""
+    greeting and lists one of its own answers with it. A yes, a no or a greeting in
+    front of the frame is still the frame. What the frame will not do is change places
+    with the slot: the keyword has to come before the name, not after it."""
     from backend import dialogue
 
     assert dialogue.evaluate("phone", "x1", "Bonġu, jien Pietru")["score"] == 1.0
     assert dialogue.evaluate("family", "f2", "Iva, għandi ħuti kbar")["score"] == 1.0
-    assert dialogue.evaluate("greet", "g1", "Pietru jien")["score"] == 0.0
+    assert dialogue.evaluate("greet", "g1", "Pietru jien")["score"] == 0.5
+
+
+def test_open_question_does_not_score_junk_against_an_escape_answer():
+    """The answers that step outside the frame keep their own score, but only while
+    the learner is anywhere near one. `the quick brown fox` is 31% similar to
+    `Ma niftakarx!` and printing that as a mark is worse than saying nothing."""
+    from backend import dialogue
+
+    for did, nid, said in (("people", "o1", "the quick brown fox"),
+                           ("feelings", "z1", "nothing at all"),
+                           ("people", "o2", "xi xi xi")):
+        r = dialogue.evaluate(did, nid, said)
+        assert r["score"] == 0.0, f"{said!r} scored {r['score']}"
+        assert r["frame_scored"] is True
 
 
 def test_open_question_still_shows_the_target_when_nothing_was_said():

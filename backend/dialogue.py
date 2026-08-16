@@ -127,28 +127,39 @@ def _keys(s: str) -> list[str]:
     return [k for k in (phonetics.soft_key(w) for w in words) if k]
 
 
-# `Iva, għandi ħuti`, `Le, jien turist`, `Bonġu, jien ħabib ta' Marija`: a yes, a no,
-# a greeting or a hesitation in front of the frame is still the frame — the accepted
-# answers open that way and so does the scene that prompts them, `Bonġu, min qed
-# jitkellem?`. Anything else in first place is not the frame.
-_OPENERS = [phonetics.soft_key(w) for w in
-            ("iva", "le", "mela", "allura", "ehm", "emm", "mm", "ok",
-             "bonġu", "bonswa", "skużani", "grazzi", "merħba")]
+def _same_word(a: str, b: str) -> bool:
+    """Phonetically the same word, counting a pronoun's long form as its short one.
+
+    `hu`/`huwa` and `hi`/`hija` are one word in Maltese and learners use them
+    interchangeably, but they are too short for the similarity ratio to see it:
+    `hu` against `huwa` scores 0.67, below the bar that `jien`/`jiena` clears at
+    0.89. So a key that is the other with up to two letters added counts as the
+    same word — which `sena` against `senaturi` never does.
+    """
+    if phonetics.similarity(a, b) >= 0.8:
+        return True
+    short, long = sorted((a, b), key=len)
+    return len(short) >= 2 and long.startswith(short) and len(long) - len(short) <= 2
 
 
 def _anchor_score(said: str, frame: str) -> float:
-    """Does the answer *start with* — and *end with* — the frame around its slot?
+    """Does the answer *open with* — and *close with* — the frame around its slot?
 
     An open question is a fixed Maltese frame with one variable in it, and the frame
-    is the part the scene teaches. `Jien …` wants `Jien` first; `Għandi … sena` wants
-    `Għandi` first and `sena` last, whatever the learner puts between them. So the
-    words before the slot are matched from the start of what was said, the words
-    after it from the end, and the first word that is not there stops the run —
-    a keyword that turns up in the middle of a sentence is not the frame.
+    is the part the scene teaches. `Jien …` wants `Jien` before the name; `Għandi …
+    sena` wants `Għandi` before the age and `sena` after it. So the words before the
+    slot are looked for in order from the start of what was said, the words after it
+    in order from the end backwards, and what is left between the two runs is the
+    slot — the name, the town, the age, which is never judged.
+
+    Both runs are allowed to step over words the frame does not mention: `Iva,
+    għandi ħuti` and `Jien inħobb il-ħut` and `Tliet kmamar żgħar` are all the frame
+    with something extra around it. What they cannot do is change places with the
+    slot — `Pietru jien` has the keyword and nothing after it, and scores half.
 
     The slot counts as one more thing to supply, so `Jien Pietru` scores 1.0 and
-    `Jien` on its own 0.5: the frame is right, but nothing was said in it. An answer
-    with none of the frame in it scores 0, however good the name is.
+    `Jien` on its own 0.5: the frame is right, nothing was said in it. An answer with
+    none of the frame in it scores 0, however good the name is.
     """
     parts = _SLOT.split(frame, maxsplit=1)
     slot = len(parts) > 1
@@ -160,27 +171,27 @@ def _anchor_score(said: str, frame: str) -> float:
     if not total:
         return 0.0
 
-    start = 1 if want_pre and got and any(
-        phonetics.similarity(got[0], o) >= 0.8 for o in _OPENERS) else 0
-    pre_hits = 0
-    for i, w in enumerate(want_pre):
-        if start + i < len(got) and phonetics.similarity(got[start + i], w) >= 0.8:
-            pre_hits += 1
-        else:
+    # Forwards from the start for what comes before the slot…
+    i, pre_hits = 0, 0
+    for w in want_pre:
+        at = next((k for k in range(i, len(got)) if _same_word(got[k], w)), None)
+        if at is None:
             break
-    post_hits = 0
-    for i, w in enumerate(reversed(want_post)):
-        j = len(got) - 1 - i
-        if j >= 0 and phonetics.similarity(got[j], w) >= 0.8:
-            post_hits += 1
-        else:
+        i, pre_hits = at + 1, pre_hits + 1
+    # …and backwards from the end for what comes after it, never crossing into the
+    # words the opening run already claimed.
+    j, post_hits = len(got) - 1, 0
+    for w in reversed(want_post):
+        at = next((k for k in range(j, i - 1, -1) if _same_word(got[k], w)), None)
+        if at is None:
             break
+        j, post_hits = at - 1, post_hits + 1
 
     hits = pre_hits + post_hits
-    # Something left over between the anchors is the answer to the question. It only
-    # counts once some of the frame is there — otherwise every stray word would look
+    # Whatever is left between the two runs is the answer to the question. It counts
+    # only once some of the frame is there — otherwise every stray word would look
     # like a filled slot, and "hello" would score half marks for a name.
-    if slot and hits and len(got) - start - pre_hits - post_hits > 0:
+    if slot and hits and j >= i:
         hits += 1
     return hits / total
 
@@ -193,12 +204,16 @@ def _outside_frames(candidate: dict | None, frames: list[str]) -> bool:
     """Is this listed answer a deliberate step outside the frame?
 
     Most accepted answers on an open question are the frame with an example in the
-    slot — `Għandi tletin sena.` A few are an escape from it: `Dak sigriet!`,
-    `Ma niftakarx!`, `Le, m'għandix tfal.` Saying one of those is a real answer and
+    slot — `Għandi tletin sena.` A few use none of it: `Dak sigriet!` when asked your
+    age, `Ma niftakarx!` when asked a name. Saying one of those is a real answer and
     keeps its ordinary match score, instead of being marked down against a frame it
     was never meant to use.
+
+    None of it, not some of it. An answer that half-uses the frame is graded on the
+    frame like any other, which is what keeps a sloppy frame visible instead of
+    quietly excusing the answers it fits worst.
     """
-    return bool(candidate) and _best_anchor(candidate["mt"], frames) < 1.0
+    return bool(candidate) and _best_anchor(candidate["mt"], frames) == 0.0
 
 
 def _frame_recall(said: str, target: str) -> float:
@@ -285,7 +300,10 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
             # Unless what they said is one of the deliberate steps outside the frame.
             # `Dak sigriet!` is a real answer to how old you are, and how near they
             # came to *it* is a real score — better than the 0 its frame would give.
-            if not (_outside_frames(match, frames) and score > anchor):
+            # Near it, though: below the bar the rest of the app calls "almost", the
+            # answer is neither the frame nor the sentence, and 31% of a line nobody
+            # was aiming at is not feedback.
+            if not (_outside_frames(match, frames) and score > anchor and score >= CLOSE):
                 score, frame_scored = anchor, True
             # `framed` is whichever example answer is nearest, for the correction
             # card; it is None when nothing overlapped at all, and then the ordinary

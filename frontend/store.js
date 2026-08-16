@@ -222,6 +222,8 @@ export const DEFAULT_SETTINGS = {
   daily_new: 15,
   daily_review: 120,
   target_retention: 0.9,
+  // Off until asked for: turning it on downloads about 200MB.
+  local_stt: false,
 };
 
 export function loadSettings() {

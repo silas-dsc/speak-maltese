@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maltese speech recognition, in the browser</title>
+
+<!--
+  Runs the Maltese wav2vec2 CTC model client-side, so you can hear for yourself
+  whether the browser build is good enough to drop the server.
+
+    python scripts/export_onnx_web.py --only q4f16
+    python -m http.server 8000
+    open http://localhost:8000/web/stt-test.html
+
+  Options: ?dtype=q4f16|q4|fp16|fp32  ?device=webgpu|wasm  ?threads=N
+  Add ?bench=1 to score it against data/eval_clips instead of using the mic.
+
+  transformers.js comes from a CDN so this page runs with no build step. Nothing
+  else leaves the machine: the model, the audio and the transcription are local.
+-->
+
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; padding: 2rem 1.25rem;
+         max-width: 46rem; }
+  h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+  .sub { color: #6b7280; margin: 0 0 1.5rem; }
+  button { font: inherit; padding: .6rem 1.1rem; border-radius: .5rem;
+           border: 1px solid currentColor; background: transparent; cursor: pointer; }
+  button[disabled] { opacity: .45; cursor: default; }
+  #mic.rec { background: #c0392b; color: #fff; border-color: #c0392b; }
+  #status { margin: 1rem 0; min-height: 1.6em; }
+  #out { font-size: 1.5rem; min-height: 2em; margin: .5rem 0 1.5rem;
+         padding: 1rem; border-radius: .5rem; background: rgba(127,127,127,.1); }
+  pre { white-space: pre-wrap; font-size: 13px; background: rgba(127,127,127,.1);
+        padding: 1rem; border-radius: .5rem; overflow-x: auto; }
+  .bar { height: 5px; border-radius: 3px; background: rgba(127,127,127,.25);
+         overflow: hidden; margin: .75rem 0; }
+  .bar i { display: block; height: 100%; width: 0; background: #2563eb;
+           transition: width .3s; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: .2rem 1rem; font-size: 14px; }
+  dt { color: #6b7280; }
+</style>
+
+<h1>Maltese speech recognition, in the browser</h1>
+<p class="sub">No server. The model, the audio and the transcription all stay on this machine.</p>
+
+<div class="bar"><i id="bar"></i></div>
+<p id="status">Loading…</p>
+
+<p>
+  <button id="mic" disabled>Hold to speak</button>
+  <button id="bench" disabled>Score against the eval clips</button>
+</p>
+
+<div id="out"></div>
+<dl id="info"></dl>
+<pre id="log" hidden></pre>
+
+<script type="module">
+const P = new URLSearchParams(location.search);
+const DTYPE = P.get('dtype') || 'q4f16';
+const DEVICE = P.get('device') || (navigator.gpu ? 'webgpu' : 'wasm');
+const MODEL_PATH = P.get('models') || './models/';
+
+const $ = (id) => document.getElementById(id);
+const say = (s) => { $('status').textContent = s; };
+const bar = (f) => { $('bar').style.width = `${Math.round(f * 100)}%`; };
+const logln = (s) => { $('log').hidden = false; $('log').textContent += `${s}\n`; };
+
+const { AutoModelForCTC, AutoProcessor, env } =
+  await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6');
+
+env.allowRemoteModels = false;         // never silently fall back to the Hub
+env.allowLocalModels = true;
+env.localModelPath = MODEL_PATH;
+if (P.get('threads')) env.backends.onnx.wasm.numThreads = Number(P.get('threads'));
+
+/* CTC collapse.
+
+   Merge repeated frames FIRST, then drop the blanks. Doing it the other way round
+   looks equivalent and is not: it eats every doubled letter, and in Maltese that
+   is most of the interesting ones — grazzi → grazi, kollox → kolox, irrid → irid.
+   transformers.js's own tokenizer path does exactly that, which is why this page
+   decodes argmax itself rather than calling the pipeline. */
+function ctcDecode(ids, idToTok, blankId, delimiter = '|') {
+  const out = [];
+  let prev = -1;
+  for (const id of ids) {
+    if (id !== prev) {
+      if (id !== blankId) out.push(idToTok[id]);
+      prev = id;
+    }
+  }
+  return out.join('').replaceAll(delimiter, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function argmax(logits) {
+  const [, frames, size] = logits.dims;
+  const d = logits.data;
+  const ids = new Array(frames);
+  for (let f = 0; f < frames; f += 1) {
+    let best = 0, bestVal = -Infinity;
+    for (let v = 0; v < size; v += 1) {
+      const x = d[f * size + v];
+      if (x > bestVal) { bestVal = x; best = v; }
+    }
+    ids[f] = best;
+  }
+  return ids;
+}
+
+/** Decode any audio the browser understands, resampled to the 16kHz wav2vec2 wants. */
+async function toMono16k(blobOrBuffer) {
+  const buf = blobOrBuffer instanceof Blob
+    ? await blobOrBuffer.arrayBuffer() : blobOrBuffer;
+  const probe = new OfflineAudioContext(1, 1, 16000);
+  const decoded = await probe.decodeAudioData(buf);
+  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  src.connect(off.destination);
+  src.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+let processor, model, idToTok, blankId;
+
+async function load() {
+  bar(0.1);
+  say(`Loading ${DTYPE} on ${DEVICE}… (first visit downloads the model)`);
+  const t0 = performance.now();
+
+  const vocab = await (await fetch(`${MODEL_PATH}mt-w2v2/vocab.json`)).json();
+  idToTok = [];
+  for (const [tok, id] of Object.entries(vocab)) idToTok[id] = tok;
+  blankId = vocab['[PAD]'] ?? vocab['<pad>'];
+
+  bar(0.25);
+  processor = await AutoProcessor.from_pretrained('mt-w2v2');
+  model = await AutoModelForCTC.from_pretrained('mt-w2v2',
+    { dtype: DTYPE, device: DEVICE });
+
+  const secs = (performance.now() - t0) / 1000;
+  bar(1);
+  say('Ready.');
+  $('info').innerHTML = `
+    <dt>precision</dt><dd>${DTYPE}</dd>
+    <dt>backend</dt><dd>${DEVICE}${DEVICE === 'wasm' ? ' (no WebGPU here — expect it to be slow)' : ''}</dd>
+    <dt>load</dt><dd>${secs.toFixed(1)}s</dd>`;
+  $('mic').disabled = false;
+  $('bench').disabled = false;
+}
+
+async function transcribe(audio) {
+  const inputs = await processor(audio);
+  const t0 = performance.now();
+  const { logits } = await model(inputs);
+  const ms = performance.now() - t0;
+  return { text: ctcDecode(argmax(logits), idToTok, blankId), ms,
+           seconds: audio.length / 16000 };
+}
+
+/* ── Microphone ─────────────────────────────────────────────────────────── */
+
+let recorder = null, chunks = [];
+
+async function startRec() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.start(200);
+  $('mic').classList.add('rec');
+  say('Listening…');
+}
+
+async function stopRec() {
+  if (!recorder) return;
+  const done = new Promise((r) => { recorder.onstop = r; });
+  recorder.stop();
+  await done;
+  recorder.stream.getTracks().forEach((t) => t.stop());
+  recorder = null;
+  $('mic').classList.remove('rec');
+  say('Transcribing…');
+  const audio = await toMono16k(new Blob(chunks, { type: 'audio/webm' }));
+  const r = await transcribe(audio);
+  $('out').textContent = r.text || '(nothing heard)';
+  say(`${r.ms.toFixed(0)}ms for ${r.seconds.toFixed(1)}s of audio — `
+    + `${(r.seconds / (r.ms / 1000)).toFixed(1)}x realtime`);
+}
+
+$('mic').addEventListener('pointerdown', (e) => { e.preventDefault(); startRec(); });
+$('mic').addEventListener('pointerup', (e) => { e.preventDefault(); stopRec(); });
+$('mic').addEventListener('pointerleave', () => { if (recorder) stopRec(); });
+
+/* ── Bench against the recorded clips ───────────────────────────────────── */
+
+$('bench').addEventListener('click', async () => {
+  $('bench').disabled = true;
+  $('log').textContent = '';
+  const base = '../data/eval_clips/';
+  let manifest;
+  try {
+    manifest = (await (await fetch(`${base}manifest.tsv`)).text())
+      .split('\n').slice(1).filter((l) => l.trim()).map((l) => l.trim().split('\t'));
+  } catch {
+    say('No eval clips found — run scripts/compare_stt.py --synth 25 first.');
+    $('bench').disabled = false;
+    return;
+  }
+
+  let audioSec = 0, inferMs = 0, exact = 0;
+  const fold = (s) => s.toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '').replace(/għ|għ/g, '').replace(/[^a-z ]/g, '')
+    .replace(/\s+/g, ' ').trim();
+
+  for (const [file, ref] of manifest) {
+    const audio = await toMono16k(await (await fetch(base + file)).arrayBuffer());
+    const r = await transcribe(audio);
+    audioSec += r.seconds; inferMs += r.ms;
+    const hit = fold(r.text) === fold(ref);
+    if (hit) exact += 1;
+    logln(`${hit ? '✓' : '✗'} ${ref}\n  → ${r.text}`);
+    bar(manifest.indexOf([file, ref]) / manifest.length);
+  }
+  bar(1);
+  say(`${exact}/${manifest.length} exact (folded) · `
+    + `${(audioSec / (inferMs / 1000)).toFixed(1)}x realtime`);
+  $('bench').disabled = false;
+});
+
+try {
+  await load();
+} catch (err) {
+  say(`Could not load: ${err.message}`);
+  logln(err.stack || String(err));
+}
+</script>
+</html>

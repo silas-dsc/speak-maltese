@@ -11,7 +11,7 @@
    * audio (/api/tts) — cache-first and permanent, because a given sentence at a
      given voice and rate never changes, and re-fetching it is pure latency. */
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL = `shell-${VERSION}`;
 const AUDIO = `audio-${VERSION}`;
 
@@ -19,7 +19,7 @@ const SHELL_ASSETS = [
   '/', '/index.html', '/style.css', '/manifest.webmanifest',
   // The client is ES modules now. Missing one of these offline would not degrade
   // the app, it would fail to boot at all.
-  '/app.js', '/srs.js', '/store.js', '/schedule.js', '/splash.js',
+  '/app.js', '/srs.js', '/store.js', '/schedule.js', '/splash.js', '/localstt.js',
 ];
 
 self.addEventListener('install', (event) => {

@@ -262,6 +262,14 @@ async def cache_headers(request: Request, call_next):
 
 
 
+# The ONNX weights for on-device recognition, when they have been built. They are
+# large and immutable, so they cache hard and are simply absent if nobody ran
+# scripts/export_onnx_web.py — the app falls back to server-side recognition.
+_MODELS_DIR = FRONTEND_DIR.parent / "web" / "models"
+if _MODELS_DIR.is_dir():
+    app.mount("/models", StaticFiles(directory=_MODELS_DIR), name="models")
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")

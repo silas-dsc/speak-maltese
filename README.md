@@ -409,6 +409,53 @@ devices or keeping a copy. **Import** replaces what is on the device.
 
 ---
 
+## Recognition on the device
+
+Speech recognition is the last thing that needs a server. It can run in the page
+instead, which makes the whole app static: no cold starts, no round trip per
+utterance, and it keeps working offline.
+
+```bash
+pip install optimum onnx onnxruntime onnxconverter-common onnx_ir
+python scripts/export_onnx_web.py --only q4f16     # ~2 min, writes web/models/
+./run.sh
+```
+
+Then **Settings → Recognise speech on this device**. It is off by default because
+turning it on downloads about 200MB, once.
+
+To try the recogniser on its own, without the app around it:
+
+```bash
+python -m http.server 8000
+```
+
+and open <http://localhost:8000/web/stt-test.html>. Hold the button and speak, or
+press **Score against the eval clips** to run it over `data/eval_clips`. Add
+`?dtype=fp16` or `?device=wasm` to compare builds. transformers.js comes from a
+CDN so there is no build step; the model and the audio never leave the machine.
+
+### What the numbers say
+
+| build | size | speed | notes |
+|---|---|---|---|
+| wasm int8 | 355 MB | 0.22× realtime | unusable — 2s of speech takes 9s |
+| webgpu int8 | 355 MB | 0.34× | no int8 GPU kernel; falls back to CPU |
+| webgpu fp32 | 1262 MB | 11.6× | |
+| webgpu fp16 | 631 MB | 23.5× | |
+| **webgpu q4f16** | **201 MB** | **30×** | ships |
+
+**WebGPU is required.** On WASM the same model is slower than any network, so the
+toggle refuses to enable without it and the server path stays. Chrome and Edge
+everywhere, Safari 26+, Firefox on Windows only.
+
+Accuracy holds: all 334 accepted answers in the scenes were rendered to speech and
+run through the 4-bit build, and 333 grade correct — see
+[`tests/test_q4_recogniser.py`](tests/test_q4_recogniser.py), which replays those
+transcripts against the real grader.
+
+---
+
 ## Deploying
 
 `Dockerfile` builds a self-contained image; `README.hf.md` is the Space card for

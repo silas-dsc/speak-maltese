@@ -5,6 +5,7 @@
    store.js for the database and schedule.js for the FSRS scheduling that used to
    run in Python. The server is stateless — decks, dialogue, recognition, speech. */
 
+import * as localstt from './localstt.js';
 import * as splash from './splash.js';
 import * as store from './store.js';
 import * as schedule from './schedule.js';
@@ -139,11 +140,74 @@ class Recorder {
   }
 }
 
+/** Transcribe on the device if the learner has opted in and the model is loaded,
+    otherwise ask the server.
+
+    The fallback is not a formality: local recognition needs WebGPU, needs a ~200MB
+    download, and can fail for either reason mid-session. A learner who has pressed
+    the mic should get an answer regardless, so anything short of a usable result
+    here drops through to /api/stt rather than surfacing an error. */
 async function transcribe(blob, target) {
+  if (state.settings.local_stt && localstt.isReady()) {
+    try {
+      const r = await localstt.transcribe(blob);
+      if (r.text.trim()) {
+        // Grading is a few microseconds of string comparison, but it lives on the
+        // server with the Maltese rules, so it is one small stateless request.
+        if (target) {
+          r.assessment = await post('/api/attempt', { said: r.text, target })
+            .catch(() => null);
+        }
+        return r;
+      }
+    } catch (err) {
+      console.warn('local recogniser failed, using the server', err);
+    }
+  }
   const fd = new FormData();
   fd.append('audio', blob, 'speech.webm');
   if (target) fd.append('target', target);
   return api('/api/stt', { method: 'POST', body: fd });
+}
+
+/** Turn local recognition on or off. Loading is the expensive half, so progress
+    is reported rather than left as a frozen toggle. */
+async function setLocalStt(on) {
+  const box = $('localStt');
+  const note = $('localSttNote');
+  state.settings.local_stt = on;
+  persistSettings();
+  if (!on) {
+    localstt.unload();
+    note.textContent = 'Speech is sent to the server for recognition.';
+    return;
+  }
+  if (!localstt.supported()) {
+    state.settings.local_stt = false;
+    persistSettings();
+    box.checked = false;
+    note.textContent = 'This browser has no WebGPU, so on-device recognition '
+      + 'would be far slower than the server. Left off.';
+    return;
+  }
+  box.disabled = true;
+  try {
+    await localstt.load({
+      onProgress: (f) => {
+        note.textContent = f >= 1
+          ? 'Loaded — recognition now runs on this device.'
+          : `Downloading the recogniser… ${Math.round(f * 100)}%`;
+      },
+    });
+    note.textContent = 'Loaded — recognition now runs on this device, offline.';
+  } catch (err) {
+    state.settings.local_stt = false;
+    persistSettings();
+    box.checked = false;
+    note.textContent = `Could not load it: ${err.message}. Still using the server.`;
+  } finally {
+    box.disabled = false;
+  }
 }
 
 /** Wires push-to-talk (hold) and tap-to-toggle onto a mic button. */
@@ -242,6 +306,12 @@ async function boot() {
 
   await loadDrills();
   loadGrammar();
+
+  // Opted in on a previous visit: warm it in the background so the first thing
+  // they say is not the slow one. The model is in the HTTP cache by now.
+  if (state.settings.local_stt && localstt.supported()) {
+    localstt.load().catch(() => { /* the server path still works */ });
+  }
 }
 
 /** Counts and level come from the local database now, so they are recomputed
@@ -258,6 +328,13 @@ function applySettings() {
   $('rateLabel').textContent = `${Number(state.settings.rate).toFixed(2)}×`;
   $('showEnglish').checked = state.settings.show_english;
   $('autoplay').checked = state.settings.autoplay;
+  $('localStt').checked = !!state.settings.local_stt;
+  $('localStt').disabled = !localstt.supported();
+  $('localSttNote').textContent = localstt.supported()
+    ? (state.settings.local_stt
+      ? 'Loads when you next speak.'
+      : 'Speech is sent to the server for recognition.')
+    : 'Needs WebGPU — not available in this browser.';
 }
 
 function renderCaps() {
@@ -926,6 +1003,8 @@ $('rateRange').addEventListener('input', (e) => {
   state.settings.rate = Number(e.target.value);
   $('rateLabel').textContent = `${state.settings.rate.toFixed(2)}×`;
 });
+$('localStt').addEventListener('change', (e) => setLocalStt(e.target.checked));
+
 $('settingsDialog').addEventListener('close', () => {
   state.settings.voice = $('voiceSelect').value;
   state.settings.show_english = $('showEnglish').checked;

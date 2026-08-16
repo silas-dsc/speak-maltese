@@ -18,8 +18,9 @@ are needed for anything** — speech in, speech out and conversation all run loc
 
 ## What it does
 
-**Talk (`Taħdita`)** — Pick one of **23 scenes** (introductions, the café, the
-market, the doctor, the phone, getting unstuck…) and work through it out loud. Hold the mic or type. Each line comes back as Maltese audio
+**Talk (`Taħdita`)** — Pick one of **35 scenes** (introductions, the café, the
+market, the doctor, the pharmacy, the bus, getting lost, booking a table, getting
+unstuck…) and work through it out loud. Hold the mic or type. Each line comes back as Maltese audio
 plus the written Maltese and a translation you can hide.
 
 Every reply is authored and pre-voiced, and what you say is matched against a list of
@@ -348,6 +349,36 @@ the curated core, each flagged `unverified machine translation`.
 
 ---
 
+## Scene coverage
+
+A word you only ever meet as a flashcard is a word you cannot say. So the decks and
+the scenes are checked against each other:
+
+```bash
+python scripts/coverage.py
+python scripts/coverage.py --missing --tier 3   # what to write next
+```
+
+```
+35 scenes · 113 turns · 855 spoken lines
+712 distinct Maltese words appear in the dialogues
+
+Deck coverage: 430/430 words  (100%)
+  tier 1  ████████████████████  130/130 (100%)
+  tier 2  ████████████████████  184/184 (100%)
+  tier 3  ████████████████████  116/116 (100%)
+```
+
+Comparison is on the folded form, so a missing diacritic never reads as a miss. The
+scenes were written *from* the `--missing` list rather than invented and measured
+afterwards, which is why the last twelve are the ones they are — a pharmacy, a bus,
+getting lost, booking a table.
+
+A test asserts this stays at 100%: adding a word to a deck now means writing it into
+a conversation too, which is the constraint that keeps the two halves honest.
+
+---
+
 ## Configuration
 
 Everything is in `.env` (see `.env.example`). **All of it is optional** — the app runs
@@ -401,8 +432,20 @@ stable, since they key your review history.
 ./.venv/bin/python -m pytest tests/ -q
 ```
 
-77 tests covering the scheduler (interval growth, lapses, difficulty bounds, grade
+136 tests covering the scheduler (interval growth, lapses, difficulty bounds, grade
 ordering), the Maltese text comparison (diacritic and hyphen tolerance, article
 assimilation, fusion linting, language classification), the phonetic matcher, the
-scripted dialogues (every authored line is checked for correct Maltese, and every
-node for reachability), and deck integrity.
+HTTP API, and the build scripts.
+
+The largest group is on the content itself, because a model is no longer in the loop
+and so nothing at runtime can notice a badly written scene:
+
+* every authored line is checked for correct Maltese and for sun-letter assimilation;
+* every scene is played to the end over the real API, answering correctly, and must
+  neither loop nor skip a turn;
+* every accepted answer must be graded correct by the matcher, and must be told apart
+  from its siblings — two answers that sound alike would credit the wrong one;
+* every `Għid: …` hint must itself be accepted, so the app never asks for a sentence
+  it then refuses;
+* and every word in the decks must be spoken in some scene, which is what keeps
+  coverage at 100% rather than letting it drift.

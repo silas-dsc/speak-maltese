@@ -146,7 +146,10 @@ def definite(word: str) -> str:
     if not w:
         return w
     first = w[0]
-    if first in VOWELS or first in "hHħĦ" or w[:2].lower() == "għ":
+    # `l-` before a vowel, before silent h, and before għ — but *not* before ħ,
+    # which is a full consonant and takes the plain article: il-ħobż, il-ħanut,
+    # il-Ħamis, never *l-ħobż.
+    if first in VOWELS or first in "hH" or w[:2].lower() == "għ":
         return f"l-{w}"
     # Romance loans with "s impura" (s + voiceless stop) take a prosthetic i-,
     # which also blocks sun-letter assimilation: skola → l-iskola, not *is-skola.
@@ -271,7 +274,11 @@ def looks_maltese(s: str) -> bool:
     mt = len(w & maltese_markers())
     en = len(w & _EN_MARKERS)
     if mt == 0:
-        return False
+        # No known word, but ħ/ġ/ż/ċ/għ belong to no English word at all, so an
+        # unrecognised sentence carrying them is still unmistakably Maltese —
+        # "Tħobb tivvjaġġa?" is two perfectly ordinary words the decks happen to
+        # store only in their first-person form.
+        return bool(_MT_CHARS.search(s or "")) and en == 0
     if mt >= 2:
         return mt >= en
     # A single marker is enough when the orthography is unmistakably Maltese, or

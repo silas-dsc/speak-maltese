@@ -41,10 +41,10 @@ def lines_for(what: str) -> list[str]:
         phrases = curriculum._read_tsv(curriculum.PHRASES_TSV)
         out += [r["mt"] for r in vocab + phrases]
         out += [r["ex_mt"] for r in vocab if r.get("ex_mt")]
-    if what in ("all", "deck"):
-        for s in curriculum.load_scenarios():
-            if s.get("opener_mt"):
-                out.append(s["opener_mt"])
+        # The imported frequency deck is optional — present only once
+        # scripts/import_frequency_list.py has been run.
+        if curriculum.IMPORT_TSV.exists():
+            out += [r["mt"] for r in curriculum._read_tsv(curriculum.IMPORT_TSV)]
     seen, uniq = set(), []
     for line in out:
         line = (line or "").strip()

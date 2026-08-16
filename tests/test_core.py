@@ -4,13 +4,15 @@ or corrupt the schedule."""
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from backend import srs, text  # noqa: E402
 from backend import curriculum  # noqa: E402
@@ -386,3 +388,169 @@ def test_grammar_notes_present():
     notes = curriculum.grammar_notes()
     assert "definite article" in notes.lower()
     assert "ma" in notes and "-x" in notes
+
+
+# ── The scripted content itself ────────────────────────────────────────────
+#
+# The dialogues are the product. A model is no longer in the loop, so nothing at
+# runtime can notice a badly written scene — these checks are the only thing
+# standing between a typo and a learner repeating it out loud.
+
+ARTICLES = {"l", "il"} | {f"i{c}" for c in "ċdnrstxzż"}
+
+
+def _article_faults(line: str) -> list[str]:
+    """Sun-letter assimilation errors in running text.
+
+    Deliberately narrow. The article also loses its `i-` after a vowel-final word
+    (`Nixtri l-ħobż`, not *`Nixtri il-ħobż`), so *which* form appears cannot be
+    checked without the preceding word — but assimilation is unconditional:
+    `is-Sibt` is never `il-Sibt`, and `iż-żarbun` is never `iz-żarbun`.
+    """
+    faults = []
+    for token in re.split(r"[\s,.!?;:]+", line or ""):
+        prefix, sep, rest = token.partition("-")
+        if not sep or not rest or prefix.lower() not in ARTICLES:
+            continue
+        first = rest[0].lower()
+        if first in "ċdnrstxzż":
+            want = f"i{first}"
+            if prefix.lower() != want:
+                faults.append(f"{token!r} should be {want}-{rest}")
+        elif prefix.lower() not in ("l", "il"):
+            faults.append(f"{token!r} assimilates to a letter {rest!r} does not start with")
+    return faults
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("ħobż", "il-ħobż"),     # ħ is a full consonant — the article keeps its i-
+    ("ħanut", "il-ħanut"),
+    ("Ħamis", "il-Ħamis"),
+    ("hena", "l-hena"),      # silent h behaves like a vowel
+    ("għajn", "l-għajn"),    # so does għ
+    ("ilsien", "l-ilsien"),
+    ("skola", "l-iskola"),   # s impura takes a prosthetic i- and blocks assimilation
+    ("żarbun", "iż-żarbun"),
+])
+def test_article_distinguishes_h_from_hha(word, expected):
+    """`l-ħobż` for `il-ħobż` was in the deck for real. ħ, h and għ look alike and
+    behave differently, so each is pinned here."""
+    assert text.definite(word) == expected
+
+
+def test_dialogue_articles_assimilate():
+    from backend import dialogue
+
+    offenders = [f"{line!r}: {f}"
+                 for line in dialogue.every_line()
+                 for f in _article_faults(line)]
+    assert not offenders, "sun-letter assimilation:\n" + "\n".join(offenders)
+
+
+def test_decks_articles_assimilate():
+    offenders = []
+    for path, cols in ((curriculum.VOCAB_TSV, ("mt", "ex_mt")),
+                       (curriculum.PHRASES_TSV, ("mt",))):
+        for row in curriculum._read_tsv(path):
+            for col in cols:
+                for f in _article_faults(row.get(col) or ""):
+                    offenders.append(f"{row['id']}.{col}: {f}")
+    assert not offenders, "sun-letter assimilation:\n" + "\n".join(offenders)
+
+
+def test_every_accepted_answer_is_graded_correct():
+    """An answer the script lists as acceptable must actually pass the matcher.
+    Otherwise the app asks for something it then refuses — the stuck-loop bug,
+    reintroduced one scene at a time."""
+    from backend import dialogue
+
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            if n.get("free"):
+                continue
+            for a in n.get("accept", []):
+                r = dialogue.evaluate(d["id"], node_id, a["mt"])
+                assert r["verdict"] == "correct", (
+                    f"{d['id']}.{node_id} rejects its own answer "
+                    f"{a['mt']!r} (scored {r['score']})")
+
+
+def test_accepted_answers_within_a_node_are_told_apart():
+    """Two answers that sound alike would credit the learner for the wrong one and
+    schedule the wrong card, silently."""
+    from backend import dialogue
+
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            if n.get("free"):
+                continue
+            for a in n.get("accept", []):
+                r = dialogue.evaluate(d["id"], node_id, a["mt"])
+                assert text.fold(r["matched_mt"] or "") == text.fold(a["mt"]), (
+                    f"{d['id']}.{node_id}: {a['mt']!r} matched "
+                    f"{r['matched_mt']!r} instead")
+
+
+def test_hints_quote_something_the_node_accepts():
+    """`close` and `wrong` end in "Għid: …" — the learner repeats that line verbatim,
+    so saying it back must actually pass. Caught `directions.d1`, whose hint spliced
+    the opening of one accepted answer onto another and then graded the result
+    "almost": the app asking for a sentence it will not take."""
+    from backend import dialogue
+
+    offenders = []
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            if n.get("free"):
+                continue
+            for key in ("close", "wrong"):
+                mt = (n.get(key) or {}).get("mt", "")
+                _, sep, quoted = mt.partition("Għid:")
+                if not sep:
+                    continue
+                # Some hints offer a choice: "A — jew: B". Either is a valid thing
+                # to say back, so both have to pass.
+                for branch in re.split(r"—?\s*jew:\s*", quoted):
+                    branch = branch.strip(" —")
+                    if not branch:
+                        continue
+                    r = dialogue.evaluate(d["id"], node_id, branch)
+                    if r["verdict"] != "correct":
+                        offenders.append(
+                            f"{d['id']}.{node_id}.{key}: {branch!r} grades "
+                            f"{r['verdict']} ({r['score']})")
+    assert not offenders, "hint is not accepted:\n" + "\n".join(offenders)
+
+
+def test_dialogues_are_well_formed():
+    from backend import dialogue
+
+    ids = [d["id"] for d in dialogue.all_dialogues()]
+    assert len(ids) == len(set(ids)), "duplicate dialogue id"
+    for d in dialogue.all_dialogues():
+        assert d["level"] in ("A0", "A1", "A2", "B1"), f"{d['id']}: {d['level']}"
+        assert d["name"] and d["name_en"]
+        for node_id, n in d["nodes"].items():
+            where = f"{d['id']}.{node_id}"
+            assert n["say_mt"] and n["say_en"], where
+            assert n.get("expect_en"), where
+            assert n.get("accept"), where
+            for key in ("correct", "close", "wrong"):
+                assert n.get(key, {}).get("mt"), f"{where} missing {key}"
+                assert n.get(key, {}).get("en"), f"{where} missing {key} gloss"
+
+
+def test_dialogues_reach_every_word_in_the_deck():
+    """The decks and the scenes are written separately, and a deck word no scene
+    ever says is a word the learner meets only as a flashcard. Kept at zero on
+    purpose — adding vocabulary now means writing it into a conversation too."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "coverage_script", ROOT / "scripts" / "coverage.py")
+    cov = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cov)
+
+    used, _ = cov.dialogue_words()
+    missing = sorted(w for w in cov.deck_words() if w not in used)
+    assert not missing, f"{len(missing)} deck words never spoken: {missing[:20]}"

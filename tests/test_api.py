@@ -141,6 +141,55 @@ def test_finishing_a_dialogue_reports_finished(client):
     pytest.fail(f"dialogue never finished, visited {seen}")
 
 
+def test_every_scene_can_be_walked_to_the_end_by_answering_correctly(client):
+    """Play each scene the way a learner who knows the answers would, over the real
+    API. A scene whose accepted answer does not advance it, or that loops, or that
+    points at a node the server cannot present, fails here rather than in someone's
+    ear halfway through."""
+    from backend import db, dialogue
+
+    # Playing every scene registers a hundred-odd phrases as introduced-today, which
+    # would exhaust the daily new-card allowance for the tests that follow. The walk
+    # is about the script, not the schedule, so it puts the deck back afterwards.
+    with db.db() as conn:
+        before = {r[0] for r in conn.execute("SELECT id FROM cards").fetchall()}
+    try:
+        _walk_every_scene(client, dialogue)
+    finally:
+        with db.db() as conn:
+            rows = conn.execute("SELECT id FROM cards").fetchall()
+            added = [r[0] for r in rows if r[0] not in before]
+            for cid in added:
+                conn.execute("DELETE FROM reviews WHERE card_id=?", (cid,))
+                conn.execute("DELETE FROM card_state WHERE card_id=?", (cid,))
+                conn.execute("DELETE FROM cards WHERE id=?", (cid,))
+
+
+def _walk_every_scene(client, dialogue) -> None:
+    for d in dialogue.all_dialogues():
+        did = d["id"]
+        start = client.post("/api/drill/start", json={"dialogue": did})
+        assert start.status_code == 200, did
+        node = start.json()["node"]
+        visited, guard = [], 0
+        while guard < len(d["nodes"]) + 2:
+            guard += 1
+            visited.append(node)
+            said = d["nodes"][node]["accept"][0]["mt"]
+            r = client.post("/api/drill/answer", json={
+                "dialogue": did, "node": node, "said": said, "attempts": 0}).json()
+            assert r["verdict"] == "correct", f"{did}.{node} rejected {said!r}"
+            assert r["reply_mt"], f"{did}.{node} says nothing back"
+            if r.get("finished"):
+                break
+            node = r["next"]["node"]
+            assert node not in visited, f"{did} loops back to {node}"
+        else:
+            pytest.fail(f"{did} never finished, visited {visited}")
+        assert len(visited) == len(d["nodes"]), (
+            f"{did} skipped turns: played {visited}")
+
+
 def test_a_correct_drill_answer_is_scheduled_for_review(client):
     before = client.get("/api/bootstrap").json()["counts"]["total"]
     client.post("/api/drill/answer", json={

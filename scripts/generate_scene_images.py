@@ -66,6 +66,18 @@ SCENES = {
     "feelings": "a quiet balcony with one chair and a cup of tea, soft evening light",
     "town": "a Maltese village square with a church dome, a school and a signpost",
     "phone": "an old telephone on a hall table with a notepad and pencil beside it",
+    "pharmacy": "a small pharmacy counter with a green cross sign, shelves of boxes behind",
+    "bus": "a bright yellow Maltese bus at a stop on a coastal road, blue sky",
+    "lost": "a folded paper map and a street sign at a confusing junction of narrow lanes",
+    "learning": "an open notebook with handwriting, a pencil and a dictionary on a desk",
+    "booking": "a restaurant table laid with a reserved card, candle and folded napkins",
+    "clothes": "a small clothes shop rail with shirts in green, yellow and black, shoes below",
+    "keys": "a doorstep with a bunch of keys lying on the stone step, warm evening light",
+    "hobbies": "a football, a guitar and swimming goggles on a sunlit terrace floor",
+    "relatives": "an older couple sitting together on a balcony, seen from behind, warm light",
+    "jobs": "a hospital, a school and an office building along a Maltese street",
+    "opinions": "two coffee cups on a table with a newspaper between them, mid-conversation",
+    "outing": "a rocky Maltese swimming spot with clear turquoise water and a towel on the rock",
 }
 
 

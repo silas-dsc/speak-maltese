@@ -85,9 +85,13 @@ async function fetchOk(path, opts) {
 }
 
 /** Poll until the recogniser is loaded, creeping the bar meanwhile. */
-async function waitForModel(from, to) {
+async function waitForModel(from, to, giveUpAfterMs = 4 * 60 * 1000) {
   const startedAt = Date.now();
   for (;;) {
+    // Reading, listening and typing never needed the recogniser. If it is taking
+    // implausibly long — or the server died partway through loading it, which a
+    // free tier does — let the learner in rather than holding the door forever.
+    if (Date.now() - startedAt > giveUpAfterMs) return null;
     let health;
     try {
       health = await (await fetchOk('/api/health')).json();
@@ -121,7 +125,11 @@ export async function run({ onDeck } = {}) {
   // Speech recognition is the only thing that needs the model. If this
   // deployment has no local recogniser there is nothing to wait for.
   if (boot.capabilities?.stt?.some((p) => p === 'wav2vec2' || p === 'faster_whisper')) {
-    await waitForModel(STEPS[1][1], STEPS[2][1]);
+    const health = await waitForModel(STEPS[1][1], STEPS[2][1]);
+    if (!health) {
+      paint(1, 'Starting without speech input');
+      await sleep(1200);
+    }
   }
 
   paint(1, 'Mela — ejja nibdew!');

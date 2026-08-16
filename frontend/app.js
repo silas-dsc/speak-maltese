@@ -590,6 +590,12 @@ async function gradeAttempt(said) {
   if (!c || !said?.trim()) return;
   state.attempted = true;
   const a = await post('/api/attempt', { said, target: c.mt });
+  // The score has a phonetic floor but the diff is spelling-level, so the two can
+  // disagree: `birrakisħa` for `Birra kiesħa` is a perfect answer that still diffs
+  // as a substitution. Showing red words under "nothing to fix" reads as a bug, so
+  // a perfect verdict shows no diff.
+  const showDiff = a.verdict !== 'perfect';
+  $('attemptDiff').hidden = !showDiff;
   // A chunk ending in "-" is a fused article (mill-, id-); keep it glued to the next.
   $('attemptDiff').innerHTML = a.diff.map((d, i) => {
     const prev = a.diff[i - 1];

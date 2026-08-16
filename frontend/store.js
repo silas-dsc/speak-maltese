@@ -15,6 +15,8 @@
    Settings stay in localStorage: they are tiny, synchronous access keeps the
    first paint simple, and losing them costs nothing. */
 
+import * as srs from './srs.js';
+
 const DB_NAME = 'speak-maltese';
 const DB_VERSION = 1;
 
@@ -46,6 +48,10 @@ function open() {
     req.onerror = () => reject(req.error || new Error('IndexedDB unavailable'));
     req.onblocked = () => reject(new Error('Another tab is holding an older database open'));
   });
+  // Do not let one failure poison the page. `onblocked` clears as soon as the
+  // other tab closes, and a quota hiccup can pass — caching the rejected promise
+  // meant every later read failed with a stale error until a reload.
+  dbp.catch(() => { dbp = null; });
   return dbp;
 }
 
@@ -74,19 +80,35 @@ const asPromise = (req) => new Promise((resolve, reject) => {
 
 /* ── Deck ────────────────────────────────────────────────────────────────── */
 
-/** Replace the deck, keeping every schedule whose card survives.
+/** Refresh the shipped deck, leaving everything the learner has added alone.
 
     The deck is content and ships with the app; the schedule is the learner's.
     A card that disappears from the deck keeps its state row — harmless, and it
-    means removing a word from a TSV by accident does not destroy its history. */
+    means removing a word from a TSV by accident does not destroy its history.
+
+    This used to `clear()` the card store first, which quietly deleted every
+    phrase earned in conversation on the next page load: drill cards are written
+    by `addCards` and are not in `/api/deck`, so they were wiped while their state
+    rows survived as orphans that `buildQueue` then filtered out. Cards the server
+    did not send are now left where they are. */
 export async function seedDeck(cards) {
   const db = await open();
   return new Promise((resolve, reject) => {
     const t = db.transaction(['cards', 'states'], 'readwrite');
     const cardStore = t.objectStore('cards');
     const stateStore = t.objectStore('states');
+    const shipped = new Set(cards.map((c) => c.id));
     let added = 0;
-    cardStore.clear();
+
+    // Drop only cards that came from a previous deck and are no longer in it —
+    // never anything the learner produced.
+    const existing = cardStore.getAll();
+    existing.onsuccess = () => {
+      for (const old of existing.result) {
+        if (old.source !== 'drill' && !shipped.has(old.id)) cardStore.delete(old.id);
+      }
+    };
+
     for (const c of cards) {
       cardStore.put(c);
       // Only create a state row if there isn't one; overwriting would reset the
@@ -105,12 +127,11 @@ export async function seedDeck(cards) {
   });
 }
 
+/* One definition of a fresh schedule, owned by the scheduler. It was written out
+   twice — here and as `srs.newState` — and had already drifted: only this copy
+   carried `suspended`, and the next field added would have gone to one of them. */
 function blankState() {
-  return {
-    stability: 0, difficulty: 0, reps: 0, lapses: 0,
-    state: 'new', step: 0, due: null, lastReview: null,
-    prodReps: 0, prodCorrect: 0, suspended: 0,
-  };
+  return { ...srs.newState(), suspended: 0 };
 }
 
 /* Reads resolve on the request rather than on transaction completion: a readonly
@@ -175,6 +196,11 @@ export async function exportAll() {
 
 export async function importAll(dump) {
   if (!dump || !Array.isArray(dump.states)) throw new Error('Not a progress export');
+  // `reset()` clears the deck too, so a dump without cards would leave the app
+  // with schedules pointing at nothing. Refuse rather than half-wipe.
+  if (!Array.isArray(dump.cards) || !dump.cards.length) {
+    throw new Error('Export contains no cards — nothing was changed');
+  }
   await reset();
   return tx(['cards', 'states', 'reviews'], 'readwrite', (t) => {
     for (const c of dump.cards || []) t.objectStore('cards').put(c);

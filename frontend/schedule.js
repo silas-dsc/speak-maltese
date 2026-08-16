@@ -91,7 +91,10 @@ function pickMode(card) {
 
 export async function recordReview(cardId, grade, mode, { score = null, said = null,
   elapsedMs = null, settings } = {}) {
-  const prev = (await store.getState(cardId)) || { cardId };
+  // A bare `{ cardId }` would have no `state`, so srs.review takes the not-new
+  // branch and computes retrievability from an undefined stability — NaN all the
+  // way to `due`, and the card is never due again.
+  const prev = (await store.getState(cardId)) || { cardId, ...srs.newState() };
   const next = srs.review(prev, grade, settings.target_retention);
   if (mode === 'produce') {
     next.prodReps = (prev.prodReps || 0) + 1;

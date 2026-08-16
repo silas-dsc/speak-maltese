@@ -51,6 +51,9 @@ EDGE = [
     ("greet", "g3", "Noqhod il-Belt", 0),    # how the recogniser spells għ
     ("routine", "y2", "Tibda fid-disgħa", 0),  # the question echoed, not answered
     ("family", "f4", "Għandi sigriet", 0),   # near an answer that is not the frame
+    ("likes", "l1", "Nħobb il-ħut", 0),      # a first letter the recogniser dropped
+    ("greet", "g2", "Mir-Russja", 0),        # minn fused with an assimilating article
+    ("people", "o2", "Huma għalliema", 0),   # they, not he
     ("stuck", "s3", "kif tgħidx xi s bil-malti", 0),
     ("stuck", "s3", "xi xi xi", 0),
     ("cafe", "c1", "nixtieq kafè, jekk jogħġbok.", 0),

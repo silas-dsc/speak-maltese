@@ -72,24 +72,35 @@ function keys(s) {
   return text.normalise(s).split(/[\s-]+/).map(text.softKey).filter(Boolean);
 }
 
+/* Keys that are one word in Maltese, where nothing general can tell: `hu`/`huwa` and
+   `hi`/`hija` are the pronoun long and short (two letters is too few for a ratio, and
+   a rule about added letters would swallow `huma`, meaning *they*); and `minn` fused
+   with the assimilating article — mill-, mir-, mit-, mid-, mis-, miċ-, miż-, mix- —
+   one preposition spelled nine ways. */
+const ONE_WORD = [
+  new Set(['hu', 'huwa']),
+  new Set(['hi', 'hiya']),
+  new Set(['min', 'mil', 'mir', 'mit', 'mid', 'mis', 'mic', 'miz']),
+];
+
 /** Is this word of the answer the frame's word? Keys, not spellings.
 
-    Tolerant, because the recogniser is inventive — but not about the first letter.
-    Maltese conjugates on it: `nibda` I start, `tibda` you start, `jibda` he starts,
-    and the ratio puts them 0.80 apart, inside the bar. Answering `X'ħin tibda?` with
-    `Tibda fid-disgħa` echoes the question rather than answering it, and `m'għandix`
-    is not `għandi` either. The other way round, `hu`/`huwa` and `hi`/`hija` are one
-    word and too short for the ratio (0.67) — so the learner's longer form of a short
-    frame word counts, but not the reverse: `se` is not `sena`. */
+    Tolerant, because the recogniser is inventive — but not about a first letter that
+    has been *swapped*. Maltese conjugates on it: `nibda` I start, `tibda` you start,
+    `jibda` he starts, 0.80 apart and inside the bar. Answering `X'ħin tibda?` with
+    `Tibda fid-disgħa` reads the question back rather than answering it, and
+    `m'għandix` is not `għandi` either. A first letter added or dropped is the
+    recogniser — `nħobb` for `inħobb`, `isimni` for `jisimni` — and below three
+    letters even that is guesswork, so short keys match outright or are listed above.
+
+    `text.ratio`, not `phoneticSimilarity`: these are keys already, and keying a key
+    collapses the doubled vowel silent għ leaves behind (`noqgħod` → `nood` → `nod`). */
 function sameWord(said, want) {
   if (said === want) return true;
-  if (said.slice(0, 1) !== want.slice(0, 1)) return false;
-  // `text.ratio`, not `phoneticSimilarity`: these are keys already, and keying a key
-  // collapses the doubled vowels the first pass makes out of silent għ — `noqgħod`
-  // keys to `nood`, and again to `nod`.
-  if (Math.min(said.length, want.length) >= 3
-    && text.ratio(said, want) >= 0.8) return true;
-  return want.length >= 2 && said.startsWith(want) && said.length - want.length <= 2;
+  if (ONE_WORD.some((group) => group.has(said) && group.has(want))) return true;
+  if (Math.min(said.length, want.length) < 3) return false;
+  if (said.slice(0, 1) !== want.slice(0, 1)) return said.slice(1) === want || want.slice(1) === said;
+  return text.ratio(said, want) >= 0.8;
 }
 
 /** Does the answer *open with* — and *close with* — the frame around its slot?

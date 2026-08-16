@@ -540,6 +540,32 @@ def test_open_question_frame_hears_the_person_of_the_verb():
     assert r["frame_scored"] is False and r["score"] >= dialogue.CLOSE
 
 
+@pytest.mark.parametrize("did,nid,said,expected", [
+    # A first letter the recogniser dropped or added is still the frame's word.
+    ("likes", "l1", "Nħobb il-ħut", 1.0),          # inħobb, without the i
+    ("greet", "g1", "Isimni Silas", 1.0),          # jisimni, without the glide
+    ("routine", "y1", "Inqum fis-sitta", 1.0),     # nqum, with one
+    ("greet", "g3", "Noqhod il-Belt", 1.0),        # għ written as h
+    # …but a first letter *swapped* is another word: another person of the verb,
+    # a different pronoun, a negation, or a noun that merely starts the same way.
+    ("routine", "y2", "Tibda fid-disgħa", 0.0),
+    ("people", "o2", "Huma għalliema", 0.0),       # they, not he
+    ("people", "o2", "Ħut kbir", 0.0),
+    ("routine", "y1", "Numru sitta", 0.0),
+    # `minn` and the article fuse and assimilate; one preposition, nine spellings.
+    ("greet", "g2", "Mir-Russja", 1.0),
+    ("greet", "g2", "Miċ-Ċina", 1.0),
+    ("greet", "g2", "Mit-Tuneżija", 1.0),
+])
+def test_open_question_frame_survives_the_recogniser(did, nid, said, expected):
+    """The frame is matched on phonetic keys because the recogniser's spelling moves
+    under it. What may not move is which word was said."""
+    from backend import dialogue
+
+    r = dialogue.evaluate(did, nid, said)
+    assert r["score"] == pytest.approx(expected, abs=0.005), f"{said!r} scored {r['score']}"
+
+
 def test_open_question_compares_keys_without_keying_them_twice():
     """The anchor holds phonetic keys, so it must compare them as keys. Running one
     through the keyer again collapses the doubled vowel silent għ leaves behind —

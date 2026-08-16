@@ -127,31 +127,45 @@ def _keys(s: str) -> list[str]:
     return [k for k in (phonetics.soft_key(w) for w in words) if k]
 
 
+# Keys that are one word in Maltese, where nothing general can tell:
+#   `hu`/`huwa` and `hi`/`hija` are the pronoun long and short. Two letters is too
+#   few for a ratio (0.67), and a rule about added letters would swallow `huma`,
+#   which is `hu` plus two and means *they*.
+#   `minn` fuses with the article and assimilates to the noun — mill-, mir-, mit-,
+#   mid-, mis-, miċ-, miż-, mix-. One preposition, spelled nine ways, and a frame
+#   anchored on any of them means all of them.
+_ONE_WORD = [
+    {"hu", "huwa"},
+    {"hi", "hiya"},
+    {"min", "mil", "mir", "mit", "mid", "mis", "mic", "miz"},
+]
+
+
 def _same_word(said: str, want: str) -> bool:
     """Is this word of the answer the frame's word? Keys, not spellings.
 
-    Tolerant, because the recogniser is inventive — but not about the first letter.
-    Maltese conjugates on it: `nibda` is I start, `tibda` is you start, `jibda` is he
-    starts, and the ratio puts them 0.80 apart, which is inside the bar. A learner
-    answering `X'ħin tibda?` with `Tibda fid-disgħa` has echoed the question rather
-    than answered it, and `frame right · 100%` would be a lie about the one thing
-    the scene teaches. `m'għandix` against `għandi` is the same story: the negation
-    is not the frame.
+    Tolerant, because the recogniser is inventive — but not about a first letter that
+    has been *swapped*. Maltese conjugates on it: `nibda` is I start, `tibda` is you
+    start, `jibda` is he starts, and the ratio puts them 0.80 apart, inside the bar.
+    A learner answering `X'ħin tibda x-xogħol?` with `Tibda fid-disgħa` has read the
+    question back rather than answered it, and `frame right · 100%` would be a lie
+    about the one thing the scene teaches. `m'għandix` against `għandi` likewise: the
+    negation is not the frame, it is the answer beside it.
 
-    The other way round, `hu`/`huwa` and `hi`/`hija` are one word in Maltese and too
-    short for the ratio to see it — 0.67, where `jien`/`jiena` clears 0.86. So the
-    learner saying the long form of a short frame word counts. Not the reverse: `se`
-    is not `sena`, or the frame's closing keyword could be dropped to a syllable.
+    A first letter *added or dropped* is the recogniser, not the learner: `nħobb` for
+    `inħobb`, `isimni` for `jisimni`, `inqum` for `nqum`. Below three letters even
+    that is guesswork — `in`, the tail of `in-numru`, is `jien` with the glide gone
+    and also just `in` — so short keys have to match outright or be listed above.
     """
     if said == want:
         return True
-    if said[:1] != want[:1]:
-        return False
-    # Two-letter keys are too short for a ratio to mean anything: `in`, the tail of
-    # `in-numru`, scores exactly 0.80 against `yin` — which is `jien`.
-    if min(len(said), len(want)) >= 3 and phonetics.key_similarity(said, want) >= 0.8:
+    if any(said in group and want in group for group in _ONE_WORD):
         return True
-    return len(want) >= 2 and said.startswith(want) and len(said) - len(want) <= 2
+    if min(len(said), len(want)) < 3:
+        return False
+    if said[:1] != want[:1]:
+        return said[1:] == want or want[1:] == said
+    return phonetics.key_similarity(said, want) >= 0.8
 
 
 def _anchor_score(said: str, frame: str) -> float:

@@ -644,9 +644,9 @@ async function answerDrill(said) {
     // anything. Some answers to an open question are whole listed sentences rather
     // than the frame — `Dak sigriet!` for an age — and those are marked like any
     // other line, because that is what was measured.
-    const verdictText = r.free && r.frame_scored
+    const verdictText = r.free
       ? (r.score >= 0.5
-        ? `frame right · ${Math.round(r.score * 100)}%`
+        ? `${r.frame_scored ? 'frame right' : r.verdict} · ${Math.round(r.score * 100)}%`
         : 'taken as given · not scored')
       : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
     el.querySelector('.bubble').insertAdjacentHTML('afterbegin',

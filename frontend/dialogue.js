@@ -74,10 +74,13 @@ function keys(s) {
 
 /** Phonetically the same word, counting a pronoun's long form as its short one.
     `hu`/`huwa` and `hi`/`hija` are one word in Maltese but too short for the
-    similarity ratio to see it (0.67, where `jien`/`jiena` clears 0.89), so a key
-    that is the other with up to two letters added counts as the same word. */
+    similarity ratio to see it (0.67, where `jien`/`jiena` clears 0.86), so a key
+    that is the other with up to two letters added counts as the same word — which
+    `sena` and `senaturi` never do. Two-letter keys get no ratio at all: `in`, the
+    tail of `in-numru`, scores exactly 0.80 against `yin`, which is `jien`. */
 function sameWord(a, b) {
-  if (text.phoneticSimilarity(a, b) >= 0.8) return true;
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) >= 3 && text.phoneticSimilarity(a, b) >= 0.8) return true;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   return short.length >= 2 && long.startsWith(short) && long.length - short.length <= 2;
 }

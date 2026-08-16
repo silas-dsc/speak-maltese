@@ -133,10 +133,15 @@ def _same_word(a: str, b: str) -> bool:
     `hu`/`huwa` and `hi`/`hija` are one word in Maltese and learners use them
     interchangeably, but they are too short for the similarity ratio to see it:
     `hu` against `huwa` scores 0.67, below the bar that `jien`/`jiena` clears at
-    0.89. So a key that is the other with up to two letters added counts as the
+    0.86. So a key that is the other with up to two letters added counts as the
     same word — which `sena` against `senaturi` never does.
     """
-    if phonetics.similarity(a, b) >= 0.8:
+    if a == b:
+        return True
+    # Two-letter keys are too short for a ratio to mean anything: `in`, the tail of
+    # `in-numru`, scores exactly 0.80 against `yin` — which is `jien` — and would
+    # anchor the frame on a sentence containing no `jien` at all.
+    if min(len(a), len(b)) >= 3 and phonetics.similarity(a, b) >= 0.8:
         return True
     short, long = sorted((a, b), key=len)
     return len(short) >= 2 and long.startswith(short) and len(long) - len(short) <= 2

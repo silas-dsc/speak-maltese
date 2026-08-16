@@ -496,6 +496,31 @@ def test_open_question_still_wants_its_keywords(did, nid, said, expected):
     assert r["verdict"] == "correct"
 
 
+def test_open_question_does_not_anchor_on_a_two_letter_lookalike():
+    """`Jien` keys to `yin`, and `in` — the tail of `in-numru` once the fused article
+    is split off — scores exactly 0.80 against it. That is the similarity bar, so a
+    sentence with no `jien` anywhere in it used to satisfy the `Jien …` frame."""
+    from backend import dialogue
+
+    assert dialogue._best_anchor("Skużani, żbaljajt in-numru.", ["Jien …"]) == 0.0
+    assert dialogue.evaluate("phone", "x1", "in-numru")["score"] == 0.0
+    # …while the pronoun's own variants still count as itself.
+    assert dialogue.evaluate("greet", "g1", "Jiena Pietru")["score"] == 1.0
+    assert dialogue.evaluate("people", "o2", "Huwa għalliem")["score"] == 1.0
+
+
+def test_open_question_without_a_frame_still_says_nothing_rather_than_a_number():
+    """Four open questions have no slot to frame — is your family big, who lives with
+    you. Junk there must stay under the bar the UI prints from, or the app is back to
+    answering "hello" with "correct · 33%"."""
+    from backend import dialogue
+
+    for did, nid in (("family", "f1"), ("family", "f3"), ("colours", "u1"), ("town", "v3")):
+        for said in ("hello", "xi xi xi"):
+            r = dialogue.evaluate(did, nid, said)
+            assert r["score"] < 0.5, f"{did}.{nid} scores {said!r} at {r['score']}"
+
+
 def test_open_question_frames_are_well_formed():
     """Each frame needs exactly one slot, and every word it demands has to be a word
     the node's own example answers use. A frame is graded against, so a typo in one

@@ -1,0 +1,26 @@
+# Without this, `COPY . .` sends the whole working directory as build context —
+# including the 2.5GB virtualenv and the local model cache. The build would take
+# minutes to upload context it then throws away, and on a Space it would fail.
+
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.github/
+
+# Rebuilt inside the image by scripts/prebuild_audio.py.
+data/audio_cache/
+
+# Local-only: the learner's progress used to live here. Nothing should ship it.
+data/progress.db
+data/progress.db-wal
+data/progress.db-shm
+*.db
+
+# Evaluation artefacts and scratch output.
+data/eval/
+data/stt_eval/
+.env
+.DS_Store

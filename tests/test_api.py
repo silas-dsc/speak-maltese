@@ -11,18 +11,12 @@ only parts that do, and they are exercised separately.
 
 from __future__ import annotations
 
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-# Point the database somewhere disposable *before* the app imports its config.
-_TMP_DB = Path(tempfile.mkdtemp(prefix="sm-test-")) / "progress.db"
-os.environ["SM_DB_PATH"] = str(_TMP_DB)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -38,11 +32,47 @@ def client():
 # ── Bootstrap ──────────────────────────────────────────────────────────────
 
 def test_bootstrap_reports_what_the_ui_needs(client):
-    d = client.get("/api/bootstrap").json()
-    assert {"capabilities", "counts", "profile", "settings"} <= set(d)
-    assert "tts" in d["capabilities"] and "stt" in d["capabilities"]
-    assert d["counts"]["total"] > 400, "decks should be seeded"
-    assert d["profile"]["level"] in ("A0", "A1", "A2", "B1", "B2")
+    r = client.get("/api/bootstrap").json()
+    assert set(r) == {"capabilities", "defaults"}
+    assert "tts" in r["capabilities"] and "stt" in r["capabilities"]
+    assert r["defaults"]["voice"] and r["defaults"]["daily_new"] > 0
+
+
+def test_bootstrap_carries_no_learner_state(client):
+    """Progress lives in the browser. If any of it leaked back into a shared
+    endpoint, every visitor to a deployment would see one person's deck."""
+    body = client.get("/api/bootstrap").text
+    for leak in ("counts", "profile", "sessions", "due", "learned", "streak"):
+        assert leak not in body, f"{leak!r} is learner state and must not be served"
+
+
+def test_health_reports_whether_the_recogniser_is_loaded(client):
+    r = client.get("/api/health").json()
+    assert set(r) >= {"ready", "warming", "stt", "tts"}
+    assert isinstance(r["ready"], bool) and isinstance(r["warming"], bool)
+    assert not (r["ready"] and r["warming"]), "cannot be both ready and warming"
+
+
+def test_deck_is_served_whole_for_the_client_to_seed_from(client):
+    cards = client.get("/api/deck").json()["cards"]
+    assert len(cards) > 400
+    ids = [c["id"] for c in cards]
+    assert len(ids) == len(set(ids)), "duplicate card id would collide in IndexedDB"
+    for c in cards:
+        assert c["mt"] and c["en"] and c["id"]
+        assert c["kind"] in ("vocab", "phrase")
+    assert {c["kind"] for c in cards} == {"vocab", "phrase"}
+
+
+def test_no_server_side_schedule_remains(client):
+    """The scheduler moved to the browser; these endpoints read and wrote the one
+    shared SQLite file that made a public deployment meaningless."""
+    for path in ("/api/queue", "/api/stats", "/api/cards"):
+        assert client.get(path).status_code == 404, path
+    # A POST to a route that no longer exists falls through to the static mount,
+    # which answers 405 rather than 404. Either way it is gone, which is the point.
+    for path in ("/api/review", "/api/settings", "/api/cards/suspend"):
+        assert client.post(path, json={}).status_code in (404, 405), path
 
 
 def test_no_llm_endpoints_remain(client):
@@ -145,24 +175,14 @@ def test_every_scene_can_be_walked_to_the_end_by_answering_correctly(client):
     """Play each scene the way a learner who knows the answers would, over the real
     API. A scene whose accepted answer does not advance it, or that loops, or that
     points at a node the server cannot present, fails here rather than in someone's
-    ear halfway through."""
-    from backend import db, dialogue
+    ear halfway through.
 
-    # Playing every scene registers a hundred-odd phrases as introduced-today, which
-    # would exhaust the daily new-card allowance for the tests that follow. The walk
-    # is about the script, not the schedule, so it puts the deck back afterwards.
-    with db.db() as conn:
-        before = {r[0] for r in conn.execute("SELECT id FROM cards").fetchall()}
-    try:
-        _walk_every_scene(client, dialogue)
-    finally:
-        with db.db() as conn:
-            rows = conn.execute("SELECT id FROM cards").fetchall()
-            added = [r[0] for r in rows if r[0] not in before]
-            for cid in added:
-                conn.execute("DELETE FROM reviews WHERE card_id=?", (cid,))
-                conn.execute("DELETE FROM card_state WHERE card_id=?", (cid,))
-                conn.execute("DELETE FROM cards WHERE id=?", (cid,))
+    Nothing needs cleaning up afterwards any more: walking every scene used to write
+    a hundred-odd cards into the shared database and exhaust the day's new-card
+    allowance for the tests that followed. The server has no database to write to."""
+    from backend import dialogue
+
+    _walk_every_scene(client, dialogue)
 
 
 def _walk_every_scene(client, dialogue) -> None:
@@ -190,12 +210,15 @@ def _walk_every_scene(client, dialogue) -> None:
             f"{did} skipped turns: played {visited}")
 
 
-def test_a_correct_drill_answer_is_scheduled_for_review(client):
-    before = client.get("/api/bootstrap").json()["counts"]["total"]
-    client.post("/api/drill/answer", json={
-        "dialogue": "market", "node": "m1", "said": "Kilo tuffieħ, jekk jogħġbok."})
-    after = client.get("/api/bootstrap").json()["counts"]["total"]
-    assert after >= before, "phrases met in conversation should enter the deck"
+def test_a_correct_drill_answer_reports_what_to_schedule(client):
+    """The server no longer writes to a deck — it returns the matched phrase and the
+    client schedules it locally. Without these fields nothing a learner says in
+    conversation would ever reach their review queue."""
+    r = client.post("/api/drill/answer", json={
+        "dialogue": "market", "node": "m1",
+        "said": "Kilo tuffieħ, jekk jogħġbok."}).json()
+    assert r["verdict"] == "correct"
+    assert r["matched_mt"] and r["matched_en"]
 
 
 # ── Grading and review ─────────────────────────────────────────────────────
@@ -211,63 +234,6 @@ def test_attempt_scores_and_diffs(client):
 def test_attempt_requires_a_target(client):
     assert client.post("/api/attempt", json={"said": "x"}).status_code == 400
 
-
-def test_queue_returns_cards_with_interval_previews(client):
-    d = client.get("/api/queue?limit=5").json()
-    assert d["cards"], "a fresh deck should offer new cards"
-    for c in d["cards"]:
-        assert c["mode"] in ("listen", "recognise", "produce")
-        assert set(c["intervals"]) == {"1", "2", "3", "4"}
-
-
-def test_review_schedules_and_reports_state(client):
-    card = client.get("/api/queue?limit=1").json()["cards"][0]
-    r = client.post("/api/review", json={
-        "card_id": card["id"], "grade": 3, "mode": "recognise"}).json()
-    assert r["state"] in ("learning", "review")
-    assert r["due"]
-    assert r["stability_days"] > 0
-
-
-def test_review_rejects_unknown_cards(client):
-    assert client.post("/api/review", json={
-        "card_id": "nope", "grade": 3}).status_code == 404
-
-
-def test_review_needs_a_grade_or_an_utterance(client):
-    card = client.get("/api/queue?limit=1").json()["cards"][0]
-    assert client.post("/api/review", json={"card_id": card["id"]}).status_code == 400
-
-
-def test_spoken_review_grades_itself_from_the_audio_transcript(client):
-    card = next(c for c in client.get("/api/queue?limit=20").json()["cards"]
-                if c.get("mt"))
-    r = client.post("/api/review", json={
-        "card_id": card["id"], "mode": "produce", "said": card["mt"]}).json()
-    assert r["assessment"]["score"] > 0.95
-    assert r["state"] in ("learning", "review")
-
-
-def test_stats_shape(client):
-    s = client.get("/api/stats").json()
-    for key in ("learned", "due", "new", "history", "topics", "speaking", "streak"):
-        assert key in s
-
-
-def test_card_search(client):
-    d = client.get("/api/cards?q=kaf").json()["cards"]
-    assert any("kafè" in c["mt"] for c in d)
-
-
-def test_settings_round_trip(client):
-    client.post("/api/settings", json={"rate": 0.8, "show_english": False})
-    s = client.get("/api/bootstrap").json()["settings"]
-    assert s["rate"] == 0.8
-    assert s["show_english"] is False
-    client.post("/api/settings", json={"rate": 0.95, "show_english": True})
-
-
-# ── Static frontend ────────────────────────────────────────────────────────
 
 def test_frontend_is_served(client):
     html = client.get("/").text

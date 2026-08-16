@@ -1,11 +1,20 @@
 /* Nitkellmu — Speak Maltese
-   Single-page client. No build step, no dependencies. */
+   Single-page client. No build step, no dependencies.
+
+   The learner's progress lives here, in IndexedDB, not on the server: see
+   store.js for the database and schedule.js for the FSRS scheduling that used to
+   run in Python. The server is stateless — decks, dialogue, recognition, speech. */
+
+import * as splash from './splash.js';
+import * as store from './store.js';
+import * as schedule from './schedule.js';
+import * as srs from './srs.js';
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
   caps: null,
-  settings: { voice: 'mt-MT-GraceNeural', rate: 0.95, show_english: true, autoplay: true },
+  settings: store.loadSettings(),
   queue: [],
   qIndex: 0,
   card: null,
@@ -216,21 +225,31 @@ function bindMic(button, { onResult, onStatus, target }) {
 async function boot() {
   let data;
   try {
-    data = await api('/api/bootstrap');
+    data = await splash.run({ onDeck: (cards) => store.seedDeck(cards) });
   } catch (err) {
-    toast(`Backend unreachable: ${err.message}`, 8000);
+    splash.fail(err.message);
     return;
   }
   state.caps = data.capabilities;
-  state.settings = { ...state.settings, ...data.settings };
+  // Server defaults fill in only what the learner has never set. Their own
+  // choices are on this device and must not be overwritten by a redeploy.
+  state.settings = { ...data.defaults, ...store.loadSettings() };
+  store.saveSettings(state.settings);
 
   applySettings();
   renderCaps();
-  updateCounts(data.counts);
-  $('levelChip').textContent = data.profile.level;
+  await refreshCounts();
 
   await loadDrills();
   loadGrammar();
+}
+
+/** Counts and level come from the local database now, so they are recomputed
+    rather than handed back by an endpoint. */
+async function refreshCounts() {
+  const c = await schedule.counts();
+  updateCounts(c);
+  $('levelChip').textContent = schedule.estimateLevel(c.learned);
 }
 
 function applySettings() {
@@ -247,6 +266,10 @@ function renderCaps() {
   $('capsBox').innerHTML = `
     <div>${mark(c.tts.length)} <b>Speech out</b> — ${c.tts.join(', ') || 'none'}</div>
     <div>${mark(c.stt.length)} <b>Speech in</b> — ${c.stt.join(', ') || 'none'}</div>`;
+}
+
+function persistSettings() {
+  store.saveSettings(state.settings);
 }
 
 function updateCounts(counts) {
@@ -447,7 +470,12 @@ async function answerDrill(said) {
       if (r.moved_on) drill.run.movedOn += 1;
       else if (drill.attempts === 0) drill.run.first += 1;
       else drill.run.retried += 1;
-      if (r.matched_mt) drill.run.learned.push({ mt: r.matched_mt, en: r.matched_en });
+      if (r.matched_mt) {
+        drill.run.learned.push({ mt: r.matched_mt, en: r.matched_en });
+        // The server used to do this; it has no database to do it in now.
+        schedule.registerFromDrill([{ mt: r.matched_mt, en: r.matched_en }], state.settings)
+          .catch(() => { /* bookkeeping must never break a turn */ });
+      }
     }
 
     if (r.advance && r.next) {
@@ -461,7 +489,7 @@ async function answerDrill(said) {
       doneScenes.mark(drill.dialogue);
       renderDrillOptions();
       showRunSummary();
-      updateCounts((await api('/api/bootstrap')).counts);
+      await refreshCounts();
     }
   } catch (err) {
     toast(err.message);
@@ -473,10 +501,9 @@ async function answerDrill(said) {
 /* ── Review ────────────────────────────────────────────────────────────── */
 
 async function loadQueue() {
-  const data = await api('/api/queue?limit=25');
-  state.queue = data.cards;
+  state.queue = await schedule.buildQueue(25, { settings: state.settings });
   state.qIndex = 0;
-  updateCounts(data.counts);
+  await refreshCounts();
   showCard();
 }
 
@@ -593,14 +620,12 @@ async function gradeAttempt(said) {
 async function submitGrade(grade) {
   const c = state.card;
   if (!c) return;
-  const said = $('cardInput').value.trim() || undefined;
+  const said = $('cardInput').value.trim() || null;
   try {
-    const res = await post('/api/review', {
-      card_id: c.id, grade, mode: c.mode, said,
-    });
-    updateCounts(res.counts);
+    await schedule.recordReview(c.id, grade, c.mode, { said, settings: state.settings });
+    await refreshCounts();
     // A lapsed card comes back later in the same session.
-    if (grade === 1) state.queue.push({ ...c, intervals: c.intervals });
+    if (grade === srs.AGAIN) state.queue.push({ ...c, intervals: c.intervals });
   } catch (err) {
     toast(err.message);
   }
@@ -612,7 +637,7 @@ async function submitGrade(grade) {
 /* ── Progress ──────────────────────────────────────────────────────────── */
 
 async function loadStats() {
-  const s = await api('/api/stats');
+  const s = await schedule.stats();
   const speakPct = s.speaking.attempts
     ? Math.round((s.speaking.correct / s.speaking.attempts) * 100) : 0;
   const cards = [
@@ -644,9 +669,9 @@ async function loadStats() {
     ? s.weak.map((w) => `<li><span class="mt">${escapeHtml(w.mt)}</span><span class="n">${escapeHtml(w.en)} · ${w.lapses} slips</span></li>`).join('')
     : '<li class="n">Nothing sticky yet.</li>';
 
-  $('errorList').innerHTML = s.error_kinds.length
-    ? s.error_kinds.map((e) => `<li><span>${escapeHtml(e.kind)}</span><span class="n">${e.n}</span></li>`).join('')
-    : '<li class="n">No corrections logged yet.</li>';
+  $('errorList').innerHTML = s.weak.length
+    ? '<li class="n">Practise the sticky words above — they carry the most value.</li>'
+    : '<li class="n">No slips logged yet.</li>';
 }
 
 /* ── Vocabulary browser ────────────────────────────────────────────────────
@@ -662,7 +687,7 @@ async function loadVocab() {
   if (q) params.set('q', q);
   if (topic) params.set('topic', topic);
 
-  const { cards } = await api(`/api/cards?${params}`);
+  const cards = await localCards({ q, topic, limit: 300 });
   $('vocabCount').textContent = cards.length >= 300 ? '300+ shown' : `${cards.length} shown`;
 
   // Named `stage`, not `state`: the module-level `state` object holds the settings
@@ -682,8 +707,24 @@ async function loadVocab() {
   });
 }
 
+/** The deck plus each card's local schedule state — the vocabulary browser's
+    "known / learning / new" tag is the learner's progress, so it comes from
+    IndexedDB rather than from the server. */
+async function localCards({ q = '', topic = '', limit = 300 } = {}) {
+  const [cards, states] = await Promise.all([store.getCards(), store.getStates()]);
+  const byId = new Map(states.map((s) => [s.cardId, s]));
+  const needle = q.toLowerCase();
+  return cards
+    .filter((c) => (!topic || c.topic === topic))
+    .filter((c) => !needle
+      || c.mt.toLowerCase().includes(needle) || c.en.toLowerCase().includes(needle))
+    .map((c) => ({ ...c, state: byId.get(c.id)?.state || 'new' }))
+    .sort((a, b) => (a.tier - b.tier) || String(a.id).localeCompare(String(b.id)))
+    .slice(0, limit);
+}
+
 async function initVocab() {
-  const { cards } = await api('/api/cards?limit=1000');
+  const cards = await store.getCards();
   const topics = [...new Set(cards.map((c) => c.topic).filter(Boolean))].sort();
   $('vocabTopic').innerHTML = '<option value="">All topics</option>'
     + topics.map((t) => `<option value="${t}">${t}</option>`).join('');
@@ -826,7 +867,55 @@ document.querySelectorAll('.grade').forEach((b) => {
 });
 
 /* Settings */
-$('settingsBtn').addEventListener('click', () => $('settingsDialog').showModal());
+$('settingsBtn').addEventListener('click', async () => {
+  $('settingsDialog').showModal();
+  const c = await schedule.counts();
+  $('progressSummary').textContent =
+    `${c.learned} learned · ${c.total - c.new} started · ${c.today} reviews in the last day`;
+});
+
+/* Progress lives on this device, so the learner needs a way to carry it. */
+$('exportProgress').addEventListener('click', async () => {
+  try {
+    const dump = await store.exportAll();
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(dump)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `speak-maltese-progress-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    toast(`Export failed: ${err.message}`);
+  }
+});
+
+$('importProgress').addEventListener('click', () => $('importFile').click());
+
+$('importFile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  e.target.value = '';                       // so re-picking the same file fires again
+  if (!confirm('Importing replaces the progress on this device. Continue?')) return;
+  try {
+    await store.importAll(JSON.parse(await file.text()));
+    toast('Progress imported.');
+    await refreshCounts();
+    await loadQueue();
+  } catch (err) {
+    toast(`Import failed: ${err.message}`, 6000);
+  }
+});
+
+$('resetProgress').addEventListener('click', async () => {
+  if (!confirm('Delete all your progress on this device? This cannot be undone.')) return;
+  await store.reset();
+  const { cards } = await api('/api/deck');
+  await store.seedDeck(cards);
+  toast('Starting over.');
+  await refreshCounts();
+  await loadQueue();
+});
 $('rateRange').addEventListener('input', (e) => {
   state.settings.rate = Number(e.target.value);
   $('rateLabel').textContent = `${state.settings.rate.toFixed(2)}×`;
@@ -835,7 +924,7 @@ $('settingsDialog').addEventListener('close', () => {
   state.settings.voice = $('voiceSelect').value;
   state.settings.show_english = $('showEnglish').checked;
   state.settings.autoplay = $('autoplay').checked;
-  post('/api/settings', state.settings).catch(() => {});
+  persistSettings();
 });
 
 /* Keyboard shortcuts */

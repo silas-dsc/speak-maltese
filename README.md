@@ -379,6 +379,55 @@ a conversation too, which is the constraint that keeps the two halves honest.
 
 ---
 
+## Where your progress lives
+
+In your browser, in IndexedDB — not on the server.
+
+That is a deliberate change. The schedule used to live in a SQLite file next to
+the app, which is fine for one person on one laptop and wrong for anything else:
+every visitor to a deployment shared one review history, and free hosting throws
+the disk away on each restart, so the one thing in this app that cannot be
+regenerated was also the least durable. Decks, audio and images all rebuild from
+this repo; nobody can recover which words you were about to forget.
+
+So the FSRS scheduler was ported to JavaScript and the server made stateless:
+
+| | |
+|---|---|
+| `frontend/srs.js` | FSRS-5, a direct translation of `backend/srs.py` |
+| `frontend/store.js` | IndexedDB — cards, schedules, review log |
+| `frontend/schedule.js` | queue building, counts, streaks, progress |
+
+`backend/srs.py` stays as the reference implementation. `tests/test_srs_parity.py`
+runs both over the same review sequences and compares state, stability, difficulty,
+due dates and the interval labels on the grade buttons — because two implementations
+of one algorithm drift silently, and the symptom is reviews arriving at subtly wrong
+times with no way to notice.
+
+Settings → **Export** writes the whole database to a JSON file, for moving between
+devices or keeping a copy. **Import** replaces what is on the device.
+
+---
+
+## Deploying
+
+`Dockerfile` builds a self-contained image; `README.hf.md` is the Space card for
+Hugging Face (rename it to `README.md` in the Space). Two things make it work on a
+free tier:
+
+* **The model is baked in at build time.** Downloading 1.2GB of weights on first
+  request would put the whole wait on whoever opens the app after a restart, and
+  free Spaces restart often.
+* **Startup is shown, not hidden.** A cold container needs up to a minute to load
+  the recogniser. `/api/health` reports whether it is actually loaded — the
+  *loaded object*, not merely that a preload thread started — and the client holds
+  a progress screen until it says ready. The first two steps report real progress;
+  the model wait creeps asymptotically and snaps to full when health flips, because
+  the server cannot know how far through it is and a fake percentage is worse than
+  an honest "still working".
+
+---
+
 ## Configuration
 
 Everything is in `.env` (see `.env.example`). **All of it is optional** — the app runs
@@ -432,7 +481,7 @@ stable, since they key your review history.
 ./.venv/bin/python -m pytest tests/ -q
 ```
 
-136 tests covering the scheduler (interval growth, lapses, difficulty bounds, grade
+144 tests covering the scheduler (interval growth, lapses, difficulty bounds, grade
 ordering), the Maltese text comparison (diacritic and hyphen tolerance, article
 assimilation, fusion linting, language classification), the phonetic matcher, the
 HTTP API, and the build scripts.

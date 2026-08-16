@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import CFG, FRONTEND_DIR
-from . import curriculum, db, dialogue, srs, stt, text, tts
+from . import curriculum, dialogue, srs, stt, text, tts
 
 logging.basicConfig(
     level=logging.DEBUG if CFG.debug else logging.INFO,
@@ -23,9 +23,7 @@ app = FastAPI(title="Speak Maltese", version="1.0.0")
 
 @app.on_event("startup")
 def _startup() -> None:
-    db.init()
-    seeded = curriculum.seed()
-    log.info("decks loaded: %s", seeded)
+    log.info("deck: %d cards", len(curriculum.deck_rows()))
     log.info("TTS: %s | STT: %s", tts.available() or "none", stt.available() or "none")
 
     # Warm the local recogniser off the request path: loading it lazily puts the
@@ -47,8 +45,7 @@ def _prewarm_dialogue_audio() -> None:
     import asyncio
 
     lines = dialogue.every_line()
-    voice = db.get_setting("voice", CFG.azure_voice)
-    rate = float(db.get_setting("rate", 0.95))
+    voice, rate = CFG.azure_voice, 0.95
 
     async def run() -> int:
         done = 0
@@ -71,31 +68,45 @@ def _prewarm_dialogue_audio() -> None:
 
 @app.get("/api/bootstrap")
 def bootstrap() -> dict:
+    """What the client cannot work out for itself: which speech providers exist,
+    and the server's idea of the defaults. Progress is not here — it lives in the
+    browser, so this response is identical for every visitor and safe to cache."""
     caps = CFG.capabilities()
     caps["tts"] = tts.available()
     caps["stt"] = stt.available()
     return {
         "capabilities": caps,
-        "counts": db.counts(),
-        "profile": {k: v for k, v in curriculum.learner_profile().items()
-                    if k in ("level", "learned_count")},
-        "settings": {
-            "voice": db.get_setting("voice", CFG.azure_voice),
-            "rate": db.get_setting("rate", 0.95),
-            "show_english": db.get_setting("show_english", True),
-            "autoplay": db.get_setting("autoplay", True),
+        "defaults": {
+            "voice": CFG.azure_voice,
+            "rate": 0.95,
             "daily_new": CFG.daily_new_limit,
+            "daily_review": CFG.daily_review_limit,
+            "target_retention": CFG.target_retention,
         },
-        "sessions": db.sessions(10),
     }
 
 
-@app.post("/api/settings")
-def save_settings(payload: dict = Body(...)) -> dict:
-    for key in ("voice", "rate", "show_english", "autoplay"):
-        if key in payload:
-            db.set_setting(key, payload[key])
-    return {"ok": True}
+@app.get("/api/health")
+def health() -> dict:
+    """Is the recogniser actually loaded, or is the first utterance going to pay
+    for it? On a cold container the model load is tens of seconds, and a learner
+    holding the mic button with nothing happening reads as broken. The client
+    polls this and holds the door shut until it says ready."""
+    return {
+        "ready": stt.is_warm() or not stt.needs_warmup(),
+        "warming": stt.needs_warmup() and not stt.is_warm(),
+        "stt": stt.available(),
+        "tts": tts.available(),
+    }
+
+
+@app.get("/api/deck")
+def deck() -> dict:
+    """The whole curated deck, for the client to seed its own database from.
+
+    Cards are content and ship with the app; the schedule built on top of them is
+    the learner's and never leaves their device."""
+    return {"cards": curriculum.deck_rows()}
 
 
 @app.get("/api/grammar")
@@ -131,23 +142,10 @@ def drill_answer(payload: dict = Body(...)) -> dict:
     )
     if result.get("error"):
         raise HTTPException(404, result["error"])
-    # A scripted turn still feeds the spaced-repetition system: a phrase you
-    # produced correctly under time pressure is exactly what should be scheduled.
-    if result["verdict"] == "correct" and result.get("matched_mt"):
-        _schedule_from_drill(result["matched_mt"], result.get("matched_en") or "")
+    # A phrase produced correctly under time pressure is exactly what should be
+    # scheduled — but the schedule lives in the browser now, so the response just
+    # carries `matched_mt`/`matched_en` and the client does the bookkeeping.
     return result
-
-
-def _schedule_from_drill(mt: str, en: str) -> None:
-    try:
-        ids = curriculum.register_new_vocab([{"mt": mt, "en": en}], "drill")
-        for cid in ids:
-            st = db.state_of(cid)
-            if st.state == "new":
-                db.save_state(cid, srs.review(st, srs.GOOD, CFG.target_retention))
-                db.log_review(cid, srs.GOOD, "produce", None, None, None)
-    except Exception:  # noqa: BLE001 — never let bookkeeping break a turn
-        log.exception("could not schedule drill phrase")
 
 
 # ── Speech ─────────────────────────────────────────────────────────────────
@@ -213,85 +211,15 @@ def _auto_grade(score: float) -> int:
 
 
 # ── Spaced repetition ──────────────────────────────────────────────────────
-
-@app.get("/api/queue")
-def queue(limit: int = 20, topics: str | None = None,
-          include_new: bool = True, max_tier: int | None = None) -> dict:
-    topic_list = [t for t in (topics or "").split(",") if t] or None
-    cards = curriculum.build_queue(limit, topic_list, include_new, max_tier)
-    for c in cards:
-        st = db.state_of(c["id"])
-        c["intervals"] = {str(k): v for k, v in srs.preview(st, CFG.target_retention).items()}
-    return {"cards": cards, "counts": db.counts()}
-
-
-@app.post("/api/review")
-def review(payload: dict = Body(...)) -> dict:
-    card_id = payload.get("card_id")
-    if not card_id:
-        raise HTTPException(400, "card_id is required")
-    card = db.get_card(card_id)
-    if not card:
-        raise HTTPException(404, "unknown card")
-
-    said = payload.get("said")
-    mode = payload.get("mode", "recognise")
-    assessment = None
-    grade = payload.get("grade")
-
-    if said and mode in ("produce", "repeat"):
-        assessment = _assess(said, card["mt"])
-        if grade is None:
-            grade = assessment["grade"]
-    if grade is None:
-        raise HTTPException(400, "grade or said is required")
-
-    st = db.state_of(card_id)
-    st = srs.review(st, int(grade), CFG.target_retention)
-    db.save_state(card_id, st)
-    db.log_review(card_id, int(grade), mode,
-                  assessment["score"] if assessment else None,
-                  said, payload.get("elapsed_ms"))
-    return {
-        "card_id": card_id,
-        "state": st.state,
-        "due": db.iso(st.due),
-        "stability_days": round(st.stability, 2),
-        "difficulty": round(st.difficulty, 2),
-        "assessment": assessment,
-        "counts": db.counts(),
-    }
-
-
-@app.get("/api/stats")
-def stats() -> dict:
-    return db.stats()
-
-
-@app.get("/api/cards")
-def cards(q: str | None = None, topic: str | None = None, limit: int = 60) -> dict:
-    sql = """SELECT c.*, s.state, s.due, s.stability, s.lapses
-             FROM cards c JOIN card_state s ON s.card_id=c.id WHERE 1=1"""
-    args: list = []
-    if q:
-        sql += " AND (c.mt LIKE ? OR c.en LIKE ?)"
-        args += [f"%{q}%", f"%{q}%"]
-    if topic:
-        sql += " AND c.topic = ?"
-        args.append(topic)
-    sql += " ORDER BY c.tier, c.id LIMIT ?"
-    args.append(limit)
-    with db.db() as conn:
-        rows = [dict(r) for r in conn.execute(sql, args).fetchall()]
-    return {"cards": rows}
-
-
-@app.post("/api/cards/suspend")
-def suspend(payload: dict = Body(...)) -> dict:
-    with db.db() as conn:
-        conn.execute("UPDATE cards SET suspended=? WHERE id=?",
-                     (1 if payload.get("suspended", True) else 0, payload["card_id"]))
-    return {"ok": True}
+#
+# There is no server-side scheduler any more. `/api/queue`, `/api/review`,
+# `/api/stats` and `/api/cards` all read and wrote one SQLite file, which meant a
+# single shared review history for everyone who opened the app and nothing left
+# after a container restart. The FSRS implementation now runs in the browser
+# against IndexedDB (frontend/srs.js, schedule.js, store.js); the server keeps
+# only what it alone can do — the decks, the scripted dialogue, recognition and
+# synthesis. Grading a single utterance is still here because it is pure text
+# comparison over the Maltese rules in backend/text.py, and it is stateless.
 
 
 # ── Static frontend ────────────────────────────────────────────────────────
@@ -307,8 +235,8 @@ async def cache_headers(request: Request, call_next):
     """
     response = await call_next(request)
     path = request.url.path
-    if path in ("/", "/index.html", "/app.js", "/style.css", "/sw.js",
-                "/manifest.webmanifest"):
+    if path in ("/", "/index.html", "/style.css", "/sw.js", "/manifest.webmanifest") \
+            or (path.endswith(".js") and path.count("/") == 1):
         response.headers["Cache-Control"] = "no-cache"
     elif path.startswith("/img/"):
         response.headers.setdefault("Cache-Control", "public, max-age=604800")

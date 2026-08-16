@@ -1,27 +1,22 @@
-"""Deck loading and lesson planning.
+"""Deck loading.
 
-The pedagogy encoded here:
+Reads the curated TSVs and hands them over as plain rows. Nothing here is stateful:
+the lesson planning that used to live alongside it — queue building, interleaving,
+the daily new-card budget, the learner profile — now runs in the browser against
+IndexedDB, because the schedule is the learner's and a server-side one was shared
+by every visitor and lost on every restart. See frontend/schedule.js.
 
-* **Frequency ordering** — tier 1 items first, so early effort buys the most coverage.
-* **Chunks before words** — phrases interleave with vocab (`db.new_cards`), because
-  fluent speech is largely prefabricated sequences, not words assembled from scratch.
-* **Production over recognition** — scripted turns and review both make the learner
-  *say* things, which is the harder and more transferable direction.
-* **Interleaving** — review queues mix topics and card kinds rather than blocking.
-* **Retrieval practice** — every session includes production (speaking), not just
-  recognition; the two are tracked separately per card.
+The pedagogy is unchanged and now enforced there: frequency ordering, phrases
+interleaved with words, new material spread through the due queue rather than
+front-loaded, and production tracked separately from recognition.
 """
 
 from __future__ import annotations
 
 import csv
-import hashlib
-import random
-from datetime import timedelta
 from pathlib import Path
 
-from .config import DATA_DIR, CFG
-from . import db, srs
+from .config import DATA_DIR
 
 VOCAB_TSV = DATA_DIR / "core_vocab.tsv"
 PHRASES_TSV = DATA_DIR / "phrases.tsv"
@@ -47,8 +42,17 @@ def grammar_notes() -> str:
     return GRAMMAR_MD.read_text(encoding="utf-8") if GRAMMAR_MD.exists() else ""
 
 
+def deck_rows() -> list[dict]:
+    """The whole curated deck as plain rows, for the client to seed from.
+
+    Cards are content: they ship with the app and are identical for everyone. The
+    schedule built on top of them is the learner's and stays in their browser, so
+    this is the only half the server needs to know about."""
+    return seed()["cards"]
+
+
 def seed() -> dict:
-    """Load the decks into SQLite. Idempotent — safe to run on every boot."""
+    """Read the decks off disk. Idempotent and cheap — no database involved."""
     vocab = [
         {
             "id": r["id"], "kind": "vocab", "mt": r["mt"], "en": r["en"],
@@ -75,141 +79,6 @@ def seed() -> dict:
         }
         for r in _read_tsv(IMPORT_TSV)
     ]
-    n = db.upsert_cards(vocab + phrases + imported)
-    return {"vocab": len(vocab), "phrases": len(phrases), "imported": len(imported), "total": n}
-
-
-# ── Session planning ───────────────────────────────────────────────────────
-
-def build_queue(limit: int = 20, topics: list[str] | None = None,
-                include_new: bool = True, max_tier: int | None = None) -> list[dict]:
-    """Interleaved queue of due reviews plus a capped trickle of new material."""
-    done_today = db.reviews_today()
-    review_budget = max(0, CFG.daily_review_limit - done_today)
-    due = db.due_cards(min(limit, review_budget), topics)
-
-    new: list[dict] = []
-    if include_new and len(due) < limit:
-        new_budget = max(0, CFG.daily_new_limit - _new_introduced_today())
-        new = db.new_cards(min(limit - len(due), new_budget), topics, max_tier)
-
-    queue = _interleave(due, new)
-    for c in queue:
-        c["mode"] = _pick_mode(c)
-    return queue[:limit]
-
-
-def _new_introduced_today() -> int:
-    # `reviewed_at` is written by db.iso() as `2026-08-15T05:34:32+00:00`, whereas
-    # SQLite's datetime() yields `2026-08-15 06:34:32`. These are compared as text,
-    # and 'T' sorts after ' ', so `datetime('now','-1 day')` let anything from the
-    # whole of the previous day count as today — which quietly ate the day's new-card
-    # allowance before the learner had seen a single new card. Pass the same format in.
-    cutoff = db.iso(srs.now() - timedelta(days=1))
-    with db.db() as conn:
-        row = conn.execute(
-            """SELECT COUNT(DISTINCT card_id) AS n FROM reviews
-               WHERE reviewed_at >= ?
-                 AND card_id IN (SELECT card_id FROM card_state WHERE reps <= 2)""",
-            (cutoff,),
-        ).fetchone()
-    return row["n"] if row else 0
-
-
-def _interleave(due: list[dict], new: list[dict]) -> list[dict]:
-    """Spread new cards through the review queue rather than front-loading them —
-    interleaving beats blocking for long-term retention."""
-    if not new:
-        return due
-    if not due:
-        return new
-    out: list[dict] = []
-    gap = max(1, len(due) // (len(new) + 1))
-    ni = 0
-    for i, card in enumerate(due):
-        out.append(card)
-        if ni < len(new) and (i + 1) % gap == 0:
-            out.append(new[ni])
-            ni += 1
-    out.extend(new[ni:])
-    return out
-
-
-def _pick_mode(card: dict) -> str:
-    """Which retrieval direction to test.
-
-    New cards are *shown* first (listen). After that we favour production, which is
-    the harder and more transferable direction, but keep recognition in rotation.
-    """
-    state = card.get("state", "new")
-    if state == "new":
-        return "listen"
-    prod = card.get("prod_reps") or 0
-    reps = card.get("reps") or 0
-    if reps < 2:
-        return "recognise"
-    if prod * 2 < reps:
-        return "produce"
-    return random.choice(["produce", "recognise", "listen"])
-
-
-def learner_profile() -> dict:
-    """Compact snapshot of what the learner knows, for the UI and the queue."""
-    known = db.known_cards(300)
-    c = db.counts()
-    errors = db.recent_errors(10)
-    level = _estimate_level(c["learned"])
-    return {
-        "level": level,
-        "learned_count": c["learned"],
-        "known_words": [k["mt"] for k in known if k["kind"] == "vocab"][:180],
-        "known_phrases": [k["mt"] for k in known if k["kind"] == "phrase"][:60],
-        "recent_errors": [
-            {"kind": e["kind"], "said": e["learner"], "correct": e["corrected"], "why": e["why"]}
-            for e in errors
-        ],
-    }
-
-
-def _estimate_level(learned: int) -> str:
-    if learned < 30:
-        return "A0"
-    if learned < 120:
-        return "A1"
-    if learned < 320:
-        return "A2"
-    if learned < 700:
-        return "B1"
-    return "B2"
-
-
-def register_new_vocab(items: list[dict], topic: str | None = None) -> list[str]:
-    """Persist a phrase met in conversation as a new card."""
-    rows, ids = [], []
-    for it in items:
-        mt = (it.get("mt") or "").strip()
-        en = (it.get("en") or "").strip()
-        if not mt or not en:
-            continue
-        cid = "t" + _slug(mt)
-        rows.append({
-            "id": cid, "kind": "phrase" if " " in mt else "vocab", "mt": mt, "en": en,
-            "pos": it.get("pos"), "tier": 3, "topic": topic or "conversation",
-            "note": it.get("note"), "source": "drill",
-        })
-        ids.append(cid)
-    if rows:
-        db.upsert_cards(rows)
-    return ids
-
-
-def _slug(s: str) -> str:
-    """Readable, stable card id. Ids key the review history, so they must not
-    collide: truncating alone would merge two long phrases sharing a 48-character
-    prefix into one card, quietly attaching one phrase's history to the other. A
-    short digest of the full string is appended whenever the readable part is cut."""
-    keep = "".join(ch.lower() if ch.isalnum() else "-" for ch in s).strip("-")
-    if len(keep) <= 48:
-        return keep
-    digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:6]
-    return f"{keep[:41].rstrip('-')}-{digest}"
+    cards = vocab + phrases + imported
+    return {"vocab": len(vocab), "phrases": len(phrases),
+            "imported": len(imported), "total": len(cards), "cards": cards}

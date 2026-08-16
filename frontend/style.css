@@ -624,3 +624,109 @@ input[type="range"] { accent-color: var(--red); }
 .vocab-tag.new { background: var(--surface-2); color: var(--text-dim); }
 .vocab-empty { color: var(--text-dim); font-size: .88rem; }
 @media (max-width: 720px) { .vocab-row { grid-template-columns: 26px 1fr 1fr 0; } .vocab-tag { display: none; } }
+
+/* ── Startup ───────────────────────────────────────────────────────────────
+   Covers the app until the recogniser is loaded. On a warm server this is on
+   screen for under a second; on a cold container it is the difference between
+   "starting" and "broken". */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  transition: opacity .3s ease;
+}
+
+.splash.is-done { opacity: 0; pointer-events: none; }
+
+.splash-inner {
+  width: min(90vw, 24rem);
+  text-align: center;
+}
+
+.splash-inner h1 {
+  margin: 0;
+  font-size: 2.2rem;
+  letter-spacing: -.02em;
+  color: var(--sea);
+}
+
+.splash-sub {
+  margin: .2rem 0 2rem;
+  color: var(--text-dim);
+  font-size: .95rem;
+}
+
+.splash-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.splash-bar i {
+  display: block;
+  height: 100%;
+  width: 3%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--sea), var(--sun, var(--sea)));
+  /* Slower than the poll interval so the bar glides between updates rather than
+     stepping — a stepping bar reads as a stall. */
+  transition: width 1.1s cubic-bezier(.25, .8, .3, 1);
+}
+
+.splash-step {
+  margin: 1rem 0 0;
+  font-size: .95rem;
+  color: var(--text);
+}
+
+.splash-note {
+  margin: .45rem 0 0;
+  font-size: .82rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.splash.is-failed .splash-bar i { background: var(--bad, #c0392b); }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash, .splash-bar i { transition: none; }
+}
+
+/* Export / import / reset, in Settings. Progress is device-local, so the way to
+   carry it has to be visible rather than buried. */
+
+.progress-data {
+  margin-top: 1.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.progress-data h3 {
+  margin: 0 0 .35rem;
+  font-size: .95rem;
+}
+
+.progress-data .hint {
+  margin: 0 0 .8rem;
+  font-size: .82rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.ghost-btn.danger {
+  color: var(--bad, #c0392b);
+  border-color: color-mix(in srgb, var(--bad, #c0392b) 40%, transparent);
+}
+
+#progressSummary { margin: .8rem 0 0; }

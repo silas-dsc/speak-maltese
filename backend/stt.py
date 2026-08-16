@@ -160,6 +160,23 @@ def _wav2vec2(audio: bytes, mime: str) -> str:
         Path(path).unlink(missing_ok=True)
 
 
+def needs_warmup() -> bool:
+    """Is there a local model in the chain that has to be loaded before use?
+
+    A hosted-API chain (ElevenLabs, Azure) is ready the moment the process is up;
+    a local model is not, and on a cold free-tier container the load is tens of
+    seconds. The client uses this to decide whether to show a startup screen at all
+    rather than flashing one for a deployment that never needed it."""
+    return bool({"wav2vec2", "faster_whisper"} & set(available()))
+
+
+def is_warm() -> bool:
+    """Has a local model actually finished loading? Reports the *loaded* object,
+    not the fact that a preload thread was started — the client waits on this, so
+    an optimistic answer would put the wait back on the first utterance."""
+    return _w2v is not None or _whisper_model is not None
+
+
 def preload() -> None:
     """Load the local model now rather than on the learner's first sentence.
 

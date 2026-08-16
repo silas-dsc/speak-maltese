@@ -198,6 +198,22 @@
 
     <div class="caps" id="capsBox"></div>
 
+    <section class="progress-data">
+      <h3>Your progress</h3>
+      <p class="hint">
+        Everything you have learned is stored on this device, not on the server —
+        so nobody else sees it, and it does not follow you to another browser.
+        Export it to move it, or to keep a copy.
+      </p>
+      <div class="progress-actions">
+        <button type="button" class="ghost-btn" id="exportProgress">Export</button>
+        <button type="button" class="ghost-btn" id="importProgress">Import</button>
+        <button type="button" class="ghost-btn danger" id="resetProgress">Start over</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" hidden>
+      <p class="hint" id="progressSummary"></p>
+    </section>
+
     <menu>
       <button class="primary-btn" value="ok">Done</button>
     </menu>

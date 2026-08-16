@@ -127,11 +127,13 @@ def _keys(s: str) -> list[str]:
     return [k for k in (phonetics.soft_key(w) for w in words) if k]
 
 
-# `Iva, għandi ħuti`, `Le, jien turist`, `Mela, jien Pietru`: a yes, a no or a
-# hesitation in front of the frame is still the frame, and the accepted answers
-# themselves open that way. Anything else in first place is not the frame.
+# `Iva, għandi ħuti`, `Le, jien turist`, `Bonġu, jien ħabib ta' Marija`: a yes, a no,
+# a greeting or a hesitation in front of the frame is still the frame — the accepted
+# answers open that way and so does the scene that prompts them, `Bonġu, min qed
+# jitkellem?`. Anything else in first place is not the frame.
 _OPENERS = [phonetics.soft_key(w) for w in
-            ("iva", "le", "mela", "allura", "ehm", "emm", "mm", "ok")]
+            ("iva", "le", "mela", "allura", "ehm", "emm", "mm", "ok",
+             "bonġu", "bonswa", "skużani", "grazzi", "merħba")]
 
 
 def _anchor_score(said: str, frame: str) -> float:
@@ -265,6 +267,7 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
     said = text.normalise(said)
     match, score = _best_match(said, n.get("accept", []))
 
+    frame_scored = False
     if n.get("free"):
         # A name, a place, a number: never marked wrong, because the app cannot
         # know it. But the frame around the slot is ordinary Maltese, so that part
@@ -272,15 +275,24 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
         # "hello", and the app should not pretend it cannot tell.
         framed, recall = _best_frame(said, n.get("accept", []))
         frames = n.get("frames") or []
-        if frames and not (score >= CORRECT and _outside_frames(match, frames)):
+        if frames:
             # The node says where the slot is, so the frame is looked for where it
             # belongs: `Jien` at the start, `sena` at the end, the town or the age
             # in between and unjudged. Nothing else counts as the frame — a name on
             # its own scores 0 here even when it happens to sound like the example
             # answer's name, because the sentence the scene teaches was not said.
-            match, score = framed, _best_anchor(said, frames)
-        elif not frames and recall > score:
-            match, score = framed, recall
+            anchor = _best_anchor(said, frames)
+            # Unless what they said is one of the deliberate steps outside the frame.
+            # `Dak sigriet!` is a real answer to how old you are, and how near they
+            # came to *it* is a real score — better than the 0 its frame would give.
+            if not (_outside_frames(match, frames) and score > anchor):
+                score, frame_scored = anchor, True
+            # `framed` is whichever example answer is nearest, for the correction
+            # card; it is None when nothing overlapped at all, and then the ordinary
+            # match is still the best line to show.
+            match = framed or match
+        elif recall > score:
+            match, score, frame_scored = (framed or match), recall, True
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
     elif score >= CORRECT:
         verdict = "correct"
@@ -305,10 +317,12 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
 
     out = {
         "verdict": verdict,
-        # A name, a town, an age: accepted as given and deliberately not scored.
-        # The client needs to know, because showing a percentage here would be
-        # reporting a match against sample answers that never applied.
+        # A name, a town, an age: accepted as given, whatever it is.
         "free": bool(n.get("free")),
+        # …and whether the score is the frame around that slot rather than a match
+        # against a listed answer. The client says so out loud, because "100%" means
+        # two different things: the frame was right, or the whole sentence was.
+        "frame_scored": frame_scored,
         "moved_on": moved_on,
         "score": score,
         "said": said,

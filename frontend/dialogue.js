@@ -72,10 +72,12 @@ function keys(s) {
   return text.normalise(s).split(/[\s-]+/).map(text.softKey).filter(Boolean);
 }
 
-/* `Iva, għandi ħuti`, `Le, jien turist`, `Mela, jien Pietru`: a yes, a no or a
-   hesitation in front of the frame is still the frame, and the accepted answers
-   themselves open that way. Anything else in first place is not the frame. */
-const OPENERS = ['iva', 'le', 'mela', 'allura', 'ehm', 'emm', 'mm', 'ok'].map(text.softKey);
+/* `Iva, għandi ħuti`, `Le, jien turist`, `Bonġu, jien ħabib ta' Marija`: a yes, a no,
+   a greeting or a hesitation in front of the frame is still the frame — the accepted
+   answers open that way and so does the scene that prompts them, `Bonġu, min qed
+   jitkellem?`. Anything else in first place is not the frame. */
+const OPENERS = ['iva', 'le', 'mela', 'allura', 'ehm', 'emm', 'mm', 'ok',
+  'bonġu', 'bonswa', 'skużani', 'grazzi', 'merħba'].map(text.softKey);
 
 /** Does the answer *start with* — and *end with* — the frame around its slot?
 
@@ -187,6 +189,7 @@ export function evaluate(did, nid, said, attempts = 0) {
   const [match0, score0] = bestMatch(said, n.accept);
 
   let verdict;
+  let frameScored = false;
   let [match, score] = [match0, score0];
   if (n.free) {
     // A name, a place, a number: never marked wrong, because the app cannot know
@@ -194,15 +197,22 @@ export function evaluate(did, nid, said, attempts = 0) {
     // scored and reported — "Jien Pietru" is not the same as "hello".
     const [framed, recall] = bestFrame(said, n.accept);
     const frames = n.frames || [];
-    if (frames.length && !(score >= CORRECT && outsideFrames(match, frames))) {
+    if (frames.length) {
       // The node says where the slot is, so the frame is looked for where it
       // belongs: `Jien` at the start, `sena` at the end, the town or the age in
       // between and unjudged. Nothing else counts as the frame — a name on its own
       // scores 0 here even when it sounds like the example answer's name, because
       // the sentence the scene teaches was not said.
-      match = framed;
-      score = bestAnchor(said, frames);
-    } else if (!frames.length && recall > score) { match = framed; score = recall; }
+      const anchor = bestAnchor(said, frames);
+      // Unless what they said is one of the deliberate steps outside the frame.
+      // `Dak sigriet!` is a real answer to how old you are, and how near they came
+      // to *it* is a real score — better than the 0 its frame would give.
+      if (!(outsideFrames(match, frames) && score > anchor)) { score = anchor; frameScored = true; }
+      // `framed` is whichever example answer is nearest, for the correction card;
+      // it is null when nothing overlapped at all, and then the ordinary match is
+      // still the best line to show.
+      match = framed || match;
+    } else if (recall > score) { match = framed || match; score = recall; frameScored = true; }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';
   else if (score >= CLOSE) verdict = 'close';
@@ -219,10 +229,12 @@ export function evaluate(did, nid, said, attempts = 0) {
 
   const out = {
     verdict,
-    // A name, a town, an age: accepted as given and deliberately not scored. The
-    // UI needs to know, because a percentage here would be reporting a match
-    // against sample answers that never applied.
+    // A name, a town, an age: accepted as given, whatever it is.
     free: !!n.free,
+    // …and whether the score is the frame around that slot rather than a match
+    // against a listed answer. The UI says so out loud, because "100%" means two
+    // different things: the frame was right, or the whole sentence was.
+    frame_scored: frameScored,
     moved_on: movedOn,
     score,
     said,

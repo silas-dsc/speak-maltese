@@ -516,15 +516,63 @@ def test_open_question_frames_are_well_formed():
 
 def test_open_question_escape_answers_keep_their_score():
     """Some listed answers step outside the frame on purpose — `Dak sigriet!` for an
-    age, `Ma niftakarx!` for a name. Saying one of those is a real answer, so it must
-    not be marked down against a frame it was never meant to use."""
+    age, `Ma niftakarx!` for a name. Saying one of those, or coming near it, is a real
+    answer and keeps its own score instead of being marked down against a frame it was
+    never meant to use. It is not reported as a frame score, because it is not one."""
     from backend import dialogue
 
     for did, nid, said in (("family", "f4", "Dak sigriet!"),
                            ("people", "o1", "Ma niftakarx!"),
-                           ("home", "h3", "Kamra waħda biss.")):
+                           ("home", "h3", "Kamra waħda biss."),
+                           ("feelings", "z1", "Ninsab imdejjaq"),   # near one, not exact
+                           ("likes", "l1", "Ma niekolx")):
         r = dialogue.evaluate(did, nid, said)
-        assert r["score"] >= dialogue.CORRECT, f"{said!r} scored {r['score']}"
+        assert r["score"] >= dialogue.CLOSE, f"{said!r} scored {r['score']}"
+        assert r["frame_scored"] is False, f"{said!r} reported as a frame score"
+
+
+def test_open_question_takes_a_greeting_before_the_frame():
+    """`Bonġu, min qed jitkellem?` is answered `Bonġu, jien …` — the scene prompts the
+    greeting and lists one of its own answers with it. A yes, a no, a greeting or a
+    hesitation in front of the frame is still the frame; anything else is not."""
+    from backend import dialogue
+
+    assert dialogue.evaluate("phone", "x1", "Bonġu, jien Pietru")["score"] == 1.0
+    assert dialogue.evaluate("family", "f2", "Iva, għandi ħuti kbar")["score"] == 1.0
+    assert dialogue.evaluate("greet", "g1", "Pietru jien")["score"] == 0.0
+
+
+def test_open_question_still_shows_the_target_when_nothing_was_said():
+    """Below two characters an open question is graded wrong — the one case where the
+    correction card matters, and it needs a line to show. Grading the frame must not
+    take the card away: no example answer overlaps a single letter, and the nearest
+    listed sentence is still the best thing to put in front of the learner."""
+    from backend import dialogue
+
+    r = dialogue.evaluate("greet", "g1", "a")
+    assert r["verdict"] == "wrong"
+    assert r["say_this_mt"], "nothing to repeat back"
+    assert r["diff"]
+
+
+def test_no_open_question_marks_down_its_own_answers():
+    """A frame is authored, so it can be authored wrong — pointing at a slot that is
+    not there, or demanding a word half the node's answers do not use. Either way the
+    learner is told a listed answer is not the Maltese the scene wanted."""
+    from backend import dialogue
+
+    offenders = []
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            if not n.get("free"):
+                continue
+            for a in n.get("accept", []):
+                if a.get("open"):
+                    continue
+                r = dialogue.evaluate(d["id"], node_id, a["mt"])
+                if r["score"] < dialogue.CORRECT:
+                    offenders.append(f"{d['id']}.{node_id}: {a['mt']!r} scores {r['score']}")
+    assert not offenders, "open question marks down its own answer:\n" + "\n".join(offenders)
 
 
 def test_every_accepted_answer_is_graded_correct():

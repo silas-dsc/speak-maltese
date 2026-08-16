@@ -2360,9 +2360,6 @@
           "say_mt": "Ara dawn iż-żewġ qomos. Liema tħobb?",
           "say_en": "Look at these two shirts. Which do you like?",
           "expect_en": "Say which colour you like",
-          "frames": [
-            "Inħobb …"
-          ],
           "accept": [
             {
               "mt": "Inħobb il-blu.",

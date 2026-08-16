@@ -637,12 +637,14 @@ async function answerDrill(said) {
     const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
     const el = drillBubble('tutor', r.reply_mt, r.reply_en);
     // An open question is your name, your town, your age: accepted whatever you
-    // say, because the app cannot know it. The score measures the Maltese *frame*
+    // say, because the app cannot know it. What is scored is the Maltese *frame*
     // around the slot — `Jien …`, `Għandi … sena` — and never the name or age in
     // it. Worth showing once the frame is there; below half it is reporting the
     // absence of one, and "correct · 15%" reads as an app that takes anything for
-    // anything.
-    const verdictText = r.free
+    // anything. Some answers to an open question are whole listed sentences rather
+    // than the frame — `Dak sigriet!` for an age — and those are marked like any
+    // other line, because that is what was measured.
+    const verdictText = r.free && r.frame_scored
       ? (r.score >= 0.5
         ? `frame right · ${Math.round(r.score * 100)}%`
         : 'taken as given · not scored')

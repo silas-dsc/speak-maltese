@@ -45,6 +45,9 @@ EDGE = [
     ("family", "f4", "dak sigriet!", 0),     # a listed answer outside the frame
     ("home", "h3", "tliet kmamar", 0),       # anchored at the end only
     ("home", "h3", "tlieta", 0),
+    ("phone", "x1", "bonġu, jien Pietru", 0),  # a greeting in front of the frame
+    ("feelings", "z1", "ninsab imdejjaq", 0),  # near a listed answer off the frame
+    ("greet", "g1", "a", 0),                 # too short: the target has to be shown
     ("stuck", "s3", "kif tgħidx xi s bil-malti", 0),
     ("stuck", "s3", "xi xi xi", 0),
     ("cafe", "c1", "nixtieq kafè, jekk jogħġbok.", 0),
@@ -58,7 +61,8 @@ const cases = JSON.parse(process.argv[2]);
 console.log(JSON.stringify(cases.map(([did, nid, said, attempts]) => {
   const r = d.evaluate(did, nid, said, attempts);
   return { verdict: r.verdict, score: r.score, matched: r.matched_mt,
-           advance: r.advance, moved_on: r.moved_on,
+           advance: r.advance, moved_on: r.moved_on, frame_scored: r.frame_scored,
+           say_this: r.say_this_mt || null,
            next: r.next ? r.next.node : null, finished: !!r.finished };
 })));
 """
@@ -93,7 +97,8 @@ def both():
         r = dialogue.evaluate(did, nid, said, attempts)
         py.append({"verdict": r["verdict"], "score": r["score"],
                    "matched": r["matched_mt"], "advance": r["advance"],
-                   "moved_on": r["moved_on"],
+                   "moved_on": r["moved_on"], "frame_scored": r["frame_scored"],
+                   "say_this": r.get("say_this_mt"),
                    "next": (r.get("next") or {}).get("node") if r.get("next") else None,
                    "finished": bool(r.get("finished"))})
     return data, js, py

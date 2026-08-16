@@ -1,0 +1,335 @@
+dialogue	node	expected	heard
+greet	g4	Nitkellem ftit Malti.	nitkellem ftit malti
+greet	g4	Ftit biss.	ftit biss
+greet	g4	Iva, ftit.	iva ftit
+greet	g4	Qed nitgħallem il-Malti.	qed nitgħallem il-malti
+cafe	c1	Nixtieq kafè, jekk jogħġbok.	nixtieq kaf jekk jogħġbok
+cafe	c1	Kafè, jekk jogħġbok.	kaf jekk jogħġbok
+cafe	c1	Nixtieq te, jekk jogħġbok.	nixtieq te jekk jogħġbok
+cafe	c1	Nixtieq ilma, jekk jogħġbok.	nixtieq ilma jekk jogħġbok
+cafe	c2	Iva, pastizz jekk jogħġbok.	iva pastizz jekk jogħġbok
+cafe	c2	Le, grazzi.	le grazzi
+cafe	c2	Iva, ftira jekk jogħġbok.	iva ftira jekk jogħġbok
+cafe	c2	Le, grazzi. Kafè biss.	le grazzi kaf biss
+cafe	c3	Le, grazzi. Kemm jiswa?	le grazzi kemm jiswa
+cafe	c3	Kemm jiswa?	kemm jiswa
+cafe	c3	Daqshekk, grazzi.	daqshekk grazzi
+cafe	c3	Il-kont, jekk jogħġbok.	il-kont jekk jogħġbok
+cafe	c4	Nista' nħallas bil-karta?	nista' nħallas bil-karta
+cafe	c4	Hawn hu. Grazzi!	hawn hu grazzi
+cafe	c4	Grazzi ħafna.	grazzi ħafna
+directions	d1	Skużi, fejn hu l-banju?	skużi fejn hu l-banju
+directions	d1	Fejn hu s-suq?	fejn hu s-suk
+directions	d1	Fejn hi l-istazzjon?	fejn hi l-istazzjon
+directions	d1	Fejn hu l-isptar?	fejn hu l-isptar
+directions	d1	Skużi, fejn hu s-suq?	skużi fejn hu s-suq
+directions	d2	Iva, fhimt. Grazzi!	iva fhimt grazzi
+directions	d2	Ma fhimtx.	ma fhimtx
+directions	d2	Tista' tirrepeti, jekk jogħġbok?	tista' tirrepeti jekk jogħġbok
+directions	d2	Bil-mod, jekk jogħġbok.	bil-mod jekk jogħġbok
+directions	d3	Le, grazzi. Nimxi.	le grazzi nimxi
+directions	d3	Iva, jekk jogħġbok.	iva jekk jogħġbok
+directions	d3	Le, grazzi ħafna.	le grazzi ħafna
+stuck	s1	Iva, lest.	iva lest
+stuck	s1	Lest!	lest
+stuck	s1	Ma nifhimx.	ma nifhimx
+stuck	s1	Iva, jekk jogħġbok.	iva jekk jogħġbok
+stuck	s2	Ħobż.	ħobż
+stuck	s2	Ma nafx. Kif tgħid 'bread' bil-Malti?	ma nafx kif tgħid bread bil-malti
+stuck	s2	Ma nafx.	ma nafx
+stuck	s2	Kif tgħid 'bread' bil-Malti?	kif tgħid brejad bil-malti
+stuck	s3	Kif tgħid 'cheese' bil-Malti?	kif tgħid jeseb il-malti
+stuck	s3	Kif tgħid cheese bil-Malti?	kif tgħidx xi s bil-malti
+stuck	s3	Xi tfisser 'cheese' bil-Malti?	xi tfisser kise bil-malti
+stuck	s4	Bil-mod, jekk jogħġbok.	bil-mod jekk jogħġbok
+stuck	s4	Tista' tirrepeti, jekk jogħġbok?	tista' tirrepeti jekk jogħġbok
+stuck	s4	Erġa' għid, jekk jogħġbok.	erġajt jekk jogħġbok
+stuck	s4	Ma nifhimx. Bil-mod, jekk jogħġbok.	ma nifhimx bil-mod jekk jogħġbok
+market	m1	Kilo tuffieħ, jekk jogħġbok.	kilo tuffieħ jekk jogħġbok
+market	m1	Nixtieq it-tadam.	nixtieq it-tadam
+market	m1	Kilo għeneb, jekk jogħġbok.	kilu ħeneb jekk jogħġbok
+market	m1	Nixtieq il-frott.	nixtieq il-frott
+market	m2	Le, grazzi. Kemm jiswa?	le grazzi kemm jiswa
+market	m2	Kemm jiswa kollox?	kemm jiswa kollox
+market	m2	Daqshekk. Kemm jiswa?	daqshekk kemm jiswa
+market	m2	Kemm jiswa?	kemm jiswa
+market	m3	Għoli wisq!	qoli wisq
+market	m3	Hawn hu. Grazzi!	hawn hu grazzi
+market	m3	Tajjeb. Hawn hu.	tajjeb hawn hu
+market	m3	Nista' nħallas bil-karta?	nista' nħallas bil-karta
+weather	w1	Iva, hemm sħana kbira.	iva hemm sħana kbira
+weather	w1	Iva, sabiħ ħafna.	iva sabiħ ħafna
+weather	w1	Iva, il-ġurnata sabiħa.	iva l-ġurnata sabiħa
+weather	w1	Le, hemm il-bard.	le hemm il-bard
+weather	w2	Inħobb is-sajf.	inħobb is-sajf
+weather	w2	Inħobb ix-xitwa.	inħobb ix-xitwa
+weather	w2	Nippreferi s-sajf.	nippreferi s-sajf
+weather	w2	It-tnejn!	it-tnejn
+weather	w3	Noqgħod id-dar u naqra.	noqgħod id-dar u naqra
+weather	w3	Noqgħod id-dar.	noqgħod id-dar
+weather	w3	Naqra ktieb.	naqra ktieb
+weather	w3	Nara film.	nara film
+restaurant	r1	Mejda għal tnejn, jekk jogħġbok.	mejda għal tnejn jekk jogħġbok
+restaurant	r1	Għal tnejn.	għal tnejn
+restaurant	r1	Għal wieħed.	għal wieħed
+restaurant	r1	Għal tlieta, jekk jogħġbok.	għal tlieta jekk jogħġbok
+restaurant	r2	Inbid aħmar, jekk jogħġbok.	inbid aħmar jekk jogħġbok
+restaurant	r2	Ilma, jekk jogħġbok.	ilma jekk jogħġbok
+restaurant	r2	Birra kiesħa, jekk jogħġbok.	birrakisħa jekk jogħġbok
+restaurant	r2	Nixtieq inbid abjad.	nixtieq inbid abjad
+restaurant	r3	Nieħu l-ħut, jekk jogħġbok.	nieħu l-ħut jekk jogħġbok
+restaurant	r3	X'tirrakkomanda?	x'tirrakkomanda
+restaurant	r3	Ma nikolx laħam.	ma nikolx laħam
+restaurant	r3	Nieħu l-għaġin.	nieħu l-għaġin
+restaurant	r4	Kollox tajjeb ħafna, grazzi. Il-kont, jekk jogħġbok.	kollox tajjeb ħafna grazzi il-kont jekk jogħġbok
+restaurant	r4	Il-kont, jekk jogħġbok.	il-kont jekk jogħġbok
+restaurant	r4	Iva, tajjeb ħafna. Grazzi.	iva tajjeb ħafna grazzi
+doctor	h1	Ma niflaħx.	ma niflaħx
+doctor	h1	Għandi uġigħ ta' ras.	għandi uġigħ ta' ras
+doctor	h1	Ma niflaħx sew.	ma niflaħ sew
+doctor	h1	Għandi uġigħ ta' stonku.	għandi uġigħ ta' stonku
+doctor	h2	Minn ilbieraħ.	min ilbieraħ
+doctor	h2	Minn jumejn.	min jumejn
+doctor	h2	Minn illum.	min illum
+doctor	h2	Minn ġimgħa.	minn ġimgħa
+doctor	h3	Iva, ftit.	iva ftit
+doctor	h3	Le, m'għandix.	le m'għandix
+doctor	h3	Iva, għandi.	iva għandi
+doctor	h3	Ma nafx.	ma nafx
+smalltalk	t1	Tajjeb, grazzi. U int?	tajjeb grazzi u int
+smalltalk	t1	Mhux ħażin.	mhux ħażin
+smalltalk	t1	Tajjeb ħafna, grazzi.	tajjeb ħafna grazzi
+smalltalk	t1	Ftit għajjien.	ftit għajjien
+smalltalk	t1	Tajjeb, grazzi.	tajjeb grazzi
+smalltalk	t2	Mort il-baħar.	mort il-baħar
+smalltalk	t2	Qgħadt id-dar.	qagħad id-dar
+smalltalk	t2	Mort għand il-familja.	mort għand il-familja
+smalltalk	t2	Ħadt ftit mistrieħ.	ħadd ftit mistrieħ
+smalltalk	t3	Se noħroġ mal-ħbieb.	se noħroġ mal-ħbieb
+smalltalk	t3	Xejn. Se noqgħod id-dar.	xejn se noqgħod id-dar
+smalltalk	t3	Trid tiġi miegħi?	trid tiġi miegħi
+smalltalk	t3	Se nara film.	se nara film
+smalltalk	t3	Se noqgħod id-dar.	se noqgħod id-dar
+work	k2	Immur fit-tmienja.	immur fit-tmienja
+work	k2	Immur kmieni, fis-sebgħa.	immur kmieni fis-sebgħa
+work	k2	Dejjem immur fid-disgħa.	dejjem imur fid-disħa
+work	k3	Immur id-dar u nistrieħ.	immur id-dar u nistrieħ
+work	k3	Nagħmel l-ikel.	nagħmel l-ikel
+work	k3	Nisma' l-mużika.	nisma' l-mużika
+work	k3	M'għandix ħin għal xejn!	m'għandix ħin għal xejn
+where	p1	Fuq il-mejda.	fuq il-mejda
+where	p1	Huma fuq il-mejda.	huma fuq il-mejda
+where	p1	Taħt il-ktieb.	taħt il-ktieb
+where	p1	Ħdejn it-telefon.	ħdejn it-telefown
+where	p2	Ipprova bejn il-kotba.	ipprova bejn il-kotba
+where	p2	Forsi quddiem it-tazza.	forsi quddiem it-tazza
+where	p2	Ħares wara s-siġġu.	ħares wara s-siġġu
+where	p2	M'hemmx xejn hemm.	m'hemm xejn hemm
+where	p3	Quddiem id-dar.	quddiem id-dar
+where	p3	Hi quddiem id-dar.	hi quddiem id-dar
+where	p3	Fit-triq, ħdejn il-ġnien.	fi triq ħdejn il-ġnien
+likes	l2	Għax hu tajjeb ħafna.	għax hu tajjeb ħafna
+likes	l2	Għax jogħġobni t-togħma.	għax jogħġobni t-togħma
+likes	l2	Għax hu frisk hawn Malta.	għax hu friska u malta
+likes	l2	Ma nafx, imma jogħġobni.	ma nafx imma jogħġobni
+likes	l3	Nixrob l-ilma.	nixrob l-ilma
+likes	l3	Inbid abjad, naħseb.	inbid abjad naħseb
+likes	l3	Nixrob il-birra.	nixrob il-birra
+likes	l3	Xejn, grazzi.	xejn grazzi
+plans	n1	Iva, għandi ħin.	iva għandi ħin
+plans	n1	Le, m'għandix ħin.	le m'għandix ħin
+plans	n1	Forsi. Għaliex?	forsi għaliex
+plans	n1	Iva, wara x-xogħol.	iva wara x-xogħol
+plans	n2	Iva, irrid niġi!	iva rrid niġi
+plans	n2	Iva, b'pjaċir.	iva pjaċir
+plans	n2	Le, ma nistax.	le ma nistax
+plans	n2	Naħseb li iva.	naħseb iva
+plans	n3	Agħżel int.	għażel int
+plans	n3	Xi ħaġa ħafifa.	xi ħaġa ħafifa
+plans	n3	Ma nafx. X'tgħid int?	ma nafx x'tgħid int
+plans	n3	Dak il-ġdid.	dak il-ġdid
+plans	n4	Bil-karozza, jekk jogħġbok.	bil-karozza jekk jogħġbok
+plans	n4	Immorru bil-mixi.	immorru bil-mixi
+plans	n4	Bix-xarabank.	bix-xarabank
+plans	n4	Bil-mixi, mingħajr karozza.	bil-mixi mingħaj l karozza
+meeting	e1	Tajjeb, grazzi. U int?	tajjeb grazzi u int
+meeting	e1	Merħba! Tajjeb ħafna.	merħba tajjeb ħafna
+meeting	e1	Ċaw! Kollox sew?	ċaw kollhox sew
+meeting	e1	Tajjeb, grazzi.	tajjeb grazzi
+meeting	e2	Iva, imma rrid nitkellem bil-Malti.	iva imma rid nitkellem bil-malti
+meeting	e2	Iva, imma qed nitgħallem il-Malti.	iva imma qed nitgħallem il-malti
+meeting	e2	Ftit. Nitgħallem il-Malti.	ftit nitgħallem il-malti
+meeting	e2	Qed nitgħallem il-Malti.	qed nitgħallem il-malti
+meeting	e3	Ma nifhimx.	ma nifhimx
+meeting	e3	Skużani, ma smajtx.	skużani ma smajtx
+meeting	e3	Tista' tirrepeti?	tista' tirrepeti
+meeting	e3	Bil-mod, jekk jogħġbok.	bil-mod jekk jogħġbok
+home	h1	Sabiħa ħafna!	sabiħa ħafna
+home	h1	Kbira!	kbira
+home	h1	Dar sabiħa.	dar sabiħa
+home	h1	Nadifa ħafna.	nadifa ħafna
+home	h2	Iva, niftaħ it-tieqa.	iva niftaħ it-tieqa
+home	h2	Le, nagħlaq it-tieqa.	le nagħlaq it-tieqa
+home	h2	Iva, jekk jogħġbok.	iva jekk jogħġbok
+home	h2	Le, hemm il-bard.	le hemm il-bard
+routine	y3	Nikteb u naqra.	nikteb u naqra
+routine	y3	Norqod kmieni.	norqod kmieni
+routine	y3	Nara t-televiżjoni.	nara t-televiżjoni
+routine	y3	Billejl norqod.	billejl norqod
+shop	q1	Qed nfittex il-ħalib.	qed infittex il-ħalib
+shop	q1	Nixtri l-bajd.	nixtri l-bajd
+shop	q1	Fejn hu l-ħaxix?	fejn hu l-ħaxix
+shop	q1	Qed nfittex iz-zokkor.	qed infittex iz-zokkor
+shop	q1	Fejn hu l-ħalib?	fejn hu l-ħalib
+shop	q2	Iva, u zokkor.	iva u zokkor
+shop	q2	Le, grazzi. Daqshekk.	le grazzi daqshekk
+shop	q2	Iva, jekk jogħġbok.	iva jekk jogħġbok
+shop	q2	Le, grazzi.	le grazzi
+shop	q3	Irħis! Hawn hu.	il-ħis hawn hu
+shop	q3	Għoli ftit, imma tajjeb.	għoli ftit imma tajjeb
+shop	q3	M'għandix flus biżżejjed.	m'għandix flus biżżejjed
+shop	q3	Hawn hu. Grazzi!	hawn hu grazzi
+colours	u2	Twila wisq.	twila wist
+colours	u2	Qasira wisq.	għasira wist
+colours	u2	Perfetta!	perfetta
+colours	u2	Tajba hekk.	tajba hekk
+colours	u3	Iva, għadha tajba.	iva għada tajba
+colours	u3	Le, qadima wisq.	le adima wist
+colours	u3	Naħseb li iva.	naħseb iva
+feelings	z2	Iva, għinni jekk jogħġbok.	iva għinni hekk jogħġbok
+feelings	z2	Le, grazzi. Jien tajjeb.	le grazzi jien tajjeb
+feelings	z2	Tista' tgħinni?	tista' tgħinni
+feelings	z2	Grazzi, imma le.	grazzi imma le
+feelings	z3	Naħseb li iva.	naħseb iva
+feelings	z3	Ninsab aħjar diġà.	ninsab aħjar diġà
+feelings	z3	Nittama.	nittama
+feelings	z3	Ma nafx.	ma nafx
+town	v1	Fejn hi l-iskola?	fejn hi l-iskola
+town	v1	Fejn hu l-isptar?	fejn hu l-isptar
+town	v1	Fejn hi l-knisja?	fejn hi l-knisja
+town	v1	Qed nfittex ristorant.	qed infittex ristorant
+town	v2	Iva, grazzi ħafna!	iva grazzi ħafna
+town	v2	Le, grazzi. Insibha.	le grazzi insibha
+town	v2	Jekk jogħġbok, iva.	jekk jogħġbok iva
+phone	x2	Iva, nistenna.	iva nistenna
+phone	x2	Nċempel wara.	inċempel wara
+phone	x2	M'għandix ħin, jiddispjaċini.	m'għandix ħin jiddispjaċini
+phone	x2	Iva, m'hemmx problema.	iva m'hemmx problema
+phone	x3	Iva. Għidilha li ċempilt.	iva għidilha li ċempilt
+phone	x3	Le, grazzi. Nerġa' nċempel.	le grazzi nerġa' nċempel
+phone	x3	Għidilha li nistennieha għada.	għidilha li mistennija għada
+pharmacy	y1	Tuġagħni s-sieq.	tuġanisieq
+pharmacy	y1	Tuġagħni l-għajn.	tuġanni l-għajn
+pharmacy	y1	Il-qalb tiegħi tħabbat malajr.	il-qalb tiegħi tħabbat malajr
+pharmacy	y2	Ilni tlett ijiem.	ilni tlett ijiem
+pharmacy	y2	Le, mill-għodwa biss.	le mill-għodwa biss
+pharmacy	y2	Ilni ġimgħa sħiħa.	'ilni ġimgħa sħiħa
+pharmacy	y3	Għandkom xi ħaġa oħra għall-uġigħ?	għandkom xi ħaġa oħra għall-uġigħ
+pharmacy	y3	Kemm hu l-prezz?	kemm hu l-prezz
+pharmacy	y3	Le, grazzi. Daqshekk.	le grazzi daqshekk
+bus	z1	Biljett wieħed, jekk jogħġbok.	biljett wieħed jekk jogħġbok
+bus	z1	Biljett wieħed għall-Belt.	biljett wieħed għall-belt
+bus	z1	Żewġ biljetti, jekk jogħġbok.	żewġ biljetti jekk jogħġbok
+bus	z2	X'ħin jitlaq ix-xarabank?	xħin jitlaq ix-xara bank
+bus	z2	Kemm indumu?	kemm indumu
+bus	z2	X'ħin nasal il-Belt?	xħin nasal il-belt
+bus	z3	Fejn nista' nsib taxi?	fejn nista' nsib taxi
+bus	z3	Hemm taxi qrib l-ajruport?	hemm ta' xi qrib l-ajruport
+bus	z3	Orrajt, nistenna.	orrajt nistenna
+lost	w1	Ninsab mitluf.	ninsab mitluf
+lost	w1	Ninsab mitluf, niddispjaċini.	ninsab mitluf niddispjaċini
+lost	w1	Ma nafx fejn jien.	ma nafx fejn jien
+lost	w2	Tista' turini fuq il-mappa?	tista' turini fuq il-mappa
+lost	w2	Ħalli nuri l-indirizz.	ħalli nuri l-indirizz
+lost	w2	Fejn hemm spiżerija qrib?	fejn hemm spiżerija qrib
+lost	w3	Grazzi ħafna. Ħu paċenzja bija.	grazzi ħafna ħu paċenzja bija
+lost	w3	Grazzi. Insejt il-mowbajl tiegħi d-dar.	grazzi insejt il-mowbajl tiegħi dar
+lost	w3	Tassew grazzi.	tassew grazzi
+learning	v1	Ilni sena nitgħallem.	ilni sena nitgħallem
+learning	v1	Ilni sitt xhur nipprova biex nitkellem.	ilnie sitt xhur nipprova biex nitkellem
+learning	v1	Għadni nibda — naf ftit kliem biss.	għadni nibda naf ftit kliem biss
+learning	v2	Il-grammatika diffiċli ħafna.	il-grammatika diffiċli ħafna
+learning	v2	Nibża' li nagħmel żball.	nibża' li nagħmel żball
+learning	v2	Nemmen li l-kliem huwa aktar diffiċli.	nemmen li l-kliem huwa aktar diffiċli
+learning	v3	Nista' nistaqsik xi ħaġa?	nista' nistaqsik xi ħaġa
+learning	v3	Kif tinkiteb din il-kelma?	kif tinkiteb din il-kelma
+learning	v3	Agħti daqqa t'għajn lil din is-sentenza.	qagħadi daqqa t'għajn lil din is-sentenza
+learning	v3	Kif ngħid din bil-Malti?	kif ngħid din bil-malti
+learning	v4	Trid tipprattika miegħi?	trid tipprattika miegħi
+learning	v4	X'inhi t-tweġiba t-tajba?	x'inhi tweġiba t-tajba
+learning	v4	Le, grazzi. Nifraħ li tgħallimt xi ħaġa.	le grazzi nifraħ li tgħallimt xi ħaġa
+booking	u1	Nixtieq nirriżerva mejda.	nixtieq nirriżerva mejda
+booking	u1	Nixtieq nirriżerva mejda għal tnejn.	nixtieq nirriżerva mejda għat tnejn
+booking	u1	Għandkom mejda għal-lejla?	għandkom mejda l-lejla
+booking	u2	Il-Ħamis filgħaxija.	il-ħamis filgħaxija
+booking	u2	Is-Sibt, jekk jogħġbok.	is-sibt jekk jogħġbok
+booking	u2	Ix-xahar id-dieħel.	ix-xahar iddieħel
+booking	u3	Aħna għaxra.	aħna qaxra
+booking	u3	Bosta nies — madwar tnax.	bosta nies madwar tnax
+booking	u3	Tnejn biss.	tnejn biss
+booking	u4	Madwar mija u ħamsin ewro.	madwar mija u ħamsin ewro
+booking	u4	Inqas minn mitt ewro.	inqas minn mit ewro
+booking	u4	Mhux aktar minn elf ewro għall-festa kollha.	mhux aktar minn elf ewrogħall-festa kollha
+clothes	s1	Qed infittex żarbun ġdid.	qed infittes żarbun ġdid
+clothes	s1	Nixtieq ħwejjeġ għax-xitwa.	nixtieq ħwejjeġ għax-xitwa
+clothes	s1	Għandkom borża ġdida?	għandkom borża ġdida
+clothes	s2	Nixtieq wieħed aħdar.	nixtieq wieħed aħdar
+clothes	s2	L-iswed, jekk jogħġbok.	l-iswed jekk jogħġbok
+clothes	s2	Wieħed ieħor, forsi isfar.	wieħed ieħor forsi isfar
+clothes	s3	Qasir, jekk jogħġbok. Kemm hu l-prezz?	qasir jekk jogħġbok kemm hu l-prezz
+clothes	s3	Twil. Hemm bejgħ illum?	twil hemm begħ illum
+clothes	s3	Ma jogħġobnix dan. Għandkom xi ħaġa oħra?	ma jogħġobnix dan għandkom xi ħaġa oħra
+keys	r1	Insejt iċ-ċavetta.	insejt iċ-ċavetta
+keys	r1	Ma nistax nidħol — insejt iċ-ċavetta.	ma nistax nidħol insejgtit ċavetta
+keys	r1	Ninsa kollox illum!	nin sa kollox illum
+keys	r2	Jien bil-ġuħ.	jien bil-ġuħ
+keys	r2	Jien bil-għatx.	jien bilaċ
+keys	r2	Nġib xi ħaġa jien?	nġib xi ħaġa jien
+keys	r3	Nħossni aħjar, grazzi.	inħossni aħjar grazzi
+keys	r3	Orrajt, grazzi.	orajt grazzi
+keys	r3	Niftakar issa — iċ-ċavetta qiegħda fil-borża!	niftakar issa ċ-ċavetta qiegħda fil-borża
+hobbies	q1	Nilgħab il-futbol.	nilgħab il-futbol
+hobbies	q1	Nkanta u nisma' l-mużika.	inkantaw nisma' l-mużika
+hobbies	q1	Nogħdos fil-baħar.	nogħdos fil-baħar
+hobbies	q2	Kuljum filgħodu.	kuljum filgħodu
+hobbies	q2	Kull nhar ta' Sibt.	kull nhar ta' sibt
+hobbies	q2	Le, darba fix-xahar.	le darba fix-xahar
+hobbies	q3	Iva, nivvjaġġa ħafna.	iva nivvjaġġa ħafna
+hobbies	q3	Nsuq minn pajjiż għal ieħor.	insuq minn pajjiż għal ieħor
+hobbies	q3	Le, ma nivvjaġġax ħafna.	le ma nivvjaġġax ħafna
+relatives	p1	Ngħix man-nanna u man-nannu.	ngħix man-nanna u man-nannu
+relatives	p1	Ngħix mal-omm u mal-missier.	ngħix mal-ommu mal-missier
+relatives	p1	Ngħix waħdi.	ngħix waħdi
+relatives	p2	Iva, u għandi żewġt itfal.	iva u għandi żewġt itfal
+relatives	p2	Le, għadni żagħżugħ!	le għadni żagħżugħ
+relatives	p2	Iva. Ir-raġel tiegħi Malti.	iva ir-raġel tiegħi malti
+relatives	p3	Huwa xiħ imma qawwi!	huwa xi ħima qawwi
+relatives	p3	Għandu x-xagħar abjad?	għandu x-xagħar abjad
+relatives	p3	In-nies ta' dik l-età jafu ħafna.	in-nies ta' dik l-età jafu ħafna
+jobs	o1	Naħdem bħala ħaddiem tal-IT.	naħdem bħala ħaddiem ta' l-gid
+jobs	o1	Naħdem fi skola.	naħdem fi skola
+jobs	o1	Naħdem fi sptar.	naħdem fi sptar
+jobs	o2	Xi kultant, imma nħobb ix-xogħol tiegħi.	xi kultant imma nħobb ix-xogħol tiegħi
+jobs	o2	Le, huwa faċli għalija.	le huwa faċja għalija
+jobs	o2	Ngħin lin-nies kuljum.	ngħin lin-nies kuljum
+jobs	o3	Nitlaq fis-sebgħa u nasal fit-tmienja.	nitlaq fis-sebgħa u nasal fit-tmienja
+jobs	o3	Nitlaq kmieni ħafna.	nitlaq kmieni ħafna
+jobs	o3	Nsuq għal nofs siegħa.	insuq għal nofs siegħa
+opinions	n1	Naħseb li hija tassew sabiħa.	naħseb li hija tassew sabiħa
+opinions	n1	Ma naqbilx — hemm wisq nies.	ma naqbilx hemm wisq nies
+opinions	n1	Ma jogħġobnix il-ħoss.	ma jogħġobniex il-ħoss
+opinions	n2	Nemmen li l-ikel Malti huwa l-aħjar.	nemmen li l-ikel malti huwa l-aħjar
+opinions	n2	Huwa tajjeb, imma jiswa aktar mis-soltu.	huwa tajjeb imma jiswa aktar mis-soltu
+opinions	n2	Inqas melħ, jekk jogħġbok!	inqas melħ jekk jogħġbok
+opinions	n3	Nemmen li mhux se jintilef.	nemmen li mhux se jintilef
+opinions	n3	Nħares lejn it-tfal u nifraħ.	inħares lejn it-tfal u nifraħ
+opinions	n3	Ma naqbilx magħhom.	ma naqbilx magħhom
+outing	m1	Ix-xemx qiegħda tiddi.	ix-xemx qiegħda tiddi
+outing	m1	Hemm ftit sħab u ftit riħ.	hemm ftit sħab u ftit riħ
+outing	m1	Il-jum nadif u sħun.	iljum nadifu sħun
+outing	m2	Iva, ejja mmorru!	iva ejja mmorru
+outing	m2	Nġib il-borża u ż-żarbun tiegħi.	nġib il-borża u ż-żarbun tiegħi
+outing	m2	Irrid nogħdos illum!	irrid nogħdos illum
+outing	m3	Sal-waranofsinhar.	sal waranofsinhar
+outing	m3	Ftit sigħat biss.	ftit sigħat biss
+outing	m3	Nkun lura sal-lejl — nixtieq nara x-xemx nieżla.	inkun lura sal-lejl nixtieq nara x-xemx nieżla

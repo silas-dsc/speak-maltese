@@ -72,14 +72,22 @@ def key_nospace(s: str) -> str:
 
 
 def soft_key(s: str) -> str:
-    """Phonetic key with `q` folded to `k`.
+    """Phonetic key with `q` dropped.
 
-    `q` is a glottal stop, and recognisers render it as h, k or nothing —
-    `Noqgħod` comes back as `noħog`, `noħok`, `noħħok`. Folding it costs little in a
-    closed set: `qalb` against `kelb` still scores 0.75, well under the accept
-    threshold, because the vowels carry the difference.
+    `q` is a glottal stop, and recognisers do not write it as a consonant: across
+    334 spoken answers the Maltese wav2vec2 rendered it as `għ` (`qasira` →
+    `għasira`), as nothing (`qadima` → `adima`), or as whatever consonant followed
+    (`wisq` → `wist`). `għ` is already folded away, so dropping `q` too puts the
+    two on the same footing and those three land exactly on their targets.
+
+    It was `q` → `k` before, which is what a speaker of the language would expect
+    and not what the recogniser does. Measured over the same 334 answers, dropping
+    is better on both sides of the decision: one more correct answer accepted, and
+    the highest score any *wrong* sibling achieves falls from 0.909 to 0.900. The
+    vowels still carry the distinctions that matter — `qalb` against `kelb` is
+    nowhere near the threshold either way.
     """
-    return key_nospace(s).replace("q", "k")
+    return key_nospace(s).replace("q", "")
 
 
 def similarity(a: str, b: str, soft: bool = False) -> float:

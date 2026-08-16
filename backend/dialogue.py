@@ -17,6 +17,7 @@ Latency for a turn is therefore just speech recognition plus cached audio.
 from __future__ import annotations
 
 import json
+import re
 import random
 from functools import lru_cache
 
@@ -73,6 +74,43 @@ def present(dialogue_id: str, node_id: str) -> dict | None:
     }
 
 
+# A quoted slot, and *only* that. Maltese writes the apostrophe as a letter —
+# `ta' Marija`, `x'inhu`, `ma' ħabib` — so a naive quote pair would span from the
+# apostrophe in `ta'` to the one in `x'` and blank out the real words between them.
+# The opening quote therefore has to start a word and the closing one end it, which
+# is true of `'cheese'` and never of the Maltese apostrophe.
+_QUOTED = re.compile(r"(?<!\w)['‘’\"]([^'‘’\"]+)['‘’\"](?!\w)")
+
+
+def _frame_score(said: str, target: str) -> float:
+    """Score a sentence with a quoted foreign word in it, on its Maltese frame only.
+
+    `Kif tgħid 'cheese' bil-Malti?` is the one pattern where the learner is meant to
+    say something the recogniser cannot possibly get: a Maltese model has never been
+    trained on `cheese` and writes it as whatever Maltese it sounds nearest to —
+    here, `kif tgħidx xi s bil-malti`. Grading that against the full sentence
+    punishes the learner for the one word they were asked to supply.
+
+    So the quoted slot is removed from the target and the frame words are looked for
+    in order. Everything outside the quotes still has to be right.
+    """
+    frame = _QUOTED.sub(" ", target)
+    want = [k for k in (phonetics.soft_key(w) for w in text.normalise(frame).split()) if k]
+    got = [phonetics.soft_key(w) for w in text.normalise(said).split()]
+    if not want:
+        return 0.0
+    hits, i = 0, 0
+    for w in want:
+        # in order, allowing the unrecognisable slot to appear as any junk between
+        while i < len(got):
+            if phonetics.similarity(got[i], w) >= 0.8:
+                hits += 1
+                i += 1
+                break
+            i += 1
+    return hits / len(want)
+
+
 def _best_match(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
     best, best_score = None, 0.0
     for candidate in accepted:
@@ -83,6 +121,8 @@ def _best_match(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
         # phonetic near-miss.
         phon = phonetics.similarity(said, candidate["mt"], soft=True)
         score = max(phon, 0.6 * phon + 0.4 * text.score(said, candidate["mt"]))
+        if _QUOTED.search(candidate["mt"]):
+            score = max(score, _frame_score(said, candidate["mt"]))
         if score > best_score:
             best, best_score = candidate, score
     return best, round(best_score, 4)

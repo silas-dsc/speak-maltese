@@ -113,3 +113,59 @@ def test_a_quoted_foreign_word_is_not_graded():
     assert r["verdict"] == "correct", r["score"]
     # ...but the frame is not a free pass
     assert dialogue.evaluate("stuck", "s3", "xi xi xi")["verdict"] == "wrong"
+
+
+# ── The review path ────────────────────────────────────────────────────────
+#
+# Scripted dialogue picks between a handful of written answers; review grades one
+# utterance against one card and turns the result straight into a schedule. A
+# correct answer marked Hard is worse there than in conversation — it does not
+# cost a retry, it shortens the interval and drags the card's difficulty up.
+
+def review_scores():
+    from backend.main import _assess
+
+    return [(r, _assess(r["heard"], r["expected"])) for r in rows()]
+
+
+def test_the_4bit_recogniser_clears_the_review_grader():
+    """Every correctly-spoken answer should auto-grade Good or better.
+
+    It was 96.1% before the review path started blending phonetic similarity in:
+    the recogniser puts word boundaries where it likes — `Birra kiesħa` as
+    `birrakisħa`, `Ninsa kollox` as `nin sa kollox` — and a word-aligned score
+    cannot see past that."""
+    from backend import srs
+
+    penalised = [(r, a) for r, a in review_scores() if a["grade"] < srs.GOOD]
+    detail = "\n".join(
+        f"  {a['score']:.3f} grade{a['grade']} want {r['expected']!r} heard {r['heard']!r}"
+        for r, a in penalised)
+    assert not penalised, f"{len(penalised)} correct answers penalised:\n{detail}"
+
+
+def test_review_grading_still_refuses_a_different_sentence():
+    """The floor must not turn into a free pass. These are answers to other cards
+    entirely — a learner who says the wrong thing has to be told."""
+    from backend.main import _assess
+
+    for said, target in (
+        ("bonġu kif int", "Nixtieq nirriżerva mejda."),
+        ("nixtri l-ħobż", "Fejn hu l-isptar?"),
+        ("xi xi xi", "Grazzi ħafna."),
+        ("nilgħab il-futbol", "Tuġagħni s-sieq."),
+    ):
+        a = _assess(said, target)
+        assert a["grade"] < 3, f"{said!r} should not pass as {target!r} ({a['score']})"
+
+
+def test_review_and_dialogue_agree_about_the_same_utterance():
+    """The two graders used to disagree by a wide margin on identical input —
+    `min għajr zokkor` for `Mingħajr zokkor` scored 1.00 in conversation and 0.65
+    in review. Same recogniser, same learner, opposite verdicts."""
+    from backend.main import _assess
+
+    for said, target in (("min għajr zokkor", "Mingħajr zokkor."),
+                         ("birrakisħa jekk jogħġbok", "Birra kiesħa, jekk jogħġbok."),
+                         ("nin sa kollox illum", "Ninsa kollox illum!")):
+        assert _assess(said, target)["grade"] >= 3, (said, target)

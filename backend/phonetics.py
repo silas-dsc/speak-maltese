@@ -90,6 +90,21 @@ def soft_key(s: str) -> str:
     return key_nospace(s).replace("q", "")
 
 
+def key_similarity(a: str, b: str) -> float:
+    """0..1 similarity between two keys that have already been made.
+
+    `similarity` keys whatever it is given, which is the wrong thing to do to a key:
+    a second pass collapses the doubled vowels the first one produced out of silent
+    `għ` — `noqgħod` keys to `nood`, and keying that again gives `nod`. The comparison
+    then moves without saying so, and `nohod` against `nood` falls from 0.89 to 0.75.
+    """
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
 def similarity(a: str, b: str, soft: bool = False) -> float:
     """0..1 phonetic similarity, insensitive to word splits."""
     ka, kb = (soft_key(a), soft_key(b)) if soft else (key_nospace(a), key_nospace(b))

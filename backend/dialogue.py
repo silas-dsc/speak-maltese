@@ -149,7 +149,7 @@ def _same_word(said: str, want: str) -> bool:
         return False
     # Two-letter keys are too short for a ratio to mean anything: `in`, the tail of
     # `in-numru`, scores exactly 0.80 against `yin` — which is `jien`.
-    if min(len(said), len(want)) >= 3 and phonetics.similarity(said, want) >= 0.8:
+    if min(len(said), len(want)) >= 3 and phonetics.key_similarity(said, want) >= 0.8:
         return True
     return len(want) >= 2 and said.startswith(want) and len(said) - len(want) <= 2
 
@@ -324,7 +324,9 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
                 # ordinary match is still the best line to show.
                 match = framed or match
         elif recall > score:
-            match, score, frame_scored = (framed or match), recall, True
+            # No slot to anchor on, so this is how much of an example answer they
+            # produced — not a frame score, and not claimed as one.
+            match, score = (framed or match), recall
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
     elif score >= CORRECT:
         verdict = "correct"

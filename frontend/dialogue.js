@@ -84,8 +84,11 @@ function keys(s) {
 function sameWord(said, want) {
   if (said === want) return true;
   if (said.slice(0, 1) !== want.slice(0, 1)) return false;
+  // `text.ratio`, not `phoneticSimilarity`: these are keys already, and keying a key
+  // collapses the doubled vowels the first pass makes out of silent għ — `noqgħod`
+  // keys to `nood`, and again to `nod`.
   if (Math.min(said.length, want.length) >= 3
-    && text.phoneticSimilarity(said, want) >= 0.8) return true;
+    && text.ratio(said, want) >= 0.8) return true;
   return want.length >= 2 && said.startsWith(want) && said.length - want.length <= 2;
 }
 
@@ -242,7 +245,12 @@ export function evaluate(did, nid, said, attempts = 0) {
         frameScored = true;
         match = framed || match;
       }
-    } else if (recall > score) { match = framed || match; score = recall; frameScored = true; }
+    } else if (recall > score) {
+      // No slot to anchor on, so this is how much of an example answer they made —
+      // not a frame score, and not claimed as one.
+      match = framed || match;
+      score = recall;
+    }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';
   else if (score >= CLOSE) verdict = 'close';

@@ -540,6 +540,18 @@ def test_open_question_frame_hears_the_person_of_the_verb():
     assert r["frame_scored"] is False and r["score"] >= dialogue.CLOSE
 
 
+def test_open_question_compares_keys_without_keying_them_twice():
+    """The anchor holds phonetic keys, so it must compare them as keys. Running one
+    through the keyer again collapses the doubled vowel silent għ leaves behind —
+    `noqgħod` keys to `nood`, and again to `nod` — which drops the recogniser's usual
+    spelling of it from 0.89 to 0.75 and takes a correct answer to zero."""
+    from backend import dialogue, phonetics
+
+    assert phonetics.key_similarity("nohod", "nood") >= 0.8
+    assert phonetics.similarity("nohod", "nood") < 0.8, "the double-keyed value"
+    assert dialogue.evaluate("greet", "g3", "Noqhod il-Belt")["score"] == 1.0
+
+
 def test_open_question_shows_the_line_its_score_came_from():
     """`matched_mt` is the sentence the number was measured against. On the escape
     path that is the listed answer they nearly said, not whichever example the frame

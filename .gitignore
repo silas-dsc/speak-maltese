@@ -25,3 +25,7 @@ web/models/
 # Build output. `python scripts/build_static.py` regenerates it, and CI builds its
 # own copy — committing it would double every audio file in the repo.
 dist/
+
+# Credentials. Never commit — this repo is public.
+.hf-token
+*.token

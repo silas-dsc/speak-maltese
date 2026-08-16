@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -301,12 +302,52 @@ def test_service_worker_and_manifest_are_served(client):
 
 
 def test_service_worker_never_caches_live_state():
-    """Caching /api/queue or /api/stats would show yesterday's schedule. Only the
-    shell and the (immutable) synthesised audio may be served from cache."""
-    sw = (Path(__file__).resolve().parent.parent / "frontend" / "sw.js").read_text()
-    assert "url.pathname === '/api/tts'" in sw
-    assert "url.pathname.startsWith('/api/')" in sw
-    assert "return;" in sw.split("startsWith('/api/')")[1][:40]
+    """Caching /api/queue or /api/stats would show yesterday's schedule.
+
+    Checked by running the worker's own routing rule over real URLs rather than by
+    grepping for it: the rule changed when the static build arrived — its
+    api/deck.json is an immutable file that *should* cache — and a test that
+    matched the old string would have failed for the wrong reason."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+
+    driver = ROOT / "tests" / "_sw_driver.mjs"
+    # sw.js names its routing rule `routeFor`, so the test can run the real thing.
+    # Everything else in the file needs a ServiceWorker global scope, so just that
+    # function is lifted out and evaluated.
+    driver.write_text(
+        "import { readFileSync } from 'node:fs';\n"
+        "const src = readFileSync('frontend/sw.js', 'utf8');\n"
+        "const start = src.indexOf('function routeFor');\n"
+        "const end = src.indexOf('\\n}', start) + 2;\n"
+        "const routeFor = new Function(`${src.slice(start, end)}; return routeFor;`)();\n"
+        "const urls = JSON.parse(process.argv[2]);\n"
+        "console.log(JSON.stringify(urls.map((u) => routeFor(new URL(u)))));\n",
+        encoding="utf-8")
+    urls = [
+        "http://x/api/tts?text=hi",              # audio  — immutable, cache hard
+        "http://x/speak-maltese/api/tts?text=hi",
+        "http://x/api/queue?limit=5",            # network — live state
+        "http://x/api/stats",
+        "http://x/api/drill/answer",
+        "http://x/speak-maltese/api/deck.json",  # shell   — a file in the static build
+        "http://x/style.css",
+        "http://x/img/scene-cafe.webp",
+    ]
+    try:
+        proc = subprocess.run([node, str(driver), json.dumps(urls)], cwd=ROOT,
+                              capture_output=True, text=True, timeout=30)
+    finally:
+        driver.unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got == ["audio", "audio", "network", "network", "network",
+                   "shell", "shell", "shell"], dict(zip(urls, got))
 
 
 def test_service_worker_survives_a_missing_asset():

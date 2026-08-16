@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_note": "Scripted conversations. Every line the app speaks is written here, so it is correct Maltese by construction and can be synthesised ahead of time. `accept` lists answers that count as right; matching is phonetic, so spelling and diacritics do not have to be exact.",
+  "_note": "Scripted conversations. Every line the app speaks is written here, so it is correct Maltese by construction and can be synthesised ahead of time. `accept` lists answers that count as right; matching is phonetic, so spelling and diacritics do not have to be exact. On an open question (`free`), `frames` says where the free bit sits — `Jien …`, `Għandi … sena` — so the fixed Maltese around it is looked for at the start of the answer, at the end, or both, while the name or age in the slot is never graded.",
   "dialogues": [
     {
       "id": "greet",
@@ -12,7 +12,11 @@
         "g1": {
           "say_mt": "Bonġu! Jien Marija. X'jismek?",
           "say_en": "Good morning! I'm Marija. What's your name?",
-          "expect_en": "Say your name — anything goes",
+          "expect_en": "Say your name",
+          "frames": [
+            "Jien …",
+            "Jisimni …"
+          ],
           "accept": [
             {
               "mt": "Jisimni Silas.",
@@ -46,7 +50,11 @@
         "g2": {
           "say_mt": "Minn fejn int?",
           "say_en": "Where are you from?",
-          "expect_en": "Say where you're from — anything goes",
+          "expect_en": "Say where you're from",
+          "frames": [
+            "Jien minn …",
+            "Minn …"
+          ],
           "accept": [
             {
               "mt": "Jien mill-Awstralja.",
@@ -83,7 +91,10 @@
         "g3": {
           "say_mt": "Fejn toqgħod?",
           "say_en": "Where do you live?",
-          "expect_en": "Say where you live — anything goes",
+          "expect_en": "Say where you live",
+          "frames": [
+            "Noqgħod …"
+          ],
           "accept": [
             {
               "mt": "Noqgħod Tas-Sliema.",
@@ -1201,7 +1212,11 @@
         "k1": {
           "say_mt": "Merħba! Għidli, x'taħdem?",
           "say_en": "Welcome! Tell me, what do you do for work?",
-          "expect_en": "Say what you do — anything goes",
+          "expect_en": "Say what you do",
+          "frames": [
+            "Jien …",
+            "Naħdem …"
+          ],
           "accept": [
             {
               "mt": "Naħdem f'uffiċċju.",
@@ -1353,6 +1368,9 @@
           "say_mt": "Għandek aħwa?",
           "say_en": "Do you have brothers or sisters?",
           "expect_en": "Say who you have",
+          "frames": [
+            "Għandi …"
+          ],
           "accept": [
             {
               "mt": "Għandi ħu u oħt.",
@@ -1426,7 +1444,10 @@
         "f4": {
           "say_mt": "Kemm għandek żmien?",
           "say_en": "How old are you?",
-          "expect_en": "Say your age — anything goes",
+          "expect_en": "Say your age",
+          "frames": [
+            "Għandi … sena"
+          ],
           "accept": [
             {
               "mt": "Għandi tletin sena.",
@@ -1582,6 +1603,10 @@
           "say_mt": "Għidli — x'tħobb tiekol?",
           "say_en": "Tell me — what do you like to eat?",
           "expect_en": "Say what you like eating",
+          "frames": [
+            "Inħobb …",
+            "Niekol …"
+          ],
           "accept": [
             {
               "mt": "Inħobb il-ħut.",
@@ -2042,6 +2067,9 @@
           "say_mt": "Kemm-il kamra għandek?",
           "say_en": "How many rooms do you have?",
           "expect_en": "Say how many rooms",
+          "frames": [
+            "… kmamar"
+          ],
           "accept": [
             {
               "mt": "Għandi ħames kmamar.",
@@ -2088,6 +2116,9 @@
           "say_mt": "X'ħin tqum filgħodu?",
           "say_en": "What time do you get up in the morning?",
           "expect_en": "Say when you get up",
+          "frames": [
+            "Nqum …"
+          ],
           "accept": [
             {
               "mt": "Nqum fis-sitta.",
@@ -2125,6 +2156,10 @@
           "say_mt": "X'ħin tibda u tispiċċa x-xogħol?",
           "say_en": "What time do you start and finish work?",
           "expect_en": "Say when you start and finish",
+          "frames": [
+            "Nibda …",
+            "Nispiċċa …"
+          ],
           "accept": [
             {
               "mt": "Nibda fid-disgħa u nispiċċa fil-ħamsa.",
@@ -2437,7 +2472,11 @@
         "o1": {
           "say_mt": "X'jisem ommok?",
           "say_en": "What's your mother's name?",
-          "expect_en": "Say her name — anything goes",
+          "expect_en": "Say her name",
+          "frames": [
+            "Jisimha …",
+            "Ommi jisimha …"
+          ],
           "accept": [
             {
               "mt": "Jisimha Marija.",
@@ -2470,7 +2509,11 @@
         "o2": {
           "say_mt": "Missierek x'jaħdem?",
           "say_en": "What does your father do?",
-          "expect_en": "Say what he does — anything goes",
+          "expect_en": "Say what he does",
+          "frames": [
+            "Hu …",
+            "Jaħdem …"
+          ],
           "accept": [
             {
               "mt": "Hu għalliem.",
@@ -2508,6 +2551,9 @@
           "say_mt": "Għandek iben jew bint?",
           "say_en": "Do you have a son or a daughter?",
           "expect_en": "Say who you have",
+          "frames": [
+            "Għandi …"
+          ],
           "accept": [
             {
               "mt": "Għandi tifel u tifla.",
@@ -2554,6 +2600,9 @@
           "say_mt": "Tidher imdejjaq. X'ġara?",
           "say_en": "You look down. What happened?",
           "expect_en": "Say how you feel",
+          "frames": [
+            "Inħossni …"
+          ],
           "accept": [
             {
               "mt": "Inħossni għajjien.",
@@ -2786,6 +2835,9 @@
           "say_mt": "Bonġu, min qed jitkellem?",
           "say_en": "Hello, who's speaking?",
           "expect_en": "Say who you are",
+          "frames": [
+            "Jien …"
+          ],
           "accept": [
             {
               "mt": "Jien Silas.",

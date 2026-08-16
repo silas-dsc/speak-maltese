@@ -553,7 +553,13 @@ function showSceneImage(id) {
 function presentDrillNode(node) {
   drill.node = node.node;
   drill.attempts = 0;
-  $('drillExpect').textContent = node.expect_en ? `→ ${node.expect_en}` : '';
+  // An open question is scored on its Maltese frame, so the frame is on the screen
+  // next to the English. Saying "say your name — anything goes" and then marking
+  // `Jien …` asked the learner to guess which half was being looked at.
+  const frames = (node.frames || []).map((f) => `<b>${escapeHtml(f)}</b>`).join(' / ');
+  $('drillExpect').innerHTML = node.expect_en
+    ? `→ ${escapeHtml(node.expect_en)}${frames ? ` · ${frames}` : ''}`
+    : '';
   drillBubble('tutor', node.say_mt, node.say_en);
   if (state.settings.autoplay) speak(node.say_mt);
 }
@@ -636,17 +642,23 @@ async function answerDrill(said) {
     const tone = r.moved_on ? 'near' : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
     const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
     const el = drillBubble('tutor', r.reply_mt, r.reply_en);
-    // Free nodes are your name, your town, your age. They are accepted whatever
-    // you say, so the score is a match against example answers that were never
-    // meant to apply — printing it read as "correct, 15%", which looks like the
-    // app will take anything for anything.
-    // On a free node the score measures the Maltese *frame* — `Jien …`,
-    // `Noqgħod …` — and ignores the name or town in the slot. Worth showing when
-    // the frame actually landed; below that it is measuring the absence of one,
-    // and "correct · 15%" reads as an app that takes anything for anything.
+    // An open question is your name, your town, your age: accepted whatever you
+    // say, because the app cannot know it. What is scored is the Maltese *frame*
+    // around the slot — `Jien …`, `Għandi … sena` — and never the name or age in
+    // it. Worth showing once the frame is there; below half it is reporting the
+    // absence of one, and "correct · 15%" reads as an app that takes anything for
+    // anything. Some answers to an open question are whole listed sentences rather
+    // than the frame — `Dak sigriet!` for an age — and those are marked like any
+    // other line, because that is what was measured.
+    // `r.verdict` is no help here: on an open question it is "correct" whenever two
+    // characters were said, so printing it would claim a judgement the app never
+    // made. Either the frame was measured, or what was measured is how near they
+    // came to one of the listed answers.
+    const freeLabel = r.frame_scored ? 'frame right'
+      : (r.score >= dialogueEngine.CORRECT ? 'answer right' : 'close to an answer');
     const verdictText = r.free
       ? (r.score >= 0.5
-        ? `frame right · ${Math.round(r.score * 100)}%`
+        ? `${freeLabel} · ${Math.round(r.score * 100)}%`
         : 'taken as given · not scored')
       : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
     el.querySelector('.bubble').insertAdjacentHTML('afterbegin',

@@ -458,6 +458,252 @@ def test_decks_articles_assimilate():
     assert not offenders, "sun-letter assimilation:\n" + "\n".join(offenders)
 
 
+@pytest.mark.parametrize("did,nid,said,expected", [
+    # `Jien …` — the keyword has to be there, and it has to be first.
+    ("greet", "g1", "Jien Pietru", 1.0),
+    ("greet", "g1", "Jisimni Pietru", 1.0),
+    ("greet", "g1", "Mela, jien Pietru", 1.0),   # a hesitation in front is still the frame
+    ("greet", "g1", "Jien", 0.5),                # frame right, nothing said in it
+    ("greet", "g1", "Pietru", 0.0),              # the name alone is not the sentence
+    ("greet", "g1", "Pietru jien", 0.5),         # keyword there, but nothing after it
+    ("greet", "g1", "hello", 0.0),
+    # The frame with the learner's own words around it is still the frame.
+    ("likes", "l1", "Jien inħobb il-ħut", 1.0),
+    ("home", "h3", "Għandi ħames kmamar fid-dar", 1.0),
+    ("people", "o2", "Huwa għalliem", 1.0),      # hu/huwa is one word
+    # `Għandi … sena` — both ends, with the age itself unjudged in between.
+    ("family", "f4", "Għandi ħamsa u tletin sena", 1.0),
+    ("family", "f4", "Andi hamsa u tletin sena", 1.0),   # recogniser drops għ and ħ
+    ("family", "f4", "Ħamsa u tletin sena", 2 / 3),      # ends right, opens with nothing
+    ("family", "f4", "Għandi tletin", 2 / 3),            # opens right, `sena` missing
+    ("family", "f4", "Tletin", 0.0),
+    # `… kmamar` — ends with, and nothing to say about what comes before it.
+    ("home", "h3", "Tliet kmamar", 1.0),
+    ("home", "h3", "Għandi sitt kmamar", 1.0),
+    ("home", "h3", "Tlieta", 0.0),
+])
+def test_open_question_still_wants_its_keywords(did, nid, said, expected):
+    """An open question is a frame with a name, a town or an age in it. The slot is
+    the learner's and is never graded; the frame is ordinary Maltese and is the whole
+    point of the scene, so it is looked for where it belongs — at the start of the
+    answer, at the end, or both. `Pietru` on its own used to score as well as
+    `Jien Pietru`, which told the learner the sentence did not matter."""
+    from backend import dialogue
+
+    r = dialogue.evaluate(did, nid, said)
+    assert r["score"] == pytest.approx(expected, abs=0.005), f"{said!r} scored {r['score']}"
+    # Never blocked on any of these: the app cannot know the answer.
+    assert r["verdict"] == "correct"
+
+
+def test_open_question_does_not_anchor_on_a_two_letter_lookalike():
+    """`Jien` keys to `yin`, and `in` — the tail of `in-numru` once the fused article
+    is split off — scores exactly 0.80 against it. That is the similarity bar, so a
+    sentence with no `jien` anywhere in it used to satisfy the `Jien …` frame."""
+    from backend import dialogue
+
+    assert dialogue._best_anchor("Skużani, żbaljajt in-numru.", ["Jien …"]) == 0.0
+    assert dialogue.evaluate("phone", "x1", "in-numru")["score"] == 0.0
+    # …while the pronoun's own variants still count as itself.
+    assert dialogue.evaluate("greet", "g1", "Jiena Pietru")["score"] == 1.0
+    assert dialogue.evaluate("people", "o2", "Huwa għalliem")["score"] == 1.0
+
+
+def test_open_question_without_a_frame_still_says_nothing_rather_than_a_number():
+    """Four open questions have no slot to frame — is your family big, who lives with
+    you. Junk there must stay under the bar the UI prints from, or the app is back to
+    answering "hello" with "correct · 33%"."""
+    from backend import dialogue
+
+    for did, nid in (("family", "f1"), ("family", "f3"), ("colours", "u1"), ("town", "v3")):
+        for said in ("hello", "xi xi xi"):
+            r = dialogue.evaluate(did, nid, said)
+            assert r["score"] < 0.5, f"{did}.{nid} scores {said!r} at {r['score']}"
+
+
+def test_open_question_frame_hears_the_person_of_the_verb():
+    """Maltese conjugates on the first letter — `nibda` I start, `tibda` you start —
+    and they are 0.80 apart, inside the matcher's bar. Echoing the question's own verb
+    back is the commonest beginner answer and the one thing the scene is teaching, so
+    it cannot come out as `frame right · 100%`."""
+    from backend import dialogue
+
+    for did, nid, echoed in (("routine", "y2", "Tibda fid-disgħa u tispiċċa fil-ħamsa."),
+                             ("likes", "l1", "Tiekol il-ħut."),
+                             ("work", "k1", "Jaħdem f'uffiċċju.")):
+        assert dialogue.evaluate(did, nid, echoed)["score"] == 0.0, echoed
+    # The person is the first letter, not the length: these are still the frame.
+    assert dialogue.evaluate("routine", "y2", "Nibda fit-tmienja")["score"] == 1.0
+    assert dialogue.evaluate("likes", "l1", "Niekol il-ħut")["score"] == 1.0
+    # …and the negation is not the affirmative frame, it is the answer beside it —
+    # however the recogniser spells the contraction that day.
+    for said in ("Le, m'għandix", "m'għandix aħwa", "ma għandix aħwa"):
+        r = dialogue.evaluate("family", "f2", said)
+        assert r["frame_scored"] is False, said
+        assert r["score"] >= dialogue.CLOSE, f"{said!r} scored {r['score']}"
+
+
+@pytest.mark.parametrize("did,nid,said,expected", [
+    # A first letter the recogniser dropped or added is still the frame's word.
+    ("likes", "l1", "Nħobb il-ħut", 1.0),          # inħobb, without the i
+    ("greet", "g1", "Isimni Silas", 1.0),          # jisimni, without the glide
+    ("routine", "y1", "Inqum fis-sitta", 1.0),     # nqum, with one
+    ("greet", "g3", "Noqhod il-Belt", 1.0),        # għ written as h
+    # …but a first letter *swapped* is another word: another person of the verb,
+    # a different pronoun, a negation, or a noun that merely starts the same way.
+    ("routine", "y2", "Tibda fid-disgħa", 0.0),
+    ("people", "o2", "Huma għalliema", 0.0),       # they, not he
+    ("people", "o2", "Ħut kbir", 0.0),
+    ("routine", "y1", "Numru sitta", 0.0),
+    # `minn` and the article fuse and assimilate; one preposition, nine spellings.
+    ("greet", "g2", "Mir-Russja", 1.0),
+    ("greet", "g2", "Miċ-Ċina", 1.0),
+    ("greet", "g2", "Mit-Tuneżija", 1.0),
+    ("greet", "g2", "Jien Awstralja", 2 / 3),   # the preposition is part of the frame
+    ("greet", "g2", "Żmien", 0.0),              # not `minn` with a letter in front
+    # A consonant in front is not a dropped letter: this is the question, echoed.
+    ("people", "o2", "X'jaħdem hu?", 0.5),
+])
+def test_open_question_frame_survives_the_recogniser(did, nid, said, expected):
+    """The frame is matched on phonetic keys because the recogniser's spelling moves
+    under it. What may not move is which word was said."""
+    from backend import dialogue
+
+    r = dialogue.evaluate(did, nid, said)
+    assert r["score"] == pytest.approx(expected, abs=0.005), f"{said!r} scored {r['score']}"
+
+
+def test_open_question_compares_keys_without_keying_them_twice():
+    """The anchor holds phonetic keys, so it must compare them as keys. Running one
+    through the keyer again collapses the doubled vowel silent għ leaves behind —
+    `noqgħod` keys to `nood`, and again to `nod` — which drops the recogniser's usual
+    spelling of it from 0.89 to 0.75 and takes a correct answer to zero."""
+    from backend import dialogue, phonetics
+
+    assert phonetics.key_similarity("nohod", "nood") >= 0.8
+    assert phonetics.similarity("nohod", "nood") < 0.8, "the double-keyed value"
+    assert dialogue.evaluate("greet", "g3", "Noqhod il-Belt")["score"] == 1.0
+
+
+def test_open_question_shows_the_line_its_score_came_from():
+    """`matched_mt` is the sentence the number was measured against. On the escape
+    path that is the listed answer they nearly said, not whichever example the frame
+    would have picked — naming a different line makes the percentage unreadable."""
+    from backend import dialogue
+
+    r = dialogue.evaluate("family", "f4", "Għandi sigriet")
+    assert r["frame_scored"] is False
+    assert r["matched_mt"] == "Dak sigriet!", r["matched_mt"]
+    # And on the frame path it is the nearest listed answer — the one they said, if
+    # they said one. Picking by recall instead favours whichever answer is shortest.
+    said = "Nqum fis-siegħa tmienja."
+    assert dialogue.evaluate("routine", "y1", said)["matched_mt"] == said
+
+
+def test_open_question_frames_are_well_formed():
+    """Each frame needs exactly one slot, and every word it demands has to be a word
+    the node's own example answers use. A frame is graded against, so a typo in one
+    marks the learner down for not saying Maltese the scene never showed them."""
+    from backend import dialogue
+
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            frames = n.get("frames")
+            if not frames:
+                continue
+            where = f"{d['id']}.{node_id}"
+            assert n.get("free"), f"{where} is not an open question"
+            # The frame is graded, so it has to reach the screen: the hint line is
+            # composed from it. Marking `Jien …` while the prompt says only "say your
+            # name — anything goes" asks the learner to guess the half being looked at.
+            assert dialogue.present(d["id"], node_id)["frames"] == frames, where
+            assert "anything goes" not in n["expect_en"], (
+                f"{where}: the frame says where anything goes")
+            shown = {k for a in n["accept"] if not a.get("open")
+                     for k in dialogue._keys(a["mt"])}
+            for frame in frames:
+                assert len(dialogue._SLOT.split(frame)) == 2, f"{where}: {frame!r} has no slot"
+                anchors = [k for k in dialogue._keys(dialogue._SLOT.sub(" ", frame))]
+                assert anchors, f"{where}: {frame!r} anchors on nothing"
+                for k in anchors:
+                    assert k in shown, f"{where}: {frame!r} wants {k!r}, unseen in its answers"
+
+
+def test_open_question_escape_answers_keep_their_score():
+    """Some listed answers step outside the frame on purpose — `Dak sigriet!` for an
+    age, `Ma niftakarx!` for a name. Saying one of those, or coming near it, is a real
+    answer and keeps its own score instead of being marked down against a frame it was
+    never meant to use. It is not reported as a frame score, because it is not one."""
+    from backend import dialogue
+
+    for did, nid, said in (("family", "f4", "Dak sigriet!"),
+                           ("people", "o1", "Ma niftakarx!"),
+                           ("home", "h3", "Kamra waħda biss."),
+                           ("feelings", "z1", "Ninsab imdejjaq")):  # near one, not exact
+        r = dialogue.evaluate(did, nid, said)
+        assert r["score"] >= dialogue.CLOSE, f"{said!r} scored {r['score']}"
+        assert r["frame_scored"] is False, f"{said!r} reported as a frame score"
+
+
+def test_open_question_takes_a_greeting_before_the_frame():
+    """`Bonġu, min qed jitkellem?` is answered `Bonġu, jien …` — the scene prompts the
+    greeting and lists one of its own answers with it. A yes, a no or a greeting in
+    front of the frame is still the frame. What the frame will not do is change places
+    with the slot: the keyword has to come before the name, not after it."""
+    from backend import dialogue
+
+    assert dialogue.evaluate("phone", "x1", "Bonġu, jien Pietru")["score"] == 1.0
+    assert dialogue.evaluate("family", "f2", "Iva, għandi ħuti kbar")["score"] == 1.0
+    assert dialogue.evaluate("greet", "g1", "Pietru jien")["score"] == 0.5
+
+
+def test_open_question_does_not_score_junk_against_an_escape_answer():
+    """The answers that step outside the frame keep their own score, but only while
+    the learner is anywhere near one. `the quick brown fox` is 31% similar to
+    `Ma niftakarx!` and printing that as a mark is worse than saying nothing."""
+    from backend import dialogue
+
+    for did, nid, said in (("people", "o1", "the quick brown fox"),
+                           ("feelings", "z1", "nothing at all"),
+                           ("people", "o2", "xi xi xi")):
+        r = dialogue.evaluate(did, nid, said)
+        assert r["score"] == 0.0, f"{said!r} scored {r['score']}"
+        assert r["frame_scored"] is True
+
+
+def test_open_question_still_shows_the_target_when_nothing_was_said():
+    """Below two characters an open question is graded wrong — the one case where the
+    correction card matters, and it needs a line to show. Grading the frame must not
+    take the card away: no example answer overlaps a single letter, and the nearest
+    listed sentence is still the best thing to put in front of the learner."""
+    from backend import dialogue
+
+    r = dialogue.evaluate("greet", "g1", "a")
+    assert r["verdict"] == "wrong"
+    assert r["say_this_mt"], "nothing to repeat back"
+    assert r["diff"]
+
+
+def test_no_open_question_marks_down_its_own_answers():
+    """A frame is authored, so it can be authored wrong — pointing at a slot that is
+    not there, or demanding a word half the node's answers do not use. Either way the
+    learner is told a listed answer is not the Maltese the scene wanted."""
+    from backend import dialogue
+
+    offenders = []
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            if not n.get("free"):
+                continue
+            for a in n.get("accept", []):
+                if a.get("open"):
+                    continue
+                r = dialogue.evaluate(d["id"], node_id, a["mt"])
+                if r["score"] < dialogue.CORRECT:
+                    offenders.append(f"{d['id']}.{node_id}: {a['mt']!r} scores {r['score']}")
+    assert not offenders, "open question marks down its own answer:\n" + "\n".join(offenders)
+
+
 def test_every_accepted_answer_is_graded_correct():
     """An answer the script lists as acceptable must actually pass the matcher.
     Otherwise the app asks for something it then refuses — the stuck-loop bug,

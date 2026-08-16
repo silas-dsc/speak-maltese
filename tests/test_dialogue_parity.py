@@ -35,6 +35,27 @@ EDGE = [
     ("cafe", "c1", "xi xi xi", 2),           # backstop waves it through
     ("greet", "g1", "silas", 0),             # free node
     ("greet", "g1", " ", 0),                 # silence on a free node
+    ("greet", "g1", "jien pietru", 0),       # open question, frame landed
+    ("greet", "g1", "mela, jien pietru", 0),  # …behind a hesitation
+    ("greet", "g1", "jien", 0),              # frame with nothing in it
+    ("greet", "g2", "mill-awstralja", 0),    # the fused article, split or not
+    ("greet", "g2", "mill awstralja", 0),
+    ("family", "f4", "għandi ħamsa u tletin sena", 0),   # anchored at both ends
+    ("family", "f4", "ħamsa u tletin sena", 0),
+    ("family", "f4", "dak sigriet!", 0),     # a listed answer outside the frame
+    ("home", "h3", "tliet kmamar", 0),       # anchored at the end only
+    ("home", "h3", "tlieta", 0),
+    ("phone", "x1", "bonġu, jien Pietru", 0),  # a greeting in front of the frame
+    ("feelings", "z1", "ninsab imdejjaq", 0),  # near a listed answer off the frame
+    ("greet", "g1", "a", 0),                 # too short: the target has to be shown
+    ("greet", "g3", "Noqhod il-Belt", 0),    # how the recogniser spells għ
+    ("routine", "y2", "Tibda fid-disgħa", 0),  # the question echoed, not answered
+    ("family", "f4", "Għandi sigriet", 0),   # near an answer that is not the frame
+    ("likes", "l1", "Nħobb il-ħut", 0),      # a first letter the recogniser dropped
+    ("greet", "g2", "Mir-Russja", 0),        # minn fused with an assimilating article
+    ("people", "o2", "Huma għalliema", 0),   # they, not he
+    ("people", "o2", "X'jaħdem hu?", 0),     # the question with its x' still on it
+    ("family", "f2", "ma għandix aħwa", 0),  # the negation, not the frame
     ("stuck", "s3", "kif tgħidx xi s bil-malti", 0),
     ("stuck", "s3", "xi xi xi", 0),
     ("cafe", "c1", "nixtieq kafè, jekk jogħġbok.", 0),
@@ -48,7 +69,8 @@ const cases = JSON.parse(process.argv[2]);
 console.log(JSON.stringify(cases.map(([did, nid, said, attempts]) => {
   const r = d.evaluate(did, nid, said, attempts);
   return { verdict: r.verdict, score: r.score, matched: r.matched_mt,
-           advance: r.advance, moved_on: r.moved_on,
+           advance: r.advance, moved_on: r.moved_on, frame_scored: r.frame_scored,
+           say_this: r.say_this_mt || null,
            next: r.next ? r.next.node : null, finished: !!r.finished };
 })));
 """
@@ -83,7 +105,8 @@ def both():
         r = dialogue.evaluate(did, nid, said, attempts)
         py.append({"verdict": r["verdict"], "score": r["score"],
                    "matched": r["matched_mt"], "advance": r["advance"],
-                   "moved_on": r["moved_on"],
+                   "moved_on": r["moved_on"], "frame_scored": r["frame_scored"],
+                   "say_this": r.get("say_this_mt"),
                    "next": (r.get("next") or {}).get("node") if r.get("next") else None,
                    "finished": bool(r.get("finished"))})
     return data, js, py

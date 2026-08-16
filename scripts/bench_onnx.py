@@ -48,13 +48,16 @@ one web-llm and transformers.js use for language models. Re-quantizing into that
 format rather than into int8 gives the smallest and fastest build of the lot.
 
 It is not free, though. q4 and q4f16 both miss one clip fp16 gets right, splitting
-`Mingħajr zokkor` into `min għajr zokkor`. Note what kind of error that is: a word
-boundary, not a phoneme. The app's phonetic matcher scores it 1.0000 against the
-target, so a scripted dialogue turn would accept it — but `text.score`, which
-grades spoken review answers, gives 0.65 and would mark it partial. So the same
-model regression is invisible in one half of the app and a false negative in the
-other. One clip in twenty-five is too little to size that; it is a reason to
-re-measure on a larger set before choosing 4-bit, not a reason to dismiss it.
+`Mingħajr zokkor` into `min għajr zokkor` — a word boundary, not a phoneme.
+
+Twenty-five clips was too small to decide on, so the question was settled on the
+whole thing instead: all 334 accepted answers in the scenes, rendered to speech and
+run through the 4-bit model in a browser. 38.7x realtime over 13.5 minutes of
+audio, and 333 of 334 grade correct once `q` is dropped from the soft phonetic key
+and quoted foreign words are scored on their Maltese frame. Those transcripts are
+checked in at tests/fixtures/q4_transcripts.tsv and tests/test_q4_recogniser.py
+replays them, so the grader cannot drift away from the recogniser it has to live
+with. 4-bit is the build to ship.
 """
 
 from __future__ import annotations
@@ -66,7 +69,10 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
+# numpy, soundfile, onnxruntime and torch are all imported inside the functions
+# that need them. They are benchmarking dependencies, not app dependencies, and
+# importing them up here would make this module unimportable — which the
+# tests/test_scripts.py import check correctly refuses to allow.
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -83,7 +89,7 @@ def _metrics():
     return mod
 
 
-def _resample(audio: np.ndarray, src_hz: int, dst_hz: int = 16000) -> np.ndarray:
+def _resample(audio, src_hz: int, dst_hz: int = 16000):
     """Linear resample. The clips are 24kHz TTS output and wav2vec2 wants 16kHz.
 
     Deliberately not librosa: it drags in numba, which does not import on this
@@ -91,6 +97,8 @@ def _resample(audio: np.ndarray, src_hz: int, dst_hz: int = 16000) -> np.ndarray
     litigate an audio stack. Linear interpolation is applied identically to every
     run, so it cannot favour one over another.
     """
+    import numpy as np
+
     if src_hz == dst_hz:
         return audio.astype(np.float32)
     n = int(round(len(audio) * dst_hz / src_hz))
@@ -98,7 +106,7 @@ def _resample(audio: np.ndarray, src_hz: int, dst_hz: int = 16000) -> np.ndarray
     return np.interp(x, np.arange(len(audio)), audio).astype(np.float32)
 
 
-def load_clips() -> list[tuple[str, str, np.ndarray]]:
+def load_clips() -> list[tuple[str, str, object]]:
     import soundfile as sf
 
     rows = []
@@ -131,6 +139,7 @@ def run_torch(model_id: str, clips) -> tuple[list[str], float]:
 
 
 def run_onnx(onnx_dir: Path, filename: str, clips) -> tuple[list[str], float]:
+    import numpy as np
     import onnxruntime as ort
     from transformers import Wav2Vec2Processor
 

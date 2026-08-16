@@ -636,14 +636,12 @@ async function answerDrill(said) {
     const tone = r.moved_on ? 'near' : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
     const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
     const el = drillBubble('tutor', r.reply_mt, r.reply_en);
-    // Free nodes are your name, your town, your age. They are accepted whatever
-    // you say, so the score is a match against example answers that were never
-    // meant to apply — printing it read as "correct, 15%", which looks like the
-    // app will take anything for anything.
-    // On a free node the score measures the Maltese *frame* — `Jien …`,
-    // `Noqgħod …` — and ignores the name or town in the slot. Worth showing when
-    // the frame actually landed; below that it is measuring the absence of one,
-    // and "correct · 15%" reads as an app that takes anything for anything.
+    // An open question is your name, your town, your age: accepted whatever you
+    // say, because the app cannot know it. The score measures the Maltese *frame*
+    // around the slot — `Jien …`, `Għandi … sena` — and never the name or age in
+    // it. Worth showing once the frame is there; below half it is reporting the
+    // absence of one, and "correct · 15%" reads as an app that takes anything for
+    // anything.
     const verdictText = r.free
       ? (r.score >= 0.5
         ? `frame right · ${Math.round(r.score * 100)}%`

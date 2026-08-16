@@ -111,17 +111,104 @@ def _frame_score(said: str, target: str) -> float:
     return hits / len(want)
 
 
+# The variable slot in a frame: `Jien …`, `Għandi … sena`. Written as an ellipsis in
+# dialogues.json; the three-dot spelling is accepted because that is what a keyboard
+# produces and the difference is invisible in the file.
+_SLOT = re.compile(r"…|\.\.\.")
+
+
+def _keys(s: str) -> list[str]:
+    """Phonetic keys, one per word, with the fused article split off its noun.
+
+    `mill-Awstralja` is one word to `split()` and two to a recogniser, which writes it
+    back either way. Splitting at the hyphen lets `Mill-…` anchor on both spellings.
+    """
+    words = re.split(r"[\s\-]+", text.normalise(s))
+    return [k for k in (phonetics.soft_key(w) for w in words) if k]
+
+
+# `Iva, għandi ħuti`, `Le, jien turist`, `Mela, jien Pietru`: a yes, a no or a
+# hesitation in front of the frame is still the frame, and the accepted answers
+# themselves open that way. Anything else in first place is not the frame.
+_OPENERS = [phonetics.soft_key(w) for w in
+            ("iva", "le", "mela", "allura", "ehm", "emm", "mm", "ok")]
+
+
+def _anchor_score(said: str, frame: str) -> float:
+    """Does the answer *start with* — and *end with* — the frame around its slot?
+
+    An open question is a fixed Maltese frame with one variable in it, and the frame
+    is the part the scene teaches. `Jien …` wants `Jien` first; `Għandi … sena` wants
+    `Għandi` first and `sena` last, whatever the learner puts between them. So the
+    words before the slot are matched from the start of what was said, the words
+    after it from the end, and the first word that is not there stops the run —
+    a keyword that turns up in the middle of a sentence is not the frame.
+
+    The slot counts as one more thing to supply, so `Jien Pietru` scores 1.0 and
+    `Jien` on its own 0.5: the frame is right, but nothing was said in it. An answer
+    with none of the frame in it scores 0, however good the name is.
+    """
+    parts = _SLOT.split(frame, maxsplit=1)
+    slot = len(parts) > 1
+    want_pre = _keys(parts[0])
+    want_post = _keys(parts[1]) if slot else []
+    got = _keys(said)
+
+    total = len(want_pre) + len(want_post) + (1 if slot else 0)
+    if not total:
+        return 0.0
+
+    start = 1 if want_pre and got and any(
+        phonetics.similarity(got[0], o) >= 0.8 for o in _OPENERS) else 0
+    pre_hits = 0
+    for i, w in enumerate(want_pre):
+        if start + i < len(got) and phonetics.similarity(got[start + i], w) >= 0.8:
+            pre_hits += 1
+        else:
+            break
+    post_hits = 0
+    for i, w in enumerate(reversed(want_post)):
+        j = len(got) - 1 - i
+        if j >= 0 and phonetics.similarity(got[j], w) >= 0.8:
+            post_hits += 1
+        else:
+            break
+
+    hits = pre_hits + post_hits
+    # Something left over between the anchors is the answer to the question. It only
+    # counts once some of the frame is there — otherwise every stray word would look
+    # like a filled slot, and "hello" would score half marks for a name.
+    if slot and hits and len(got) - start - pre_hits - post_hits > 0:
+        hits += 1
+    return hits / total
+
+
+def _best_anchor(said: str, frames: list[str]) -> float:
+    return round(max((_anchor_score(said, f) for f in frames), default=0.0), 4)
+
+
+def _outside_frames(candidate: dict | None, frames: list[str]) -> bool:
+    """Is this listed answer a deliberate step outside the frame?
+
+    Most accepted answers on an open question are the frame with an example in the
+    slot — `Għandi tletin sena.` A few are an escape from it: `Dak sigriet!`,
+    `Ma niftakarx!`, `Le, m'għandix tfal.` Saying one of those is a real answer and
+    keeps its ordinary match score, instead of being marked down against a frame it
+    was never meant to use.
+    """
+    return bool(candidate) and _best_anchor(candidate["mt"], frames) < 1.0
+
+
 def _frame_recall(said: str, target: str) -> float:
-    """How much of an accepted answer's *frame* the learner actually produced.
+    """How much of an accepted answer the learner actually produced, in order.
 
-    Most `free` nodes are not free text — they are a fixed Maltese frame with one
-    variable in it: `Jien …`, `Noqgħod …`, `Għandi … sena`. The variable is a name,
-    a town, an age, and grading it would be nonsense. The frame around it is
-    ordinary Maltese and is exactly what the scene is teaching.
+    The fallback for the handful of `free` nodes with no slot in them — "is your
+    family big or small", "how do you feel" — where the accepted answers are whole
+    sentences rather than a frame with a name in it, so there is nothing to anchor.
 
-    So: what fraction of the target's words appear in what was said, in order and
-    phonetically? `Jien Silas.` against "jien pietru" gives 0.5 — the frame landed,
-    the name is theirs. Against "hello" it gives 0.
+    What fraction of the target's words appear in what was said, in order and
+    phonetically? `Jien waħdi.` against "jien waħdi ħafna" gives 1.0, against
+    "hello" it gives 0.
     """
     want = [k for k in (phonetics.soft_key(w) for w in text.normalise(target).split()) if k]
     got = [phonetics.soft_key(w) for w in text.normalise(said).split()]
@@ -183,9 +270,17 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
         # know it. But the frame around the slot is ordinary Maltese, so that part
         # is scored and reported — saying "Jien Pietru" is not the same as saying
         # "hello", and the app should not pretend it cannot tell.
-        framed, frame_score = _best_frame(said, n.get("accept", []))
-        if frame_score > score:
-            match, score = framed, frame_score
+        framed, recall = _best_frame(said, n.get("accept", []))
+        frames = n.get("frames") or []
+        if frames and not (score >= CORRECT and _outside_frames(match, frames)):
+            # The node says where the slot is, so the frame is looked for where it
+            # belongs: `Jien` at the start, `sena` at the end, the town or the age
+            # in between and unjudged. Nothing else counts as the frame — a name on
+            # its own scores 0 here even when it happens to sound like the example
+            # answer's name, because the sentence the scene teaches was not said.
+            match, score = framed, _best_anchor(said, frames)
+        elif not frames and recall > score:
+            match, score = framed, recall
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
     elif score >= CORRECT:
         verdict = "correct"

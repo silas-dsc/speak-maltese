@@ -458,6 +458,75 @@ def test_decks_articles_assimilate():
     assert not offenders, "sun-letter assimilation:\n" + "\n".join(offenders)
 
 
+@pytest.mark.parametrize("did,nid,said,expected", [
+    # `Jien …` — the keyword has to be there, and it has to be first.
+    ("greet", "g1", "Jien Pietru", 1.0),
+    ("greet", "g1", "Jisimni Pietru", 1.0),
+    ("greet", "g1", "Mela, jien Pietru", 1.0),   # a hesitation in front is still the frame
+    ("greet", "g1", "Jien", 0.5),                # frame right, nothing said in it
+    ("greet", "g1", "Pietru", 0.0),              # the name alone is not the sentence
+    ("greet", "g1", "Pietru jien", 0.0),         # nor is the keyword trailing behind it
+    ("greet", "g1", "hello", 0.0),
+    # `Għandi … sena` — both ends, with the age itself unjudged in between.
+    ("family", "f4", "Għandi ħamsa u tletin sena", 1.0),
+    ("family", "f4", "Andi hamsa u tletin sena", 1.0),   # recogniser drops għ and ħ
+    ("family", "f4", "Ħamsa u tletin sena", 2 / 3),      # ends right, opens with nothing
+    ("family", "f4", "Għandi tletin", 2 / 3),            # opens right, `sena` missing
+    ("family", "f4", "Tletin", 0.0),
+    # `… kmamar` — ends with, and nothing to say about what comes before it.
+    ("home", "h3", "Tliet kmamar", 1.0),
+    ("home", "h3", "Għandi sitt kmamar", 1.0),
+    ("home", "h3", "Tlieta", 0.0),
+])
+def test_open_question_still_wants_its_keywords(did, nid, said, expected):
+    """An open question is a frame with a name, a town or an age in it. The slot is
+    the learner's and is never graded; the frame is ordinary Maltese and is the whole
+    point of the scene, so it is looked for where it belongs — at the start of the
+    answer, at the end, or both. `Pietru` on its own used to score as well as
+    `Jien Pietru`, which told the learner the sentence did not matter."""
+    from backend import dialogue
+
+    r = dialogue.evaluate(did, nid, said)
+    assert r["score"] == pytest.approx(expected, abs=0.005), f"{said!r} scored {r['score']}"
+    # Never blocked on any of these: the app cannot know the answer.
+    assert r["verdict"] == "correct"
+
+
+def test_open_question_frames_are_well_formed():
+    """Each frame needs exactly one slot, and every word it demands has to be a word
+    the node's own example answers use. A frame is graded against, so a typo in one
+    marks the learner down for not saying Maltese the scene never showed them."""
+    from backend import dialogue
+
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            frames = n.get("frames")
+            if not frames:
+                continue
+            where = f"{d['id']}.{node_id}"
+            assert n.get("free"), f"{where} is not an open question"
+            shown = {k for a in n["accept"] for k in dialogue._keys(a["mt"])}
+            for frame in frames:
+                assert len(dialogue._SLOT.split(frame)) == 2, f"{where}: {frame!r} has no slot"
+                anchors = [k for k in dialogue._keys(dialogue._SLOT.sub(" ", frame))]
+                assert anchors, f"{where}: {frame!r} anchors on nothing"
+                for k in anchors:
+                    assert k in shown, f"{where}: {frame!r} wants {k!r}, unseen in its answers"
+
+
+def test_open_question_escape_answers_keep_their_score():
+    """Some listed answers step outside the frame on purpose — `Dak sigriet!` for an
+    age, `Ma niftakarx!` for a name. Saying one of those is a real answer, so it must
+    not be marked down against a frame it was never meant to use."""
+    from backend import dialogue
+
+    for did, nid, said in (("family", "f4", "Dak sigriet!"),
+                           ("people", "o1", "Ma niftakarx!"),
+                           ("home", "h3", "Kamra waħda biss.")):
+        r = dialogue.evaluate(did, nid, said)
+        assert r["score"] >= dialogue.CORRECT, f"{said!r} scored {r['score']}"
+
+
 def test_every_accepted_answer_is_graded_correct():
     """An answer the script lists as acceptable must actually pass the matcher.
     Otherwise the app asks for something it then refuses — the stuck-loop bug,

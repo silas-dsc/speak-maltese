@@ -35,6 +35,16 @@ EDGE = [
     ("cafe", "c1", "xi xi xi", 2),           # backstop waves it through
     ("greet", "g1", "silas", 0),             # free node
     ("greet", "g1", " ", 0),                 # silence on a free node
+    ("greet", "g1", "jien pietru", 0),       # open question, frame landed
+    ("greet", "g1", "mela, jien pietru", 0),  # …behind a hesitation
+    ("greet", "g1", "jien", 0),              # frame with nothing in it
+    ("greet", "g2", "mill-awstralja", 0),    # the fused article, split or not
+    ("greet", "g2", "mill awstralja", 0),
+    ("family", "f4", "għandi ħamsa u tletin sena", 0),   # anchored at both ends
+    ("family", "f4", "ħamsa u tletin sena", 0),
+    ("family", "f4", "dak sigriet!", 0),     # a listed answer outside the frame
+    ("home", "h3", "tliet kmamar", 0),       # anchored at the end only
+    ("home", "h3", "tlieta", 0),
     ("stuck", "s3", "kif tgħidx xi s bil-malti", 0),
     ("stuck", "s3", "xi xi xi", 0),
     ("cafe", "c1", "nixtieq kafè, jekk jogħġbok.", 0),

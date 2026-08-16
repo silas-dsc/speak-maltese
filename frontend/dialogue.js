@@ -62,13 +62,84 @@ function frameScore(said, target) {
   return hits / want.length;
 }
 
-/** How much of an accepted answer's *frame* the learner actually produced.
+/* The variable slot in a frame: `Jien …`, `Għandi … sena`. The three-dot spelling
+   is accepted too, because that is what a keyboard produces. */
+const SLOT = /…|\.\.\./;
 
-    Most free nodes are not free text — they are a fixed Maltese frame with one
-    variable in it: `Jien …`, `Noqgħod …`, `Għandi … sena`. The variable is a name,
-    a town, an age, and grading it would be nonsense; the frame around it is
-    ordinary Maltese and is what the scene is teaching. `Jien Silas.` against
-    "jien pietru" gives 0.5 — the frame landed, the name is theirs. */
+/** Phonetic keys, one per word, with the fused article split off its noun.
+    `mill-Awstralja` is one word to split() and two to a recogniser. */
+function keys(s) {
+  return text.normalise(s).split(/[\s-]+/).map(text.softKey).filter(Boolean);
+}
+
+/* `Iva, għandi ħuti`, `Le, jien turist`, `Mela, jien Pietru`: a yes, a no or a
+   hesitation in front of the frame is still the frame, and the accepted answers
+   themselves open that way. Anything else in first place is not the frame. */
+const OPENERS = ['iva', 'le', 'mela', 'allura', 'ehm', 'emm', 'mm', 'ok'].map(text.softKey);
+
+/** Does the answer *start with* — and *end with* — the frame around its slot?
+
+    An open question is a fixed Maltese frame with one variable in it, and the frame
+    is what the scene teaches. `Jien …` wants `Jien` first; `Għandi … sena` wants
+    `Għandi` first and `sena` last, whatever goes between them. The first word that
+    is not there stops the run — a keyword turning up mid-sentence is not the frame.
+
+    The slot counts as one more thing to supply: `Jien Pietru` scores 1.0, `Jien`
+    alone 0.5, and an answer with none of the frame in it 0. */
+function anchorScore(said, frame) {
+  const parts = frame.split(SLOT);
+  const slot = parts.length > 1;
+  const wantPre = keys(parts[0]);
+  const wantPost = slot ? keys(parts.slice(1).join(' ')) : [];
+  const got = keys(said);
+
+  const total = wantPre.length + wantPost.length + (slot ? 1 : 0);
+  if (!total) return 0;
+
+  const start = wantPre.length && got.length
+    && OPENERS.some((o) => text.phoneticSimilarity(got[0], o) >= 0.8) ? 1 : 0;
+  let preHits = 0;
+  for (let i = 0; i < wantPre.length; i += 1) {
+    if (start + i < got.length
+      && text.phoneticSimilarity(got[start + i], wantPre[i]) >= 0.8) preHits += 1;
+    else break;
+  }
+  let postHits = 0;
+  for (let i = 0; i < wantPost.length; i += 1) {
+    const j = got.length - 1 - i;
+    const w = wantPost[wantPost.length - 1 - i];
+    if (j >= 0 && text.phoneticSimilarity(got[j], w) >= 0.8) postHits += 1;
+    else break;
+  }
+
+  let hits = preHits + postHits;
+  // Something left over between the anchors is the answer to the question. It only
+  // counts once some of the frame is there, or every stray word would look like a
+  // filled slot and "hello" would score half marks for a name.
+  if (slot && hits && got.length - start - preHits - postHits > 0) hits += 1;
+  return hits / total;
+}
+
+function bestAnchor(said, frames) {
+  const best = (frames || []).reduce((b, f) => Math.max(b, anchorScore(said, f)), 0);
+  return Math.round(best * 10000) / 10000;
+}
+
+/** Is this listed answer a deliberate step outside the frame?
+
+    Most accepted answers on an open question are the frame with an example in the
+    slot — `Għandi tletin sena.` A few are an escape from it: `Dak sigriet!`,
+    `Ma niftakarx!`. Saying one of those is a real answer and keeps its ordinary
+    match score instead of being marked down against a frame it never used. */
+function outsideFrames(candidate, frames) {
+  return !!candidate && bestAnchor(candidate.mt, frames) < 1;
+}
+
+/** How much of an accepted answer the learner produced, in order.
+
+    The fallback for the handful of free nodes with no slot in them — "is your family
+    big or small", "how do you feel" — where the accepted answers are whole sentences
+    rather than a frame with a name in it, so there is nothing to anchor. */
 function frameRecall(said, target) {
   const want = text.normalise(target).split(' ').map(text.softKey).filter(Boolean);
   const got = text.normalise(said).split(' ').map(text.softKey);
@@ -121,8 +192,17 @@ export function evaluate(did, nid, said, attempts = 0) {
     // A name, a place, a number: never marked wrong, because the app cannot know
     // it. But the frame around the slot is ordinary Maltese, so that part is
     // scored and reported — "Jien Pietru" is not the same as "hello".
-    const [framed, frameScore] = bestFrame(said, n.accept);
-    if (frameScore > score) { match = framed; score = frameScore; }
+    const [framed, recall] = bestFrame(said, n.accept);
+    const frames = n.frames || [];
+    if (frames.length && !(score >= CORRECT && outsideFrames(match, frames))) {
+      // The node says where the slot is, so the frame is looked for where it
+      // belongs: `Jien` at the start, `sena` at the end, the town or the age in
+      // between and unjudged. Nothing else counts as the frame — a name on its own
+      // scores 0 here even when it sounds like the example answer's name, because
+      // the sentence the scene teaches was not said.
+      match = framed;
+      score = bestAnchor(said, frames);
+    } else if (!frames.length && recall > score) { match = framed; score = recall; }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';
   else if (score >= CLOSE) verdict = 'close';

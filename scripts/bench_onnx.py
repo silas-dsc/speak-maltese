@@ -22,6 +22,39 @@ Maltese diacritics and split the fused article, and the app's grading already
 forgives both, so a raw WER counts mistakes the learner never sees.
 
     python scripts/bench_onnx.py --onnx /tmp/onnx-mt
+
+## What it found
+
+int8 is free on the server: byte-identical to PyTorch on all 25 clips, at 355MB
+against 1262MB.
+
+In the browser (transformers.js, ONNX Runtime Web, one WASM thread, WebGPU on an
+M-series GPU) the picture is different, and int8 turns out to be the wrong target:
+
+    backend  dtype    size     speed   foldWER  exact
+    wasm     int8    355 MB    0.22x     0.053    88%
+    webgpu   int8    355 MB    0.34x         -      -
+    webgpu   fp32   1262 MB   11.60x         -      -
+    webgpu   fp16    631 MB   23.47x     0.053    88%
+    webgpu   q4      246 MB   25.88x     0.093    84%
+    webgpu   q4f16   201 MB   29.94x     0.093    84%
+
+WASM is unusable — 0.22x realtime means a two-second utterance takes nine. int8 on
+WebGPU is barely better, because ORT Web has no int8 GPU kernel and those nodes
+fall back to the CPU path; the size saving buys nothing.
+
+4-bit is a different story, because MatMulNBits *does* have a WebGPU kernel — the
+one web-llm and transformers.js use for language models. Re-quantizing into that
+format rather than into int8 gives the smallest and fastest build of the lot.
+
+It is not free, though. q4 and q4f16 both miss one clip fp16 gets right, splitting
+`Mingħajr zokkor` into `min għajr zokkor`. Note what kind of error that is: a word
+boundary, not a phoneme. The app's phonetic matcher scores it 1.0000 against the
+target, so a scripted dialogue turn would accept it — but `text.score`, which
+grades spoken review answers, gives 0.65 and would mark it partial. So the same
+model regression is invisible in one half of the app and a false negative in the
+other. One clip in twenty-five is too little to size that; it is a reason to
+re-measure on a larger set before choosing 4-bit, not a reason to dismiss it.
 """
 
 from __future__ import annotations

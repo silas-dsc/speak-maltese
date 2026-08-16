@@ -487,7 +487,7 @@ function showSceneImage(id) {
   img.alt = meta ? `${meta.name_en}` : '';
   $('sceneCaption').textContent = meta ? `${meta.name} · ${meta.name_en}` : '';
   hero.hidden = true;
-  img.src = `/img/scene-${id}.webp`;
+  img.src = `img/scene-${id}.webp`;
 }
 
 function presentDrillNode(node) {
@@ -1080,7 +1080,7 @@ window.addEventListener('keydown', prewarmMic, { once: true });
 // booting — it is an enhancement, not a dependency.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
 

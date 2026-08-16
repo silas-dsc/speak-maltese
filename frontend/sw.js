@@ -11,15 +11,19 @@
    * audio (/api/tts) — cache-first and permanent, because a given sentence at a
      given voice and rate never changes, and re-fetching it is pure latency. */
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL = `shell-${VERSION}`;
 const AUDIO = `audio-${VERSION}`;
 
+/* Relative to the worker's scope, not to the origin. This app is served from the
+   root by the FastAPI build and from /speak-maltese/ by GitHub Pages, and an
+   absolute '/app.js' would cache the wrong thing — or nothing — on the second. */
 const SHELL_ASSETS = [
-  '/', '/index.html', '/style.css', '/manifest.webmanifest',
-  // The client is ES modules now. Missing one of these offline would not degrade
-  // the app, it would fail to boot at all.
-  '/app.js', '/srs.js', '/store.js', '/schedule.js', '/splash.js', '/localstt.js',
+  './', './index.html', './style.css', './manifest.webmanifest',
+  // The client is ES modules. Missing one of these offline would not degrade the
+  // app, it would fail to boot at all.
+  './app.js', './srs.js', './store.js', './schedule.js', './splash.js',
+  './localstt.js', './text.js', './dialogue.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -50,7 +54,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   // Synthesised speech is immutable for a given (text, voice, rate).
-  if (url.pathname === '/api/tts') {
+  if (url.pathname.endsWith('/api/tts')) {
     event.respondWith(
       caches.open(AUDIO).then(async (cache) => {
         const hit = await cache.match(request);
@@ -64,7 +68,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Everything else under /api is live state — never serve it stale.
-  if (url.pathname.startsWith('/api/')) return;
+  // Live server state is never cached. The static build has no such thing: its
+  // api/*.json are immutable files and cache like any other asset.
+  if (url.pathname.includes('/api/') && !url.pathname.endsWith('.json')) return;
 
   event.respondWith(
     caches.open(SHELL).then(async (cache) => {

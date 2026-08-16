@@ -111,6 +111,44 @@ def _frame_score(said: str, target: str) -> float:
     return hits / len(want)
 
 
+def _frame_recall(said: str, target: str) -> float:
+    """How much of an accepted answer's *frame* the learner actually produced.
+
+    Most `free` nodes are not free text — they are a fixed Maltese frame with one
+    variable in it: `Jien …`, `Noqgħod …`, `Għandi … sena`. The variable is a name,
+    a town, an age, and grading it would be nonsense. The frame around it is
+    ordinary Maltese and is exactly what the scene is teaching.
+
+    So: what fraction of the target's words appear in what was said, in order and
+    phonetically? `Jien Silas.` against "jien pietru" gives 0.5 — the frame landed,
+    the name is theirs. Against "hello" it gives 0.
+    """
+    want = [k for k in (phonetics.soft_key(w) for w in text.normalise(target).split()) if k]
+    got = [phonetics.soft_key(w) for w in text.normalise(said).split()]
+    if not want:
+        return 0.0
+    hits, i = 0, 0
+    for w in want:
+        while i < len(got):
+            if phonetics.similarity(got[i], w) >= 0.8:
+                hits += 1
+                i += 1
+                break
+            i += 1
+    return hits / len(want)
+
+
+def _best_frame(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
+    best, best_score = None, 0.0
+    for candidate in accepted:
+        if candidate.get("open"):
+            continue
+        s = _frame_recall(said, candidate["mt"])
+        if s > best_score:
+            best, best_score = candidate, s
+    return best, round(best_score, 4)
+
+
 def _best_match(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
     best, best_score = None, 0.0
     for candidate in accepted:
@@ -141,8 +179,13 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
     match, score = _best_match(said, n.get("accept", []))
 
     if n.get("free"):
-        # The answer is a name, a place, a number — something personal that the app
-        # has no business checking. Anything that is not silence moves on.
+        # A name, a place, a number: never marked wrong, because the app cannot
+        # know it. But the frame around the slot is ordinary Maltese, so that part
+        # is scored and reported — saying "Jien Pietru" is not the same as saying
+        # "hello", and the app should not pretend it cannot tell.
+        framed, frame_score = _best_frame(said, n.get("accept", []))
+        if frame_score > score:
+            match, score = framed, frame_score
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
     elif score >= CORRECT:
         verdict = "correct"

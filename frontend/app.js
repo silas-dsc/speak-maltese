@@ -640,8 +640,14 @@ async function answerDrill(said) {
     // you say, so the score is a match against example answers that were never
     // meant to apply — printing it read as "correct, 15%", which looks like the
     // app will take anything for anything.
+    // On a free node the score measures the Maltese *frame* — `Jien …`,
+    // `Noqgħod …` — and ignores the name or town in the slot. Worth showing when
+    // the frame actually landed; below that it is measuring the absence of one,
+    // and "correct · 15%" reads as an app that takes anything for anything.
     const verdictText = r.free
-      ? 'taken as given · not scored'
+      ? (r.score >= 0.5
+        ? `frame right · ${Math.round(r.score * 100)}%`
+        : 'taken as given · not scored')
       : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
     el.querySelector('.bubble').insertAdjacentHTML('afterbegin',
       `<p class="drill-verdict ${tone}">${mark} ${verdictText} · ${ms}ms</p>`);

@@ -62,6 +62,39 @@ function frameScore(said, target) {
   return hits / want.length;
 }
 
+/** How much of an accepted answer's *frame* the learner actually produced.
+
+    Most free nodes are not free text — they are a fixed Maltese frame with one
+    variable in it: `Jien …`, `Noqgħod …`, `Għandi … sena`. The variable is a name,
+    a town, an age, and grading it would be nonsense; the frame around it is
+    ordinary Maltese and is what the scene is teaching. `Jien Silas.` against
+    "jien pietru" gives 0.5 — the frame landed, the name is theirs. */
+function frameRecall(said, target) {
+  const want = text.normalise(target).split(' ').map(text.softKey).filter(Boolean);
+  const got = text.normalise(said).split(' ').map(text.softKey);
+  if (!want.length) return 0;
+  let hits = 0;
+  let i = 0;
+  for (const w of want) {
+    while (i < got.length) {
+      if (text.phoneticSimilarity(got[i], w) >= 0.8) { hits += 1; i += 1; break; }
+      i += 1;
+    }
+  }
+  return hits / want.length;
+}
+
+function bestFrame(said, accepted) {
+  let best = null;
+  let bestScore = 0;
+  for (const candidate of accepted || []) {
+    if (candidate.open) continue;
+    const s = frameRecall(said, candidate.mt);
+    if (s > bestScore) { best = candidate; bestScore = s; }
+  }
+  return [best, Math.round(bestScore * 10000) / 10000];
+}
+
 export function bestMatch(said, accepted) {
   let best = null;
   let bestScore = 0;
@@ -80,11 +113,16 @@ export function evaluate(did, nid, said, attempts = 0) {
   if (!n) return { error: 'unknown node' };
 
   said = text.normalise(said);
-  const [match, score] = bestMatch(said, n.accept);
+  const [match0, score0] = bestMatch(said, n.accept);
 
   let verdict;
+  let [match, score] = [match0, score0];
   if (n.free) {
-    // A name, a place, a number — nothing the app has any business checking.
+    // A name, a place, a number: never marked wrong, because the app cannot know
+    // it. But the frame around the slot is ordinary Maltese, so that part is
+    // scored and reported — "Jien Pietru" is not the same as "hello".
+    const [framed, frameScore] = bestFrame(said, n.accept);
+    if (frameScore > score) { match = framed; score = frameScore; }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';
   else if (score >= CLOSE) verdict = 'close';

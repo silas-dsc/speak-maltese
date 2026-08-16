@@ -69,7 +69,10 @@ self.addEventListener('fetch', (event) => {
           if (res.ok) cache.put(request, res.clone());
           return res;
         })
-        .catch(() => hit);
+        // Offline with nothing cached: `hit` is undefined, and respondWith rejects
+        // on undefined rather than failing the request cleanly. Answer with an
+        // explicit offline response instead.
+        .catch(() => hit || new Response('', { status: 504, statusText: 'Offline' }));
       return hit || fresh;
     }),
   );

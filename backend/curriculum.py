@@ -15,11 +15,13 @@ The pedagogy encoded here:
 from __future__ import annotations
 
 import csv
+import hashlib
 import random
+from datetime import timedelta
 from pathlib import Path
 
 from .config import DATA_DIR, CFG
-from . import db
+from . import db, srs
 
 VOCAB_TSV = DATA_DIR / "core_vocab.tsv"
 PHRASES_TSV = DATA_DIR / "phrases.tsv"
@@ -98,11 +100,18 @@ def build_queue(limit: int = 20, topics: list[str] | None = None,
 
 
 def _new_introduced_today() -> int:
+    # `reviewed_at` is written by db.iso() as `2026-08-15T05:34:32+00:00`, whereas
+    # SQLite's datetime() yields `2026-08-15 06:34:32`. These are compared as text,
+    # and 'T' sorts after ' ', so `datetime('now','-1 day')` let anything from the
+    # whole of the previous day count as today — which quietly ate the day's new-card
+    # allowance before the learner had seen a single new card. Pass the same format in.
+    cutoff = db.iso(srs.now() - timedelta(days=1))
     with db.db() as conn:
         row = conn.execute(
             """SELECT COUNT(DISTINCT card_id) AS n FROM reviews
-               WHERE reviewed_at >= datetime('now','-1 day')
-                 AND card_id IN (SELECT card_id FROM card_state WHERE reps <= 2)"""
+               WHERE reviewed_at >= ?
+                 AND card_id IN (SELECT card_id FROM card_state WHERE reps <= 2)""",
+            (cutoff,),
         ).fetchone()
     return row["n"] if row else 0
 
@@ -195,5 +204,12 @@ def register_new_vocab(items: list[dict], topic: str | None = None) -> list[str]
 
 
 def _slug(s: str) -> str:
-    keep = [ch.lower() if ch.isalnum() else "-" for ch in s]
-    return "".join(keep).strip("-")[:48]
+    """Readable, stable card id. Ids key the review history, so they must not
+    collide: truncating alone would merge two long phrases sharing a 48-character
+    prefix into one card, quietly attaching one phrase's history to the other. A
+    short digest of the full string is appended whenever the readable part is cut."""
+    keep = "".join(ch.lower() if ch.isalnum() else "-" for ch in s).strip("-")
+    if len(keep) <= 48:
+        return keep
+    digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:6]
+    return f"{keep[:41].rstrip('-')}-{digest}"

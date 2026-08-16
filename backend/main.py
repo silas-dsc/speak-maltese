@@ -28,10 +28,12 @@ def _startup() -> None:
     log.info("decks loaded: %s", seeded)
     log.info("TTS: %s | STT: %s", tts.available() or "none", stt.available() or "none")
 
-    # Warm the local recogniser off the request path. The Maltese fine-tune is a
-    # whisper-large, so loading it lazily would put several seconds onto the first
-    # thing the learner says. In a thread so the UI is up immediately.
-    if "faster_whisper" in stt.available():
+    # Warm the local recogniser off the request path: loading it lazily puts the
+    # whole model load — several seconds — onto the first thing the learner says.
+    # `preload` warms whichever local models are in the chain, so the test is
+    # whether *any* of them is active. Testing for faster_whisper alone meant a
+    # wav2vec2-only install, which is the fast default, never warmed anything.
+    if {"wav2vec2", "faster_whisper"} & set(stt.available()):
         threading.Thread(target=stt.preload, name="stt-preload", daemon=True).start()
 
     # Scripted dialogue speaks from a fixed, finite script, so all of it can be

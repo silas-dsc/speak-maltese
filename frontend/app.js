@@ -69,11 +69,16 @@ function speak(text, { rate } = {}) {
    turned "Bonġu" into "onġi" and "Silas" into "salas": the recogniser was not
    mishearing the onset, it never received it. */
 let sharedStream = null;
+let pendingStream = null;
 
 async function ensureStream() {
   if (sharedStream?.active) return sharedStream;
+  // Share the in-flight request. prewarmMic() and a mic press can land together,
+  // and without this each opened its own stream — the loser was overwritten but
+  // never stopped, leaving the recording indicator on for a stream nothing held.
+  if (pendingStream) return pendingStream;
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone not available');
-  sharedStream = await navigator.mediaDevices.getUserMedia({
+  pendingStream = navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,
       noiseSuppression: true,
@@ -81,6 +86,11 @@ async function ensureStream() {
       channelCount: 1,
     },
   });
+  try {
+    sharedStream = await pendingStream;
+  } finally {
+    pendingStream = null;
+  }
   return sharedStream;
 }
 
@@ -131,13 +141,18 @@ async function transcribe(blob, target) {
 function bindMic(button, { onResult, onStatus, target }) {
   const recorder = new Recorder();
   let active = false;
+  let starting = false;
   let holdTimer = null;
   let isHold = false;
 
   const setBusy = (busy) => button.classList.toggle('is-busy', busy);
 
   async function begin() {
-    if (active || button.classList.contains('is-busy')) return;
+    // `active` cannot be the only guard: it is set after the await below, so two
+    // quick taps both got past it and started a second MediaRecorder over the top
+    // of the first, which then ran on unreferenced and unstoppable.
+    if (active || starting || button.classList.contains('is-busy')) return;
+    starting = true;
     try {
       await recorder.start();
       active = true;
@@ -145,6 +160,8 @@ function bindMic(button, { onResult, onStatus, target }) {
       onStatus?.('Listening… (release to send)');
     } catch (err) {
       toast(err.message);
+    } finally {
+      starting = false;
     }
   }
 
@@ -274,9 +291,9 @@ async function loadDrills() {
 
 /** Groups the picker by level and ticks what you've finished.
 
-    23 scenes in a flat list tells a learner nothing about where to start, so they
-    are grouped A0 → A2 in the order the vocabulary builds, and the first unfinished
-    scene is offered as the obvious next thing. */
+    Thirty-odd scenes in a flat list tells a learner nothing about where to start,
+    so they are grouped by level in the order the vocabulary builds, and the first
+    unfinished scene is offered as the obvious next thing. */
 function renderDrillOptions() {
   const done = doneScenes.all();
   const sel = $('drillSelect');
@@ -402,6 +419,7 @@ async function answerDrill(said) {
   $('drillInput').value = '';
   drillBubble('user', said, '');
 
+  let holdBusy = false;
   try {
     const t0 = performance.now();
     const r = await post('/api/drill/answer', {
@@ -433,7 +451,11 @@ async function answerDrill(said) {
     }
 
     if (r.advance && r.next) {
-      setTimeout(() => presentDrillNode(r.next), 450);
+      // Stay busy until the next node is actually installed. Clearing the flag in
+      // `finally` reopened input 450ms early, and anything sent in that window was
+      // graded against the turn that had just finished.
+      holdBusy = true;
+      setTimeout(() => { presentDrillNode(r.next); drill.busy = false; }, 450);
     } else if (r.finished) {
       $('drillExpect').textContent = '';
       doneScenes.mark(drill.dialogue);
@@ -444,7 +466,7 @@ async function answerDrill(said) {
   } catch (err) {
     toast(err.message);
   } finally {
-    drill.busy = false;
+    if (!holdBusy) drill.busy = false;
   }
 }
 
@@ -643,13 +665,15 @@ async function loadVocab() {
   const { cards } = await api(`/api/cards?${params}`);
   $('vocabCount').textContent = cards.length >= 300 ? '300+ shown' : `${cards.length} shown`;
 
+  // Named `stage`, not `state`: the module-level `state` object holds the settings
+  // every other render function reads, and shadowing it here is a trap.
   $('vocabList').innerHTML = cards.map((c) => {
-    const state = c.state === 'review' ? 'known' : c.state === 'new' ? 'new' : 'learning';
+    const stage = c.state === 'review' ? 'known' : c.state === 'new' ? 'new' : 'learning';
     return `<div class="vocab-row" data-say="${escapeHtml(c.mt)}">
         <button class="vocab-play" aria-label="Play ${escapeHtml(c.mt)}">🔊</button>
         <span class="vocab-mt">${escapeHtml(c.mt)}</span>
         <span class="vocab-en">${escapeHtml(c.en)}</span>
-        <span class="vocab-tag ${state}">${state}</span>
+        <span class="vocab-tag ${stage}">${stage}</span>
       </div>`;
   }).join('') || '<p class="vocab-empty">Nothing matches.</p>';
 

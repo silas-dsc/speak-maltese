@@ -317,10 +317,14 @@ def stats() -> dict:
 
 
 def _streak(history: list[dict]) -> int:
-    """`history` is newest-first as returned by the query above."""
-    from datetime import date
+    """`history` is newest-first as returned by the query above.
+
+    `reviewed_at` is stored in UTC and `date(reviewed_at)` extracts the UTC day, so
+    the walk has to start from the UTC day too. Starting from the *local* date broke
+    the streak for anyone far enough east: reviewing at 09:00 in Sydney is 23:00 UTC
+    the day before, so the first lookup missed and the streak read zero."""
     days = {r["d"] for r in history}
-    n, cur = 0, date.today()
+    n, cur = 0, srs.now().date()
     while cur.isoformat() in days:
         n += 1
         cur = cur - timedelta(days=1)

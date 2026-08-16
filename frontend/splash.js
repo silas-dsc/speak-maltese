@@ -113,7 +113,7 @@ async function waitForModel(from, to, giveUpAfterMs = 4 * 60 * 1000) {
 }
 
 /** Run the whole startup. Resolves with the bootstrap payload. */
-export async function run({ onDeck, onStatic } = {}) {
+export async function run({ onDeck, onStatic, onModel } = {}) {
   paint(0.03, 'Starting');
 
   // A static build ships its answers as files. Try that first: it is one cheap
@@ -134,6 +134,17 @@ export async function run({ onDeck, onStatic } = {}) {
     ]);
     await onStatic?.({ boot, dialogues, audio });
     await onDeck?.(deck.cards);
+
+    // The recogniser is the only large thing here and the only one with nothing
+    // to fall back to, so it gets the rest of the bar and a real percentage.
+    if (onModel) {
+      const done = await onModel((f) => paint(
+        STEPS[1][1] + (STEPS[2][1] - STEPS[1][1]) * f,
+        'Downloading the Maltese recogniser',
+        f > 0.02 ? 'About 200MB, once — it is cached after this, and everything '
+          + 'except speaking works already.' : ''));
+      if (done === false) paint(1, 'Ready — speaking needs WebGPU, so it is off');
+    }
     paint(1, 'Mela — ejja nibdew!');
     await sleep(280);
     dismiss();

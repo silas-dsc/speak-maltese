@@ -222,8 +222,13 @@ export const DEFAULT_SETTINGS = {
   daily_new: 15,
   daily_review: 120,
   target_retention: 0.9,
-  // Off until asked for: turning it on downloads about 200MB.
-  local_stt: false,
+  /* On by default. On the static build there is no server recogniser, so this is
+     the difference between an app you can speak to and one you can only type at.
+     It costs a ~200MB download on first use, which is why the startup screen
+     shows it happening rather than stalling silently — and it turns itself off
+     where there is no WebGPU, because there the model would be slower than
+     useless. */
+  local_stt: true,
 };
 
 export function loadSettings() {

@@ -326,6 +326,16 @@ async function boot() {
         STATIC.modelsBase = boot.models_base || STATIC.modelsBase;
         dialogueEngine.load(dialogues);
       },
+      onModel: async (onProgress) => {
+        // Only worth waiting on where it is the only recogniser there is.
+        if (!store.loadSettings().local_stt || !localstt.supported()) return false;
+        try {
+          await localstt.load({ base: STATIC.modelsBase, onProgress });
+          return true;
+        } catch {
+          return false;      // typing still works; the toggle explains why
+        }
+      },
     });
   } catch (err) {
     splash.fail(err.message);
@@ -346,9 +356,11 @@ async function boot() {
 
   // Opted in on a previous visit: warm it in the background so the first thing
   // they say is not the slow one. The model is in the HTTP cache by now.
-  if (state.settings.local_stt && localstt.supported()) {
+  // Static builds already loaded it during startup. A server build has a working
+  // recogniser of its own, so this warms in the background instead of blocking.
+  if (state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
     localstt.load({ base: STATIC.modelsBase })
-      .catch(() => { /* the server path still works, when there is one */ });
+      .catch(() => { /* the server path still works */ });
   }
 }
 

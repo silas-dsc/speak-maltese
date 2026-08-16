@@ -103,7 +103,7 @@ def _frame_score(said: str, target: str) -> float:
     for w in want:
         # in order, allowing the unrecognisable slot to appear as any junk between
         while i < len(got):
-            if phonetics.similarity(got[i], w) >= 0.8:
+            if phonetics.key_similarity(got[i], w) >= 0.8:
                 hits += 1
                 i += 1
                 break
@@ -260,7 +260,7 @@ def _frame_recall(said: str, target: str) -> float:
     hits, i = 0, 0
     for w in want:
         while i < len(got):
-            if phonetics.similarity(got[i], w) >= 0.8:
+            if phonetics.key_similarity(got[i], w) >= 0.8:
                 hits += 1
                 i += 1
                 break

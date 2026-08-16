@@ -55,7 +55,7 @@ function frameScore(said, target) {
   let i = 0;
   for (const w of want) {
     while (i < got.length) {
-      if (text.phoneticSimilarity(got[i], w) >= 0.8) { hits += 1; i += 1; break; }
+      if (text.ratio(got[i], w) >= 0.8) { hits += 1; i += 1; break; }
       i += 1;
     }
   }
@@ -187,7 +187,7 @@ function frameRecall(said, target) {
   let i = 0;
   for (const w of want) {
     while (i < got.length) {
-      if (text.phoneticSimilarity(got[i], w) >= 0.8) { hits += 1; i += 1; break; }
+      if (text.ratio(got[i], w) >= 0.8) { hits += 1; i += 1; break; }
       i += 1;
     }
   }

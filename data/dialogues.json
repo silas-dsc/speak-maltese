@@ -12,7 +12,7 @@
         "g1": {
           "say_mt": "Bonġu! Jien Marija. X'jismek?",
           "say_en": "Good morning! I'm Marija. What's your name?",
-          "expect_en": "Say your name — anything goes",
+          "expect_en": "Say your name — Jien … / Jisimni …",
           "frames": [
             "Jien …",
             "Jisimni …"
@@ -50,7 +50,7 @@
         "g2": {
           "say_mt": "Minn fejn int?",
           "say_en": "Where are you from?",
-          "expect_en": "Say where you're from — anything goes",
+          "expect_en": "Say where you're from — Jien minn … / Mill-…",
           "frames": [
             "Jien …",
             "Minn …",
@@ -92,7 +92,7 @@
         "g3": {
           "say_mt": "Fejn toqgħod?",
           "say_en": "Where do you live?",
-          "expect_en": "Say where you live — anything goes",
+          "expect_en": "Say where you live — Noqgħod …",
           "frames": [
             "Noqgħod …"
           ],
@@ -1213,7 +1213,7 @@
         "k1": {
           "say_mt": "Merħba! Għidli, x'taħdem?",
           "say_en": "Welcome! Tell me, what do you do for work?",
-          "expect_en": "Say what you do — anything goes",
+          "expect_en": "Say what you do — Jien … / Naħdem …",
           "frames": [
             "Jien …",
             "Naħdem …"
@@ -1368,7 +1368,7 @@
         "f2": {
           "say_mt": "Għandek aħwa?",
           "say_en": "Do you have brothers or sisters?",
-          "expect_en": "Say who you have",
+          "expect_en": "Say who you have — Għandi …",
           "frames": [
             "Għandi …"
           ],
@@ -1445,7 +1445,7 @@
         "f4": {
           "say_mt": "Kemm għandek żmien?",
           "say_en": "How old are you?",
-          "expect_en": "Say your age — anything goes",
+          "expect_en": "Say your age — Għandi … sena",
           "frames": [
             "Għandi … sena"
           ],
@@ -1603,7 +1603,7 @@
         "l1": {
           "say_mt": "Għidli — x'tħobb tiekol?",
           "say_en": "Tell me — what do you like to eat?",
-          "expect_en": "Say what you like eating",
+          "expect_en": "Say what you like eating — Inħobb …",
           "frames": [
             "Inħobb …",
             "Niekol …"
@@ -2067,7 +2067,7 @@
         "h3": {
           "say_mt": "Kemm-il kamra għandek?",
           "say_en": "How many rooms do you have?",
-          "expect_en": "Say how many rooms",
+          "expect_en": "Say how many rooms — … kmamar",
           "frames": [
             "… kmamar"
           ],
@@ -2116,7 +2116,7 @@
         "y1": {
           "say_mt": "X'ħin tqum filgħodu?",
           "say_en": "What time do you get up in the morning?",
-          "expect_en": "Say when you get up",
+          "expect_en": "Say when you get up — Nqum …",
           "frames": [
             "Nqum …"
           ],
@@ -2156,7 +2156,7 @@
         "y2": {
           "say_mt": "X'ħin tibda u tispiċċa x-xogħol?",
           "say_en": "What time do you start and finish work?",
-          "expect_en": "Say when you start and finish",
+          "expect_en": "Say when you start and finish — Nibda … / Nispiċċa …",
           "frames": [
             "Nibda …",
             "Nispiċċa …"
@@ -2473,7 +2473,7 @@
         "o1": {
           "say_mt": "X'jisem ommok?",
           "say_en": "What's your mother's name?",
-          "expect_en": "Say her name — anything goes",
+          "expect_en": "Say her name — Jisimha …",
           "frames": [
             "Jisimha …",
             "Ommi jisimha …"
@@ -2510,7 +2510,7 @@
         "o2": {
           "say_mt": "Missierek x'jaħdem?",
           "say_en": "What does your father do?",
-          "expect_en": "Say what he does — anything goes",
+          "expect_en": "Say what he does — Hu … / Jaħdem …",
           "frames": [
             "Hu …",
             "Jaħdem …"
@@ -2551,7 +2551,7 @@
         "o3": {
           "say_mt": "Għandek iben jew bint?",
           "say_en": "Do you have a son or a daughter?",
-          "expect_en": "Say who you have",
+          "expect_en": "Say who you have — Għandi …",
           "frames": [
             "Għandi …"
           ],
@@ -2600,7 +2600,7 @@
         "z1": {
           "say_mt": "Tidher imdejjaq. X'ġara?",
           "say_en": "You look down. What happened?",
-          "expect_en": "Say how you feel",
+          "expect_en": "Say how you feel — Inħossni …",
           "frames": [
             "Inħossni …"
           ],
@@ -2835,7 +2835,7 @@
         "x1": {
           "say_mt": "Bonġu, min qed jitkellem?",
           "say_en": "Hello, who's speaking?",
-          "expect_en": "Say who you are",
+          "expect_en": "Say who you are — Jien …",
           "frames": [
             "Jien …"
           ],

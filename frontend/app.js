@@ -636,8 +636,15 @@ async function answerDrill(said) {
     const tone = r.moved_on ? 'near' : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
     const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
     const el = drillBubble('tutor', r.reply_mt, r.reply_en);
+    // Free nodes are your name, your town, your age. They are accepted whatever
+    // you say, so the score is a match against example answers that were never
+    // meant to apply — printing it read as "correct, 15%", which looks like the
+    // app will take anything for anything.
+    const verdictText = r.free
+      ? 'taken as given · not scored'
+      : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
     el.querySelector('.bubble').insertAdjacentHTML('afterbegin',
-      `<p class="drill-verdict ${tone}">${mark} ${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}% · ${ms}ms</p>`);
+      `<p class="drill-verdict ${tone}">${mark} ${verdictText} · ${ms}ms</p>`);
 
     if (r.say_this_mt) {
       el.querySelector('.bubble').insertAdjacentHTML('beforeend',
@@ -652,7 +659,11 @@ async function answerDrill(said) {
       if (r.moved_on) drill.run.movedOn += 1;
       else if (drill.attempts === 0) drill.run.first += 1;
       else drill.run.retried += 1;
-      if (r.matched_mt) {
+      // Never on a free node. There `matched_mt` is whichever example answer
+      // scored highest against a name or a town — 15% of nothing — and scheduling
+      // it filed a sentence the learner never said into their review deck as one
+      // they had produced correctly.
+      if (r.matched_mt && !r.free && !r.moved_on) {
         drill.run.learned.push({ mt: r.matched_mt, en: r.matched_en });
         // The server used to do this; it has no database to do it in now.
         schedule.registerFromDrill([{ mt: r.matched_mt, en: r.matched_en }], state.settings)

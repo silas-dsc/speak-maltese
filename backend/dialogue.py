@@ -167,6 +167,10 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
 
     out = {
         "verdict": verdict,
+        # A name, a town, an age: accepted as given and deliberately not scored.
+        # The client needs to know, because showing a percentage here would be
+        # reporting a match against sample answers that never applied.
+        "free": bool(n.get("free")),
         "moved_on": moved_on,
         "score": score,
         "said": said,

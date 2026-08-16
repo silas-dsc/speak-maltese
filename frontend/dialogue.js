@@ -101,6 +101,10 @@ export function evaluate(did, nid, said, attempts = 0) {
 
   const out = {
     verdict,
+    // A name, a town, an age: accepted as given and deliberately not scored. The
+    // UI needs to know, because a percentage here would be reporting a match
+    // against sample answers that never applied.
+    free: !!n.free,
     moved_on: movedOn,
     score,
     said,

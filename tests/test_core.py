@@ -535,9 +535,12 @@ def test_open_question_frame_hears_the_person_of_the_verb():
     # The person is the first letter, not the length: these are still the frame.
     assert dialogue.evaluate("routine", "y2", "Nibda fit-tmienja")["score"] == 1.0
     assert dialogue.evaluate("likes", "l1", "Niekol il-ħut")["score"] == 1.0
-    # …and the negation is not the affirmative frame, it is the answer beside it.
-    r = dialogue.evaluate("family", "f2", "Le, m'għandix")
-    assert r["frame_scored"] is False and r["score"] >= dialogue.CLOSE
+    # …and the negation is not the affirmative frame, it is the answer beside it —
+    # however the recogniser spells the contraction that day.
+    for said in ("Le, m'għandix", "m'għandix aħwa", "ma għandix aħwa"):
+        r = dialogue.evaluate("family", "f2", said)
+        assert r["frame_scored"] is False, said
+        assert r["score"] >= dialogue.CLOSE, f"{said!r} scored {r['score']}"
 
 
 @pytest.mark.parametrize("did,nid,said,expected", [
@@ -556,6 +559,10 @@ def test_open_question_frame_hears_the_person_of_the_verb():
     ("greet", "g2", "Mir-Russja", 1.0),
     ("greet", "g2", "Miċ-Ċina", 1.0),
     ("greet", "g2", "Mit-Tuneżija", 1.0),
+    ("greet", "g2", "Jien Awstralja", 2 / 3),   # the preposition is part of the frame
+    ("greet", "g2", "Żmien", 0.0),              # not `minn` with a letter in front
+    # A consonant in front is not a dropped letter: this is the question, echoed.
+    ("people", "o2", "X'jaħdem hu?", 0.5),
 ])
 def test_open_question_frame_survives_the_recogniser(did, nid, said, expected):
     """The frame is matched on phonetic keys because the recogniser's spelling moves

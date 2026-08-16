@@ -54,6 +54,8 @@ EDGE = [
     ("likes", "l1", "Nħobb il-ħut", 0),      # a first letter the recogniser dropped
     ("greet", "g2", "Mir-Russja", 0),        # minn fused with an assimilating article
     ("people", "o2", "Huma għalliema", 0),   # they, not he
+    ("people", "o2", "X'jaħdem hu?", 0),     # the question with its x' still on it
+    ("family", "f2", "ma għandix aħwa", 0),  # the negation, not the frame
     ("stuck", "s3", "kif tgħidx xi s bil-malti", 0),
     ("stuck", "s3", "xi xi xi", 0),
     ("cafe", "c1", "nixtieq kafè, jekk jogħġbok.", 0),

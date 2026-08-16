@@ -152,10 +152,17 @@ def _same_word(said: str, want: str) -> bool:
     about the one thing the scene teaches. `m'għandix` against `għandi` likewise: the
     negation is not the frame, it is the answer beside it.
 
-    A first letter *added or dropped* is the recogniser, not the learner: `nħobb` for
-    `inħobb`, `isimni` for `jisimni`, `inqum` for `nqum`. Below three letters even
-    that is guesswork — `in`, the tail of `in-numru`, is `jien` with the glide gone
-    and also just `in` — so short keys have to match outright or be listed above.
+    A *vowel or glide* added or dropped in front is the recogniser, not the learner:
+    `nħobb` for `inħobb`, `isimni` for `jisimni`, `inqum` for `nqum`. A consonant is
+    not — `x'jaħdem` is the question with its interrogative still attached, and
+    `żmien` is not `minn`. Below three letters even that is guesswork: `in`, the tail
+    of `in-numru`, is `jien` with the glide gone and also just `in`, so short keys
+    have to match outright or be listed above.
+
+    The last thing it will not do is read a negation as its affirmative. Maltese
+    negates with `ma …-x`, the `-x` keys to a trailing s, and `m'għandix` against
+    `għandi` is close enough for the ratio at 0.89 — but `Ma niekolx laħam` is not an
+    answer to what you like eating, it is the answer beside it.
     """
     if said == want:
         return True
@@ -163,8 +170,11 @@ def _same_word(said: str, want: str) -> bool:
         return True
     if min(len(said), len(want)) < 3:
         return False
+    if said == want + "s":
+        return False
     if said[:1] != want[:1]:
-        return said[1:] == want or want[1:] == said
+        added = said[:1] if said[1:] == want else (want[:1] if want[1:] == said else "")
+        return added in ("a", "e", "i", "o", "u", "y")
     return phonetics.key_similarity(said, want) >= 0.8
 
 

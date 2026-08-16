@@ -89,9 +89,13 @@ const ONE_WORD = [
     has been *swapped*. Maltese conjugates on it: `nibda` I start, `tibda` you start,
     `jibda` he starts, 0.80 apart and inside the bar. Answering `X'ħin tibda?` with
     `Tibda fid-disgħa` reads the question back rather than answering it, and
-    `m'għandix` is not `għandi` either. A first letter added or dropped is the
-    recogniser — `nħobb` for `inħobb`, `isimni` for `jisimni` — and below three
-    letters even that is guesswork, so short keys match outright or are listed above.
+    `m'għandix` is not `għandi` either. A vowel or glide added or dropped in front is
+    the recogniser — `nħobb` for `inħobb`, `isimni` for `jisimni` — but a consonant is
+    not: `x'jaħdem` is the question with its interrogative attached, and `żmien` is
+    not `minn`. Below three letters even that is guesswork, so short keys match
+    outright or are listed above. Nor is a negation its affirmative: Maltese negates
+    with `ma …-x`, the `-x` keys to a trailing s, and `Ma niekolx laħam` is the answer
+    beside the frame rather than an attempt at it.
 
     `text.ratio`, not `phoneticSimilarity`: these are keys already, and keying a key
     collapses the doubled vowel silent għ leaves behind (`noqgħod` → `nood` → `nod`). */
@@ -99,7 +103,13 @@ function sameWord(said, want) {
   if (said === want) return true;
   if (ONE_WORD.some((group) => group.has(said) && group.has(want))) return true;
   if (Math.min(said.length, want.length) < 3) return false;
-  if (said.slice(0, 1) !== want.slice(0, 1)) return said.slice(1) === want || want.slice(1) === said;
+  if (said === `${want}s`) return false;
+  if (said.slice(0, 1) !== want.slice(0, 1)) {
+    let added = '';
+    if (said.slice(1) === want) added = said.slice(0, 1);
+    else if (want.slice(1) === said) added = want.slice(0, 1);
+    return added !== '' && 'aeiouy'.includes(added);
+  }
   return text.ratio(said, want) >= 0.8;
 }
 

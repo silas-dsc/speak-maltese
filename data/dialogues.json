@@ -50,11 +50,10 @@
         "g2": {
           "say_mt": "Minn fejn int?",
           "say_en": "Where are you from?",
-          "expect_en": "Say where you're from — Jien minn … / Mill-…",
+          "expect_en": "Say where you're from — Jien minn … / Minn …",
           "frames": [
-            "Jien …",
-            "Minn …",
-            "Mill-…"
+            "Jien minn …",
+            "Minn …"
           ],
           "accept": [
             {

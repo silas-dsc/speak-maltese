@@ -521,6 +521,36 @@ def test_open_question_without_a_frame_still_says_nothing_rather_than_a_number()
             assert r["score"] < 0.5, f"{did}.{nid} scores {said!r} at {r['score']}"
 
 
+def test_open_question_frame_hears_the_person_of_the_verb():
+    """Maltese conjugates on the first letter — `nibda` I start, `tibda` you start —
+    and they are 0.80 apart, inside the matcher's bar. Echoing the question's own verb
+    back is the commonest beginner answer and the one thing the scene is teaching, so
+    it cannot come out as `frame right · 100%`."""
+    from backend import dialogue
+
+    for did, nid, echoed in (("routine", "y2", "Tibda fid-disgħa u tispiċċa fil-ħamsa."),
+                             ("likes", "l1", "Tiekol il-ħut."),
+                             ("work", "k1", "Jaħdem f'uffiċċju.")):
+        assert dialogue.evaluate(did, nid, echoed)["score"] == 0.0, echoed
+    # The person is the first letter, not the length: these are still the frame.
+    assert dialogue.evaluate("routine", "y2", "Nibda fit-tmienja")["score"] == 1.0
+    assert dialogue.evaluate("likes", "l1", "Niekol il-ħut")["score"] == 1.0
+    # …and the negation is not the affirmative frame, it is the answer beside it.
+    r = dialogue.evaluate("family", "f2", "Le, m'għandix")
+    assert r["frame_scored"] is False and r["score"] >= dialogue.CLOSE
+
+
+def test_open_question_shows_the_line_its_score_came_from():
+    """`matched_mt` is the sentence the number was measured against. On the escape
+    path that is the listed answer they nearly said, not whichever example the frame
+    would have picked — naming a different line makes the percentage unreadable."""
+    from backend import dialogue
+
+    r = dialogue.evaluate("family", "f4", "Għandi sigriet")
+    assert r["frame_scored"] is False
+    assert r["matched_mt"] == "Dak sigriet!", r["matched_mt"]
+
+
 def test_open_question_frames_are_well_formed():
     """Each frame needs exactly one slot, and every word it demands has to be a word
     the node's own example answers use. A frame is graded against, so a typo in one
@@ -534,7 +564,8 @@ def test_open_question_frames_are_well_formed():
                 continue
             where = f"{d['id']}.{node_id}"
             assert n.get("free"), f"{where} is not an open question"
-            shown = {k for a in n["accept"] for k in dialogue._keys(a["mt"])}
+            shown = {k for a in n["accept"] if not a.get("open")
+                     for k in dialogue._keys(a["mt"])}
             for frame in frames:
                 assert len(dialogue._SLOT.split(frame)) == 2, f"{where}: {frame!r} has no slot"
                 anchors = [k for k in dialogue._keys(dialogue._SLOT.sub(" ", frame))]

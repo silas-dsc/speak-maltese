@@ -72,17 +72,21 @@ function keys(s) {
   return text.normalise(s).split(/[\s-]+/).map(text.softKey).filter(Boolean);
 }
 
-/** Phonetically the same word, counting a pronoun's long form as its short one.
-    `hu`/`huwa` and `hi`/`hija` are one word in Maltese but too short for the
-    similarity ratio to see it (0.67, where `jien`/`jiena` clears 0.86), so a key
-    that is the other with up to two letters added counts as the same word — which
-    `sena` and `senaturi` never do. Two-letter keys get no ratio at all: `in`, the
-    tail of `in-numru`, scores exactly 0.80 against `yin`, which is `jien`. */
-function sameWord(a, b) {
-  if (a === b) return true;
-  if (Math.min(a.length, b.length) >= 3 && text.phoneticSimilarity(a, b) >= 0.8) return true;
-  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
-  return short.length >= 2 && long.startsWith(short) && long.length - short.length <= 2;
+/** Is this word of the answer the frame's word? Keys, not spellings.
+
+    Tolerant, because the recogniser is inventive — but not about the first letter.
+    Maltese conjugates on it: `nibda` I start, `tibda` you start, `jibda` he starts,
+    and the ratio puts them 0.80 apart, inside the bar. Answering `X'ħin tibda?` with
+    `Tibda fid-disgħa` echoes the question rather than answering it, and `m'għandix`
+    is not `għandi` either. The other way round, `hu`/`huwa` and `hi`/`hija` are one
+    word and too short for the ratio (0.67) — so the learner's longer form of a short
+    frame word counts, but not the reverse: `se` is not `sena`. */
+function sameWord(said, want) {
+  if (said === want) return true;
+  if (said.slice(0, 1) !== want.slice(0, 1)) return false;
+  if (Math.min(said.length, want.length) >= 3
+    && text.phoneticSimilarity(said, want) >= 0.8) return true;
+  return want.length >= 2 && said.startsWith(want) && said.length - want.length <= 2;
 }
 
 /** Does the answer *open with* — and *close with* — the frame around its slot?
@@ -230,13 +234,14 @@ export function evaluate(did, nid, said, attempts = 0) {
       // neither the frame nor the sentence, and 31% of a line nobody was aiming at
       // is not feedback.
       if (!(outsideFrames(match, frames) && score > anchor && score >= CLOSE)) {
+        // The score is the frame's, so the correction card is the nearest example
+        // answer; `framed` is null when nothing overlapped at all, and then the
+        // ordinary match is still the best line to show. On the escape path both
+        // stay as they are, or the card would name a line the score never came from.
         score = anchor;
         frameScored = true;
+        match = framed || match;
       }
-      // `framed` is whichever example answer is nearest, for the correction card;
-      // it is null when nothing overlapped at all, and then the ordinary match is
-      // still the best line to show.
-      match = framed || match;
     } else if (recall > score) { match = framed || match; score = recall; frameScored = true; }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';

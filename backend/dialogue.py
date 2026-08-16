@@ -127,24 +127,31 @@ def _keys(s: str) -> list[str]:
     return [k for k in (phonetics.soft_key(w) for w in words) if k]
 
 
-def _same_word(a: str, b: str) -> bool:
-    """Phonetically the same word, counting a pronoun's long form as its short one.
+def _same_word(said: str, want: str) -> bool:
+    """Is this word of the answer the frame's word? Keys, not spellings.
 
-    `hu`/`huwa` and `hi`/`hija` are one word in Maltese and learners use them
-    interchangeably, but they are too short for the similarity ratio to see it:
-    `hu` against `huwa` scores 0.67, below the bar that `jien`/`jiena` clears at
-    0.86. So a key that is the other with up to two letters added counts as the
-    same word — which `sena` against `senaturi` never does.
+    Tolerant, because the recogniser is inventive — but not about the first letter.
+    Maltese conjugates on it: `nibda` is I start, `tibda` is you start, `jibda` is he
+    starts, and the ratio puts them 0.80 apart, which is inside the bar. A learner
+    answering `X'ħin tibda?` with `Tibda fid-disgħa` has echoed the question rather
+    than answered it, and `frame right · 100%` would be a lie about the one thing
+    the scene teaches. `m'għandix` against `għandi` is the same story: the negation
+    is not the frame.
+
+    The other way round, `hu`/`huwa` and `hi`/`hija` are one word in Maltese and too
+    short for the ratio to see it — 0.67, where `jien`/`jiena` clears 0.86. So the
+    learner saying the long form of a short frame word counts. Not the reverse: `se`
+    is not `sena`, or the frame's closing keyword could be dropped to a syllable.
     """
-    if a == b:
+    if said == want:
         return True
+    if said[:1] != want[:1]:
+        return False
     # Two-letter keys are too short for a ratio to mean anything: `in`, the tail of
-    # `in-numru`, scores exactly 0.80 against `yin` — which is `jien` — and would
-    # anchor the frame on a sentence containing no `jien` at all.
-    if min(len(a), len(b)) >= 3 and phonetics.similarity(a, b) >= 0.8:
+    # `in-numru`, scores exactly 0.80 against `yin` — which is `jien`.
+    if min(len(said), len(want)) >= 3 and phonetics.similarity(said, want) >= 0.8:
         return True
-    short, long = sorted((a, b), key=len)
-    return len(short) >= 2 and long.startswith(short) and len(long) - len(short) <= 2
+    return len(want) >= 2 and said.startswith(want) and len(said) - len(want) <= 2
 
 
 def _anchor_score(said: str, frame: str) -> float:
@@ -308,12 +315,14 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
             # Near it, though: below the bar the rest of the app calls "almost", the
             # answer is neither the frame nor the sentence, and 31% of a line nobody
             # was aiming at is not feedback.
-            if not (_outside_frames(match, frames) and score > anchor and score >= CLOSE):
+            if _outside_frames(match, frames) and score > anchor and score >= CLOSE:
+                pass  # the score is that listed answer's, so the match must be too
+            else:
                 score, frame_scored = anchor, True
-            # `framed` is whichever example answer is nearest, for the correction
-            # card; it is None when nothing overlapped at all, and then the ordinary
-            # match is still the best line to show.
-            match = framed or match
+                # `framed` is whichever example answer is nearest, for the correction
+                # card; it is None when nothing overlapped at all, and then the
+                # ordinary match is still the best line to show.
+                match = framed or match
         elif recall > score:
             match, score, frame_scored = (framed or match), recall, True
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"

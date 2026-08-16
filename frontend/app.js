@@ -136,48 +136,79 @@ function prewarmMic() {
   ensureStream().catch(() => { /* permission comes later, on first real use */ });
 }
 
+/* Recording, written for Safari on iOS rather than for the spec.
+
+   Two guesses at the "Too short" reports were wrong, so this stops guessing:
+   `stop()` now reports *why* it rejected a clip and the caller shows it, which
+   turns a dead end into a number. The changes below are the causes worth ruling
+   out at the same time.
+
+   No timeslice. `start(200)` asks for periodic `dataavailable` events, and iOS
+   delivers those as fragments whose first chunk holds the container header —
+   reassembling them into one Blob can yield something the decoder reads as almost
+   empty. One chunk at stop is what Safari does reliably.
+
+   Wait for the data, not for `stop`. The spec fires `dataavailable` before
+   `stop`, but Safari has shipped versions where the final chunk lands after, so
+   resolving on `onstop` could read `chunks` while still empty — a full-length
+   recording that measures as nothing. Both are awaited now.
+
+   And a stream can go stale. iOS mutes or ends tracks when the page is
+   backgrounded or another app takes the mic, and `stream.active` can still read
+   true afterwards, so a live-looking stream produces silence. The tracks are
+   checked before use and re-acquired if they are not ready. */
+
+const MIN_MS = 250;
+const MIN_BYTES = 600;
+
 class Recorder {
   constructor() { this.chunks = []; this.rec = null; }
 
   async start() {
-    const stream = await ensureStream();
+    let stream = await ensureStream();
+    if (!stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted)) {
+      sharedStream = null;                 // stale: drop it and ask again
+      stream = await ensureStream();
+    }
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
       .find((m) => MediaRecorder.isTypeSupported(m)) || '';
     this.chunks = [];
     this.rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    this.rec.ondataavailable = (e) => { if (e.data.size) this.chunks.push(e.data); };
-    // Small timeslice so audio is flushed continuously rather than in one lump
-    // at stop, which shortens the gap between releasing and having a blob.
-    this.rec.start(200);
+    this.gotData = new Promise((resolve) => { this.resolveData = resolve; });
+    this.rec.ondataavailable = (e) => {
+      if (e.data && e.data.size) this.chunks.push(e.data);
+      this.resolveData();
+    };
+    this.rec.start();                      // no timeslice — see above
     this.startedAt = performance.now();
   }
 
+  /** Returns { blob } on success, or { reason } describing why not. */
   async stop() {
-    if (!this.rec) return null;
-    const done = new Promise((resolve) => { this.rec.onstop = resolve; });
+    if (!this.rec) return { reason: 'no recorder — the mic never started' };
+    const rec = this.rec;
+    this.rec = null;
+
+    const stopped = new Promise((resolve) => { rec.onstop = resolve; });
     // Let the tail of the final word land before cutting the recorder.
     await new Promise((r) => setTimeout(r, 250));
-    this.rec.stop();
-    await done;
-    // Keep the stream open for the next utterance — only the recorder stops.
-    const blob = new Blob(this.chunks, { type: this.rec.mimeType || 'audio/webm' });
-    const ms = performance.now() - this.startedAt;
-    this.rec = null;
-    // Two ways to be empty. Under ~250ms nobody said a word — but the byte floor
-    // has to stay generous, because iOS records AAC in an MP4 container whose
-    // header alone is most of a short clip, and rejecting real speech as "too
-    // short" is far worse than sending a little silence to the recogniser.
-    return ms < 250 || blob.size < 600 ? null : blob;
+    const ms = Math.round(performance.now() - this.startedAt);
+    if (rec.state !== 'inactive') rec.stop();
+    await stopped;
+    // Safari can deliver the last chunk after `stop`; give it a moment either way.
+    await Promise.race([this.gotData, new Promise((r) => setTimeout(r, 1200))]);
+
+    const blob = new Blob(this.chunks, { type: rec.mimeType || 'audio/webm' });
+    if (ms < MIN_MS) return { reason: `only ${(ms / 1000).toFixed(1)}s of audio` };
+    if (blob.size < MIN_BYTES) {
+      return { reason: `${ms}ms recorded but only ${blob.size} bytes captured `
+        + `(${this.chunks.length} chunk${this.chunks.length === 1 ? '' : 's'}, `
+        + `${rec.mimeType || 'no mime'})` };
+    }
+    return { blob };
   }
 }
 
-/** Transcribe on the device if the learner has opted in and the model is loaded,
-    otherwise ask the server.
-
-    The fallback is not a formality: local recognition needs WebGPU, needs a ~200MB
-    download, and can fail for either reason mid-session. A learner who has pressed
-    the mic should get an answer regardless, so anything short of a usable result
-    here drops through to /api/stt rather than surfacing an error. */
 async function transcribe(blob, target) {
   if (state.settings.local_stt && localstt.isReady()) {
     try {
@@ -278,8 +309,10 @@ function bindMic(button, { onResult, onStatus, target }) {
     setBusy(true);
     onStatus?.('Transcribing…');
     try {
-      const blob = await recorder.stop();
-      if (!blob) { onStatus?.('Too short — hold a little longer'); return; }
+      const { blob, reason } = await recorder.stop();
+      // Say what actually went wrong. "Too short" was a guess the code made about
+      // the learner, and twice it was wrong about itself instead.
+      if (!blob) { onStatus?.(`Nothing recorded — ${reason}`); return; }
       const result = await transcribe(blob, typeof target === 'function' ? target() : target);
       onStatus?.('');
       await onResult(result);

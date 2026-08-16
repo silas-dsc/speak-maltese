@@ -587,6 +587,10 @@ def test_open_question_shows_the_line_its_score_came_from():
     r = dialogue.evaluate("family", "f4", "Għandi sigriet")
     assert r["frame_scored"] is False
     assert r["matched_mt"] == "Dak sigriet!", r["matched_mt"]
+    # And on the frame path it is the nearest listed answer — the one they said, if
+    # they said one. Picking by recall instead favours whichever answer is shortest.
+    said = "Nqum fis-siegħa tmienja."
+    assert dialogue.evaluate("routine", "y1", said)["matched_mt"] == said
 
 
 def test_open_question_frames_are_well_formed():

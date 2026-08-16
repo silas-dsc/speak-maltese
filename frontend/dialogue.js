@@ -232,7 +232,6 @@ export function evaluate(did, nid, said, attempts = 0) {
     // A name, a place, a number: never marked wrong, because the app cannot know
     // it. But the frame around the slot is ordinary Maltese, so that part is
     // scored and reported — "Jien Pietru" is not the same as "hello".
-    const [framed, recall] = bestFrame(said, n.accept);
     const frames = n.frames || [];
     if (frames.length) {
       // The node says where the slot is, so the frame is looked for where it
@@ -248,19 +247,18 @@ export function evaluate(did, nid, said, attempts = 0) {
       // neither the frame nor the sentence, and 31% of a line nobody was aiming at
       // is not feedback.
       if (!(outsideFrames(match, frames) && score > anchor && score >= CLOSE)) {
-        // The score is the frame's, so the correction card is the nearest example
-        // answer; `framed` is null when nothing overlapped at all, and then the
-        // ordinary match is still the best line to show. On the escape path both
-        // stay as they are, or the card would name a line the score never came from.
         score = anchor;
         frameScored = true;
-        match = framed || match;
       }
-    } else if (recall > score) {
-      // No slot to anchor on, so this is how much of an example answer they made —
-      // not a frame score, and not claimed as one.
-      match = framed || match;
-      score = recall;
+      // `match` is left as the nearest listed answer either way: it is the line the
+      // correction card shows, and on the escape path it is the line the score was
+      // measured against. The frame has no better candidate — recall favours the
+      // shortest answer, not the nearest one.
+    } else {
+      // No slot to anchor on: score by how much of an example answer they made —
+      // not a frame, and not claimed as one.
+      const [framed, recall] = bestFrame(said, n.accept);
+      if (recall > score) { match = framed || match; score = recall; }
     }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';

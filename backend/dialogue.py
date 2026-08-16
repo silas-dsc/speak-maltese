@@ -314,7 +314,6 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
         # know it. But the frame around the slot is ordinary Maltese, so that part
         # is scored and reported — saying "Jien Pietru" is not the same as saying
         # "hello", and the app should not pretend it cannot tell.
-        framed, recall = _best_frame(said, n.get("accept", []))
         frames = n.get("frames") or []
         if frames:
             # The node says where the slot is, so the frame is looked for where it
@@ -329,18 +328,18 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
             # Near it, though: below the bar the rest of the app calls "almost", the
             # answer is neither the frame nor the sentence, and 31% of a line nobody
             # was aiming at is not feedback.
-            if _outside_frames(match, frames) and score > anchor and score >= CLOSE:
-                pass  # the score is that listed answer's, so the match must be too
-            else:
+            if not (_outside_frames(match, frames) and score > anchor and score >= CLOSE):
                 score, frame_scored = anchor, True
-                # `framed` is whichever example answer is nearest, for the correction
-                # card; it is None when nothing overlapped at all, and then the
-                # ordinary match is still the best line to show.
-                match = framed or match
-        elif recall > score:
-            # No slot to anchor on, so this is how much of an example answer they
-            # produced — not a frame score, and not claimed as one.
-            match, score = (framed or match), recall
+            # `match` is left as the nearest listed answer either way: it is the line
+            # the correction card shows, and on the escape path it is the line the
+            # score was measured against. The frame has no better candidate to offer —
+            # recall favours the shortest answer, not the nearest one.
+        else:
+            # No slot to anchor on: score by how much of an example answer they
+            # produced — not a frame, and not claimed as one.
+            framed, recall = _best_frame(said, n.get("accept", []))
+            if recall > score:
+                match, score = (framed or match), recall
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
     elif score >= CORRECT:
         verdict = "correct"

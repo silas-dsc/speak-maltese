@@ -644,9 +644,15 @@ async function answerDrill(said) {
     // anything. Some answers to an open question are whole listed sentences rather
     // than the frame — `Dak sigriet!` for an age — and those are marked like any
     // other line, because that is what was measured.
+    // `r.verdict` is no help here: on an open question it is "correct" whenever two
+    // characters were said, so printing it would claim a judgement the app never
+    // made. Either the frame was measured, or what was measured is how near they
+    // came to one of the listed answers.
+    const freeLabel = r.frame_scored ? 'frame right'
+      : (r.score >= dialogueEngine.CORRECT ? 'answer right' : 'close to an answer');
     const verdictText = r.free
       ? (r.score >= 0.5
-        ? `${r.frame_scored ? 'frame right' : r.verdict} · ${Math.round(r.score * 100)}%`
+        ? `${freeLabel} · ${Math.round(r.score * 100)}%`
         : 'taken as given · not scored')
       : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
     el.querySelector('.bubble').insertAdjacentHTML('afterbegin',

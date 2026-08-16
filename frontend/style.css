@@ -730,3 +730,84 @@ input[type="range"] { accent-color: var(--red); }
 }
 
 #progressSummary { margin: .8rem 0 0; }
+
+/* ── Small screens ─────────────────────────────────────────────────────────
+   Tested on an iPhone SE (375×667), which is the tightest phone still in wide
+   use. The problem there was structural, not cosmetic: `.view` was the scrolling
+   element, so the chat and the composer scrolled together and the conversation
+   disappeared behind the input as soon as it grew. Above the chat sat a header, a
+   tab row, a scene picker, two buttons, a progress line and a 200px illustration
+   — about 700px of furniture on a 667px screen, so the first reply was already
+   below the fold.
+
+   The fix is to let the conversation own the leftover space and scroll inside
+   itself, and to shrink everything that is not the conversation. */
+
+/* The composer stays put and the chat scrolls under it — at every width, because
+   a scrolled-away input is wrong on a laptop too. */
+#view-drill { overflow: hidden; }
+#view-drill .chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#view-drill .composer { flex: 0 0 auto; }
+
+@media (max-width: 480px) {
+  /* Real viewport height: iOS counts its own toolbars in `vh`, so 100vh is taller
+     than the screen and the composer ends up under the browser chrome. */
+  body { height: 100dvh; }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px) * 0);
+  }
+  .brand-mark { font-size: 1.15rem; }
+  .brand-sub { display: none; }       /* the title already says it */
+
+  .tabs { order: 3; width: 100%; gap: 2px; }
+  .tab { flex: 1; padding: 6px 4px; font-size: .82rem; }
+  .tab em { display: none; }          /* Maltese alone; the icons carry the rest */
+  .badge { top: 2px; right: 2px; }
+
+  /* Picker on top, then the two actions and the progress line sharing one row —
+     that line alone was costing about 40px for six words. */
+  .scenario-bar {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    gap: 6px 8px;
+    align-items: center;
+    padding: 6px 12px;
+  }
+  .scenario-bar select { grid-column: 1 / -1; font-size: .9rem; padding: 7px 10px; }
+  .scenario-bar .ghost-btn { padding: 5px 9px; font-size: .8rem; white-space: nowrap; }
+  .scenario-goal {
+    font-size: .72rem; margin: 0; text-align: right;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Decoration, and it was taking a third of the screen. Keep it as a band so the
+     scene is still recognisable, and drop the caption the picker already says. */
+  .scene-hero { padding: 0 12px; flex: 0 0 auto; }
+  .scene-hero img { height: 64px; object-fit: cover; width: 100%; }
+  .scene-hero figcaption { display: none; }
+
+  .chat { padding: 8px 12px 12px; gap: 10px; }
+  .bubble { padding: 10px 12px; }
+  .turn .mt { font-size: 1.02rem; }
+  .turn .en { font-size: .88rem; }
+
+  .composer { padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .composer-row { gap: 8px; }
+  .composer-text input { padding: 10px 12px; font-size: 16px; }  /* 16px: iOS zooms below it */
+  .drill-expect { font-size: .86rem; margin: 0 0 6px; }
+  .composer-status { font-size: .76rem; margin: 6px 0 0; }
+
+  /* Review: the grade row is four targets on a narrow screen. */
+  .grade-row { gap: 6px; }
+  .grade { padding: 8px 4px; font-size: .8rem; }
+  .card-prompt { font-size: 1.5rem; }
+}
+
+/* Landscape on a phone: almost no height, so the picture goes entirely. */
+@media (max-height: 480px) and (max-width: 900px) {
+  .scene-hero { display: none; }
+  .scenario-bar { padding: 6px 12px; }
+}

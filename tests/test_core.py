@@ -613,12 +613,12 @@ def test_open_question_frames_are_well_formed():
                 continue
             where = f"{d['id']}.{node_id}"
             assert n.get("free"), f"{where} is not an open question"
-            # The frame is graded, so it goes on the screen. "Say your name —
-            # anything goes" is true of the slot and false of the frame around it,
-            # and a learner who answers `Pietru` on the strength of it is told the
-            # app cannot score that, having never been shown what to say.
-            assert "…" in n["expect_en"], f"{where} does not show its frame"
-            assert "anything goes" not in n["expect_en"], where
+            # The frame is graded, so it has to reach the screen: the hint line is
+            # composed from it. Marking `Jien …` while the prompt says only "say your
+            # name — anything goes" asks the learner to guess the half being looked at.
+            assert dialogue.present(d["id"], node_id)["frames"] == frames, where
+            assert "anything goes" not in n["expect_en"], (
+                f"{where}: the frame says where anything goes")
             shown = {k for a in n["accept"] if not a.get("open")
                      for k in dialogue._keys(a["mt"])}
             for frame in frames:

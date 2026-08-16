@@ -30,6 +30,10 @@ export function present(did, nid) {
     say_mt: n.say_mt,
     say_en: n.say_en,
     expect_en: n.expect_en || '',
+    // The Maltese frame the answer is scored on, `Jien …`, `Għandi … sena`. It goes
+    // on the screen beside the English: grading the frame while telling the learner
+    // "anything goes" asks them to guess the half that is marked.
+    frames: n.frames || [],
     options: (n.accept || []).filter((a) => !a.open).map((a) => a.en),
   };
 }

@@ -553,7 +553,13 @@ function showSceneImage(id) {
 function presentDrillNode(node) {
   drill.node = node.node;
   drill.attempts = 0;
-  $('drillExpect').textContent = node.expect_en ? `→ ${node.expect_en}` : '';
+  // An open question is scored on its Maltese frame, so the frame is on the screen
+  // next to the English. Saying "say your name — anything goes" and then marking
+  // `Jien …` asked the learner to guess which half was being looked at.
+  const frames = (node.frames || []).map((f) => `<b>${escapeHtml(f)}</b>`).join(' / ');
+  $('drillExpect').innerHTML = node.expect_en
+    ? `→ ${escapeHtml(node.expect_en)}${frames ? ` · ${frames}` : ''}`
+    : '';
   drillBubble('tutor', node.say_mt, node.say_en);
   if (state.settings.autoplay) speak(node.say_mt);
 }

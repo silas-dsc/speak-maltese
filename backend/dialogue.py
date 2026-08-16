@@ -70,6 +70,10 @@ def present(dialogue_id: str, node_id: str) -> dict | None:
         "say_mt": n["say_mt"],
         "say_en": n["say_en"],
         "expect_en": n.get("expect_en", ""),
+        # The Maltese frame the answer is scored on, `Jien …`, `Għandi … sena`. It
+        # goes on the screen beside the English: grading the frame while telling the
+        # learner "anything goes" asks them to guess the half that is marked.
+        "frames": n.get("frames") or [],
         "options": [a["en"] for a in n.get("accept", []) if not a.get("open")],
     }
 

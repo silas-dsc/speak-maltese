@@ -551,6 +551,10 @@ input[type="range"] { accent-color: var(--red); }
   max-width: 820px; margin: 0 auto 10px; font-size: .82rem;
   color: var(--sea); font-weight: 600;
 }
+/* The Maltese frame inside the hint — `Jien …`, `Għandi … sena`. It is the part the
+   answer is scored on, so it is set in the Maltese face and reads as a thing to say
+   rather than as more of the English sentence. */
+.drill-expect b { font-family: var(--font-mt); font-size: .95rem; color: var(--text); }
 .drill-verdict {
   margin: 0 0 7px; font-size: .68rem; font-weight: 700;
   letter-spacing: .06em; text-transform: uppercase;

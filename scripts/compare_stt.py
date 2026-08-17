@@ -40,8 +40,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend import curriculum, text  # noqa: E402
@@ -161,8 +159,15 @@ def record(n: int, device: str = ":default") -> None:
 
 def _peak(path: Path) -> float:
     """Loudest sample, 0..1. A recording of nothing is the one failure worth catching
-    while the microphone is still open."""
+    while the microphone is still open.
+
+    numpy is imported here rather than at the top of the file on purpose: CI installs
+    only what the app itself needs, and `tests/test_scripts.py` imports every script to
+    check the parts above `main()` still work. A module-level import of anything from
+    the modelling side turns that into a collection error."""
     try:
+        import numpy as np
+
         from faster_whisper.audio import decode_audio
         wave = decode_audio(str(path), sampling_rate=16000)
         return float(np.abs(np.asarray(wave)).max()) if len(wave) else 0.0

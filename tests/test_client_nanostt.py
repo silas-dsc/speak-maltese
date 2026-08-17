@@ -24,12 +24,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
+
+# CI installs only what the app needs, so the comparison this file makes — against the
+# Python that produced the training data — simply does not run there. Skipped rather
+# than faked: it is a numerical check or it is nothing.
+np = pytest.importorskip("numpy")
 
 node = shutil.which("node")
 pytestmark = pytest.mark.skipif(node is None, reason="node is not installed")

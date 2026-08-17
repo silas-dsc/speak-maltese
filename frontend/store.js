@@ -296,3 +296,35 @@ export function sttLoadCrashed() {
     return false;
   }
 }
+
+/* A fact about this device, not a preference of the learner's: the model was
+   started here and the tab died holding it. Measured limits say why — WebKit gives a
+   page 200-350MB on an iPhone SE and the model is 200MB before any tensors — and no
+   setting changes that.
+
+   Kept apart from `local_stt` on purpose. Switching that off would read as "you
+   asked for speech and we quietly withdrew it", when what is true is narrower:
+   recognition cannot run *here*, and belongs on the server instead. The learner can
+   still turn it back on and try again, which is what clearing this is for. */
+
+const MODEL_TOO_BIG_KEY = 'sm.modelTooBig';
+
+export function markModelTooBig() {
+  try {
+    localStorage.setItem(MODEL_TOO_BIG_KEY, '1');
+  } catch { /* nothing here is worth failing startup over */ }
+}
+
+export function forgetModelTooBig() {
+  try {
+    localStorage.removeItem(MODEL_TOO_BIG_KEY);
+  } catch { /* see above */ }
+}
+
+export function modelTooBig() {
+  try {
+    return !!localStorage.getItem(MODEL_TOO_BIG_KEY);
+  } catch {
+    return false;
+  }
+}

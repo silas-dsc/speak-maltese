@@ -422,6 +422,12 @@ async function transcribe(blob, target) {
       console.warn('local recogniser failed, using the server', err);
     }
   }
+  if (STATIC.on && !remoteStt()) {
+    /* Nowhere to send it: this build has no server and the device could not hold the
+       model. Say so, rather than posting into a 404 and reporting whatever that
+       returns as though the recording were at fault. */
+    throw new Error('No recogniser available here yet — type your answer for now.');
+  }
   const fd = new FormData();
   // Named for what it is: the server picks its decoder from the content type and the
   // extension, and an mp4 clip called speech.webm is a decode failure waiting to
@@ -445,9 +451,15 @@ async function setLocalStt(on) {
   persistSettings();
   if (!on) {
     localstt.unload();
-    note.textContent = 'Speech is sent to the server for recognition.';
+    note.textContent = remoteStt() || !STATIC.on
+      ? 'Speech is sent to the server for recognition.'
+      : 'Speech recognition is off, and this build has no server to do it.';
     return;
   }
+  /* Asked for deliberately, so the device gets another go. It was written off after
+     the tab died holding the model — a fact worth remembering on startup, and not
+     one to hold against a learner who is telling us to try. */
+  store.forgetModelTooBig();
   if (!localstt.supported()) {
     state.settings.local_stt = false;
     persistSettings();
@@ -471,7 +483,8 @@ async function setLocalStt(on) {
     state.settings.local_stt = false;
     persistSettings();
     box.checked = false;
-    note.textContent = `Could not load it: ${err.message}. Still using the server.`;
+    note.textContent = `Could not load it: ${err.message}. `
+      + (remoteStt() ? 'Using the server instead.' : 'Typing still works.');
   } finally {
     box.disabled = false;
   }
@@ -592,12 +605,18 @@ async function boot() {
         /* The last attempt never finished — the tab died with a 200MB model half
            loaded on the GPU. Loading it again is how the crash becomes a boot loop
            and the app becomes a white screen, so it is off until asked for. */
-        if (store.sttLoadCrashed()) {
+        if (store.sttLoadCrashed() || store.modelTooBig()) {
+          /* Recognition stays switched on — it is the *place* that is wrong, not the
+             wish. The setting is the learner's and is left alone; what is recorded is
+             a fact about the device, so the model is not started here again and the
+             utterance goes to the server instead. */
           store.endSttLoad();
-          store.saveSettings({ ...settings, local_stt: false });
-          state.settings = store.loadSettings();
-          state.sttNotice = 'Speaking recognition is off: the browser ran out of '
-            + 'memory loading it. Settings can turn it back on.';
+          store.markModelTooBig();
+          state.sttNotice = remoteStt()
+            ? 'Speech is recognised on the server: this phone cannot hold the '
+              + 'recogniser in a browser tab.'
+            : 'This phone cannot hold the recogniser in a browser tab, and no '
+              + 'server is configured to do it — typing still works.';
           return false;
         }
         store.beginSttLoad();
@@ -647,7 +666,8 @@ async function boot() {
   // they say is not the slow one. The model is in the HTTP cache by now.
   // Static builds already loaded it during startup. A server build has a working
   // recogniser of its own, so this warms in the background instead of blocking.
-  if (!remoteStt() && state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
+  if (!remoteStt() && !store.modelTooBig()
+      && state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
     // Same marker as the startup path: this load is smaller but it is the same
     // model on the same GPU, and a tab that dies here must not try again on sight.
     store.beginSttLoad();

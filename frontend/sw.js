@@ -34,7 +34,7 @@ const SHELL_ASSETS = [
   // The client is ES modules. Missing one of these offline would not degrade the
   // app, it would fail to boot at all.
   './app.js', './srs.js', './store.js', './schedule.js', './splash.js',
-  './localstt.js', './text.js', './dialogue.js', './session.js',
+  './localstt.js', './text.js', './dialogue.js', './session.js', './capture.js',
   /* The static build's data, and the manifest that maps a line to its MP3. Absent
      on the FastAPI build, where these are live endpoints — `add` failures are
      tolerated below, so listing them costs nothing there. Without them a device

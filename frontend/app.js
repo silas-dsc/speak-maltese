@@ -13,6 +13,7 @@ import * as schedule from './schedule.js';
 import * as srs from './srs.js';
 import * as mtext from './text.js';
 import * as session from './session.js';
+import * as capture from './capture.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -132,9 +133,64 @@ async function ensureStream() {
   return sharedStream;
 }
 
-/** Warm the mic on the first interaction so the first recording isn't the slow one. */
+/* Try the chosen container for a fraction of a second, on the first interaction and
+   off the answer path, to find out whether the browser encodes into it at all.
+
+   Without this the discovery costs a turn: on an iPhone the first thing a learner
+   says goes into a format the browser recommended and does not implement, and comes
+   back as five bytes. The probe is 300ms of nothing, and after it the first real
+   recording asks for a container this device has been seen to produce. */
+const PROBE_MS = 300;
+/* 300ms of Opus or AAC is a couple of thousand bytes; an empty container is tens.
+   The bar only has to tell "something" from "nothing". */
+const PROBE_BYTES = 120;
+
+let probing = null;
+
+function recordBriefly(stream, mime) {
+  // Outside the promise on purpose: a browser that refuses the format throws here,
+  // and the caller's try/catch is the right place for that — it strikes the format
+  // off and moves down the list.
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  return new Promise((done) => {
+    let bytes = 0;
+    rec.ondataavailable = (e) => { bytes += e.data?.size || 0; };
+    // Safari can deliver the last chunk after `stop`, so the count is read a moment
+    // later rather than in the handler that fired first.
+    rec.onstop = () => setTimeout(() => done(bytes), 250);
+    rec.onerror = () => done(bytes);
+    rec.start();
+    setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, PROBE_MS);
+  });
+}
+
+async function verifyCapture(stream) {
+  if (capabilities.verified()) return;            // already known on this device
+  for (let i = 0; i < capture.CANDIDATES.length; i += 1) {
+    const mime = chosenMime();
+    if (!mime) return;                            // nothing left to ask for
+    let bytes = 0;
+    try {
+      bytes = await recordBriefly(stream, mime);
+    } catch {
+      capabilities.block(mime);                   // would not even start
+      continue;
+    }
+    if (bytes >= PROBE_BYTES) {
+      capabilities.verify(mime);
+      return;
+    }
+    capabilities.block(mime);
+  }
+}
+
+/** Warm the mic on the first interaction so the first recording isn't the slow one,
+    and find out what this device can actually record while we are here. */
 function prewarmMic() {
-  ensureStream().catch(() => { /* permission comes later, on first real use */ });
+  probing = ensureStream()
+    .then((stream) => verifyCapture(stream))
+    .catch(() => { /* permission comes later, on first real use */ })
+    .finally(() => { probing = null; });
 }
 
 /* Recording, written for Safari on iOS rather than for the spec.
@@ -162,6 +218,23 @@ function prewarmMic() {
 const MIN_MS = 250;
 const MIN_BYTES = 600;
 
+/** What this device has been seen to record, across sessions. */
+const capabilities = capture.store();
+
+const supportsMime = (m) => {
+  try {
+    return MediaRecorder.isTypeSupported(m);
+  } catch {
+    return false;
+  }
+};
+
+const chosenMime = () => capture.pickMime({
+  supported: supportsMime,
+  verified: capabilities.verified(),
+  blocked: capabilities.blocked(),
+});
+
 class Recorder {
   constructor() { this.chunks = []; this.rec = null; }
 
@@ -171,8 +244,7 @@ class Recorder {
       sharedStream = null;                 // stale: drop it and ask again
       stream = await ensureStream();
     }
-    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
-      .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+    const mime = chosenMime();
     this.chunks = [];
     this.rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     this.gotData = new Promise((resolve) => { this.resolveData = resolve; });
@@ -202,10 +274,19 @@ class Recorder {
     const blob = new Blob(this.chunks, { type: rec.mimeType || 'audio/webm' });
     if (ms < MIN_MS) return { reason: `only ${(ms / 1000).toFixed(1)}s of audio` };
     if (blob.size < MIN_BYTES) {
+      /* Seconds of audio in, a container header out. The browser said it supported
+         this format and then did not encode into it, which nothing in the API
+         reports — so it is struck off here, and the next attempt asks for a
+         different one instead of failing the same way forever. */
+      capabilities.block(rec.mimeType);
+      const next = chosenMime();
       return { reason: `${ms}ms recorded but only ${blob.size} bytes captured `
         + `(${this.chunks.length} chunk${this.chunks.length === 1 ? '' : 's'}, `
-        + `${rec.mimeType || 'no mime'})` };
+        + `${rec.mimeType || 'no mime'})`
+        + (next && next !== rec.mimeType ? ` — trying ${next} now, press again` : '') };
     }
+    // It worked: stop guessing at the format on this device.
+    capabilities.verify(rec.mimeType);
     return { blob };
   }
 }
@@ -229,7 +310,10 @@ async function transcribe(blob, target) {
     }
   }
   const fd = new FormData();
-  fd.append('audio', blob, 'speech.webm');
+  // Named for what it is: the server picks its decoder from the content type and the
+  // extension, and an mp4 clip called speech.webm is a decode failure waiting to
+  // happen — which is exactly what iOS records.
+  fd.append('audio', blob, capture.fileNameFor(blob.type));
   if (target) fd.append('target', target);
   return api('/api/stt', { method: 'POST', body: fd });
 }
@@ -291,6 +375,9 @@ function bindMic(button, { onResult, onStatus, target }) {
     // of the first, which then ran on unreferenced and unstoppable.
     if (active || starting || button.classList.contains('is-busy')) return;
     starting = true;
+    // A tap can land while the format probe is still recording its 300ms; two
+    // MediaRecorders on one stream is how you get a clip with nothing in it.
+    if (probing) await probing;
     try {
       await recorder.start();
       active = true;

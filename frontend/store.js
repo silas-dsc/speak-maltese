@@ -258,3 +258,41 @@ export function loadSettings() {
 export function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
+
+/* ── Did the tab survive loading the recogniser? ──────────────────────────────
+
+   The on-device recogniser is a ~200MB model instantiated on the GPU, and the
+   startup screen waits for it. On a phone that is the heaviest thing the app ever
+   does, and a browser that runs out of memory there kills the tab and reloads it —
+   into the same load, which kills it again. Reported from an iPhone as a crash
+   followed by a white screen.
+
+   A marker is written before the load and removed when it finishes, whether it
+   worked or threw. So a marker still present at the next boot means the attempt
+   never finished at all: the tab died mid-load. Retrying that identically is how a
+   boot loop is built, so it is not retried — the setting is switched off and the
+   learner is told, which leaves an app that types and reviews rather than one that
+   will not open. */
+
+const STT_LOAD_KEY = 'sm.sttLoading';
+
+export function beginSttLoad() {
+  try {
+    localStorage.setItem(STT_LOAD_KEY, new Date().toISOString());
+  } catch { /* private mode: no crash detection, and nothing worse than that */ }
+}
+
+export function endSttLoad() {
+  try {
+    localStorage.removeItem(STT_LOAD_KEY);
+  } catch { /* see above */ }
+}
+
+/** True when the last attempt to load the recogniser never finished. */
+export function sttLoadCrashed() {
+  try {
+    return !!localStorage.getItem(STT_LOAD_KEY);
+  } catch {
+    return false;
+  }
+}

@@ -25,6 +25,9 @@ const state = {
   card: null,
   revealed: false,
   attempted: false,
+  // Set during startup when the recogniser had to be switched off, and shown once
+  // the UI exists — a toast during the splash is a toast nobody sees.
+  sttNotice: '',
 };
 
 /* ── API helpers ──────────────────────────────────────────────────────── */
@@ -53,6 +56,11 @@ const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(bo
    device or not at all. */
 
 const STATIC = { on: false, audio: null, modelsBase: '/models/' };
+
+/* How long the startup screen will wait for the on-device recogniser before
+   opening the app without it. Long enough for a warm HTTP cache, nowhere near long
+   enough to sit through 200MB over 4G — which is not a wait, it is a broken app. */
+const MODEL_WAIT_MS = 25000;
 
 /** Pre-rendered speech, looked up by line rather than synthesised on demand. */
 function staticAudioUrl(line) {
@@ -557,13 +565,39 @@ async function boot() {
       },
       onModel: async (onProgress) => {
         // Only worth waiting on where it is the only recogniser there is.
-        if (!store.loadSettings().local_stt || !localstt.supported()) return false;
-        try {
-          await localstt.load({ base: STATIC.modelsBase, onProgress });
-          return true;
-        } catch {
-          return false;      // typing still works; the toggle explains why
+        const settings = store.loadSettings();
+        if (!settings.local_stt || !localstt.supported()) return false;
+        /* The last attempt never finished — the tab died with a 200MB model half
+           loaded on the GPU. Loading it again is how the crash becomes a boot loop
+           and the app becomes a white screen, so it is off until asked for. */
+        if (store.sttLoadCrashed()) {
+          store.endSttLoad();
+          store.saveSettings({ ...settings, local_stt: false });
+          state.settings = store.loadSettings();
+          state.sttNotice = 'Speaking recognition is off: the browser ran out of '
+            + 'memory loading it. Settings can turn it back on.';
+          return false;
         }
+        store.beginSttLoad();
+        /* The load is 200MB from another host, and until now the startup screen
+           waited for it with no limit — so a phone on a bad connection sat on
+           "Warming the Maltese recogniser" indefinitely, and a host that never
+           answers meant an app that never opened. It is given a while and then
+           left to finish on its own: the deck, the conversation and typing do not
+           need it, and `isReady()` is checked at the moment something is said, so
+           a late arrival simply starts working. */
+        const loading = localstt.load({ base: STATIC.modelsBase, onProgress })
+          .then(() => true)
+          .catch(() => false)       // typing still works; the toggle explains why
+          .finally(() => store.endSttLoad());
+        const waited = await Promise.race([
+          loading,
+          new Promise((done) => setTimeout(() => done('slow'), MODEL_WAIT_MS)),
+        ]);
+        if (waited !== 'slow') return waited;
+        state.sttNotice = 'Still fetching the speaking recogniser — carry on, '
+          + 'it will start working when it arrives.';
+        return false;
       },
     });
   } catch (err) {
@@ -578,6 +612,10 @@ async function boot() {
 
   applySettings();
   renderCaps();
+  if (state.sttNotice) {
+    toast(state.sttNotice, 9000);
+    state.sttNotice = '';
+  }
   await refreshCounts();
 
   await loadDrills();
@@ -588,8 +626,12 @@ async function boot() {
   // Static builds already loaded it during startup. A server build has a working
   // recogniser of its own, so this warms in the background instead of blocking.
   if (state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
+    // Same marker as the startup path: this load is smaller but it is the same
+    // model on the same GPU, and a tab that dies here must not try again on sight.
+    store.beginSttLoad();
     localstt.load({ base: STATIC.modelsBase })
-      .catch(() => { /* the server path still works */ });
+      .catch(() => { /* the server path still works */ })
+      .finally(() => store.endSttLoad());
   }
 }
 

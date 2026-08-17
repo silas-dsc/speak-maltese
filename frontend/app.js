@@ -483,7 +483,9 @@ function keepDrill() {
     dialogue: drill.dialogue,
     node: drill.node,
     attempts: drill.attempts,
-    run: drill.run,
+    // Elapsed rather than the start time, so a scene picked up tomorrow does not
+    // report the night as time spent answering.
+    run: { ...drill.run, elapsedMs: Date.now() - drill.run.startedAt },
     present: drill.present,
     turns: drill.turns,
   });
@@ -522,23 +524,35 @@ async function loadDrills() {
 function restoreDrill(dialogues) {
   const s = saved.load();
   if (!s || !s.turns.length || !dialogues.some((d) => d.id === s.dialogue)) return false;
-  // A new build can rename or drop a node, and a conversation pointing at one that
-  // is gone would grade every answer as "unknown node" — a chat you can read and
-  // cannot continue, which is worse than the restart this replaced. Only the engine
-  // can say, and only in static mode; the server path is asked at answer time.
-  if (STATIC.on && !dialogueEngine.node(s.dialogue, s.node)) return false;
+
+  /* Ask the engine for the prompt again rather than trusting the copy in storage.
+     The stored one is from whichever build wrote it, and a saved conversation
+     outlives a deploy — so replaying it would show the old build's prompt beside
+     the new build's grading, which is the very mismatch the versioned shell cache
+     was added to stop. It also answers whether the node still exists: a build can
+     rename or drop one, and a conversation sitting on a node that is gone grades
+     every answer as "unknown node" — a chat you can read and cannot continue.
+
+     Only the engine can be asked. Against the server, the stored prompt is all
+     there is, and a node that has gone is caught when an answer is sent. */
+  const present = STATIC.on ? dialogueEngine.present(s.dialogue, s.node) : s.present;
+  if (!present) return false;
 
   drill.dialogue = s.dialogue;
-  drill.attempts = s.attempts || 0;
-  drill.run = s.run || { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
   drill.turns = s.turns;
+  drill.run = s.run || { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
+  // The clock counts time spent in the scene, not time the tab spent closed.
+  drill.run.startedAt = Date.now() - (s.run?.elapsedMs || 0);
   $('drillSelect').value = s.dialogue;
   showSceneImage(s.dialogue);
   $('drillChat').innerHTML = '';
   for (const t of s.turns) drillBubble(t.role, t.mt, t.en, t);
   // Silently: the tutor is not going to read the whole conversation back, and the
   // node is where the learner left off rather than a line just spoken.
-  installDrillNode(s.present);
+  installDrillNode(present);
+  // After installing, which starts a node's attempts at nought: two tries already
+  // spent are two the learner does not have to spend again to be moved on.
+  drill.attempts = s.attempts || 0;
   return true;
 }
 
@@ -712,6 +726,9 @@ async function answerDrill(said) {
       : await post('/api/drill/answer', {
         dialogue: drill.dialogue, node: drill.node, said, attempts: drill.attempts,
       });
+    // The engine reports an unknown node in the body where the server reports it as
+    // a 404; raising here puts both on the same path out.
+    if (r.error) throw new Error(r.error);
     if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 
@@ -786,6 +803,14 @@ async function answerDrill(said) {
     }
   } catch (err) {
     toast(err.message);
+    /* The scene has moved under a restored conversation: the node it was sitting on
+       is not there any more, so no answer will ever land. Say so once and start the
+       scene, rather than leaving a chat that reads fine and cannot be continued —
+       and forget it, or the next reload would restore the same dead end. */
+    if (/unknown node/i.test(err.message || '')) {
+      saved.clear();
+      await startDrill(drill.dialogue);
+    }
   } finally {
     if (!holdBusy) drill.busy = false;
   }

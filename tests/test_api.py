@@ -292,6 +292,11 @@ def test_service_worker_and_manifest_are_served(client):
     sw = client.get("/sw.js")
     assert sw.status_code == 200
     assert "javascript" in sw.headers["content-type"]
+    # Named after the build, exactly as the static build stamps it. Left as `dev`
+    # the worker's bytes never change, so an edited app.js is served from the old
+    # cache for one more load — which here is every reload while working on it.
+    assert re.search(r"const BUILD = '[0-9a-f]{12}'", sw.text), "shell cache is unstamped"
+    assert "const BUILD = 'dev'" not in sw.text
 
     mf = client.get("/manifest.webmanifest")
     assert mf.status_code == 200

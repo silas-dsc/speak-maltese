@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 
@@ -268,6 +269,37 @@ async def cache_headers(request: Request, call_next):
 _MODELS_DIR = FRONTEND_DIR.parent / "web" / "models"
 if _MODELS_DIR.is_dir():
     app.mount("/models", StaticFiles(directory=_MODELS_DIR), name="models")
+
+
+# The files the worker precaches as the shell, which is what its cache is named
+# after. Ordinary content, not a manifest to keep in step: anything the client
+# imports is a *.js here, and tests/test_api.py checks the two lists agree.
+_SHELL_GLOBS = ("*.js", "index.html", "style.css", "manifest.webmanifest")
+
+
+@app.get("/sw.js")
+def service_worker() -> Response:
+    """The service worker, with its shell cache named after this build.
+
+    scripts/build_static.py does this for the Pages build; served from the repo the
+    placeholder would stay `dev` forever, so the worker's bytes would never change,
+    no new worker would install, and an edited app.js would keep being served from
+    the old cache — a reload late, every time. That is the bug the naming exists to
+    remove, and it is worse here, where the files change while you watch.
+
+    Hashed per request rather than at startup: in development the point is to notice
+    an edit made a second ago, and it is a dozen small files.
+    """
+    digest = hashlib.sha256()
+    files = sorted(p for g in _SHELL_GLOBS for p in FRONTEND_DIR.glob(g)
+                   if p.name != "sw.js")
+    for path in files:
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    src = (FRONTEND_DIR / "sw.js").read_text(encoding="utf-8")
+    src = src.replace("const BUILD = 'dev'", f"const BUILD = '{digest.hexdigest()[:12]}'", 1)
+    return Response(src, media_type="text/javascript",
+                    headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/")

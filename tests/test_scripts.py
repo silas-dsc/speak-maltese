@@ -10,6 +10,8 @@ import each script and call the part that reads the app's own data.
 from __future__ import annotations
 
 import importlib.util
+import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -48,6 +50,56 @@ def test_prebuild_audio_all_is_the_union_of_the_others():
     every = set(mod.lines_for("all"))
     assert set(mod.lines_for("drills")) <= every
     assert set(mod.lines_for("deck")) <= every
+
+
+def _mini_build(mod, out: Path) -> str:
+    """Everything a device caches as the shell, minus the 23MB of MP3s."""
+    mod.DIST = out
+    out.mkdir(parents=True, exist_ok=True)
+    mod.copy_shell()
+    mod.write_api("/models/")
+    return mod.stamp_shell_version()
+
+
+def test_build_stamps_the_shell_cache_with_the_build(tmp_path):
+    """The worker serves the shell stale-while-revalidate, so a page open across a
+    deploy mixes builds — the new `api/dialogues.json` against the previous
+    `app.js`, which showed up as a prompt whose Maltese frame had gone missing. The
+    cache is named after the build so the old one becomes unreachable instead."""
+    mod = load("build_static")
+    build = _mini_build(mod, tmp_path / "dist")
+
+    assert re.fullmatch(r"[0-9a-f]{12}", build), build
+    sw = (tmp_path / "dist" / "sw.js").read_text(encoding="utf-8")
+    assert f"const BUILD = '{build}'" in sw
+    assert "const BUILD = 'dev'" not in sw, "the placeholder is still there"
+
+
+def test_build_stamp_moves_only_when_the_build_does(tmp_path):
+    """Named after the content, not the commit: a deploy that changes nothing the
+    device would notice must leave its cache — and its audio — alone."""
+    mod = load("build_static")
+    first = _mini_build(mod, tmp_path / "a")
+    assert _mini_build(mod, tmp_path / "b") == first, "same input, different stamp"
+
+    for name, edit in (("style.css", "\n/* changed */\n"),
+                       ("api/dialogues.json", " ")):
+        out = tmp_path / f"c-{name.replace('/', '-')}"
+        _mini_build(mod, out)
+        target = out / name
+        target.write_text(target.read_text(encoding="utf-8") + edit, encoding="utf-8")
+        shutil.copy(ROOT / "frontend" / "sw.js", out / "sw.js")   # a fresh placeholder
+        mod.DIST = out
+        assert mod.stamp_shell_version() != first, f"{name} changed and the stamp did not"
+
+
+def test_audio_cache_is_not_versioned_per_build():
+    """23MB of MP3s, and a sentence at a given voice and rate is the same file
+    forever. Naming that cache after the build would re-download all of it every
+    time a stylesheet changed."""
+    sw = (ROOT / "frontend" / "sw.js").read_text(encoding="utf-8")
+    assert "const AUDIO = 'audio-" in sw, "audio cache name must not interpolate BUILD"
+    assert "`audio-${BUILD}`" not in sw
 
 
 def test_every_scene_has_an_image_prompt():

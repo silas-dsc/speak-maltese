@@ -11,9 +11,20 @@
    * audio (/api/tts) — cache-first and permanent, because a given sentence at a
      given voice and rate never changes, and re-fetching it is pure latency. */
 
-const VERSION = 'v6';
-const SHELL = `shell-${VERSION}`;
-const AUDIO = `audio-${VERSION}`;
+/* Stamped with a hash of the built shell by scripts/build_static.py, and left as
+   `dev` when the app is served from the repo.
+
+   Without it a deploy reached the device in pieces. Stale-while-revalidate serves
+   the cached copy and refreshes in the background, so a page open across a deploy
+   ran new `api/dialogues.json` against the previous `app.js` — which is how a
+   prompt that had been given a Maltese frame to show appeared with the frame
+   missing. A new hash is a new cache, dropped and refetched whole on the next
+   load, so the shell can never be half of one build and half of another. */
+const BUILD = 'dev';
+const SHELL = `shell-${BUILD}`;
+/* Not per build. A sentence at a given voice and rate is the same MP3 forever, and
+   23MB of them should not be re-downloaded because a stylesheet changed. */
+const AUDIO = 'audio-v6';
 
 /* Relative to the worker's scope, not to the origin. This app is served from the
    root by the FastAPI build and from /speak-maltese/ by GitHub Pages, and an

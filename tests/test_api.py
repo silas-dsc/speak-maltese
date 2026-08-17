@@ -350,6 +350,21 @@ def test_service_worker_never_caches_live_state():
                    "shell", "shell", "shell"], dict(zip(urls, got))
 
 
+def test_a_new_build_takes_over_the_page_rather_than_half_of_it():
+    """The shell is served stale-while-revalidate, so a page open across a deploy
+    runs the old code against whatever the new worker serves — the mix that had a
+    prompt showing no Maltese frame while its own fresh data carried one. The worker
+    claims the page and the page reloads once. Not on the first activation, which is
+    the app starting up rather than a new build, and not in the middle of a turn."""
+    app = (Path(__file__).resolve().parent.parent / "frontend" / "app.js").read_text()
+    assert "controllerchange" in app, "a new build must not go unnoticed"
+    after = app.split("controllerchange", 1)[1][:700]
+    assert "location.reload()" in after
+    assert "drill.busy" in after, "a reload mid-answer costs the learner the turn"
+    assert "navigator.serviceWorker.controller" in app.split("controllerchange", 1)[0], \
+        "the first activation is not a new build and must be told apart"
+
+
 def test_service_worker_survives_a_missing_asset():
     """cache.addAll is atomic — one 404 and the app caches nothing at all."""
     sw = (Path(__file__).resolve().parent.parent / "frontend" / "sw.js").read_text()

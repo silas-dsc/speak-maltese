@@ -1168,8 +1168,31 @@ window.addEventListener('keydown', prewarmMic, { once: true });
 // Offline support. Registered last so a failure here can never stop the app
 // booting — it is an enhancement, not a dependency.
 if ('serviceWorker' in navigator) {
+  // Was this page already being served by a worker? If not, the first activation
+  // is this app starting up, not a new build arriving.
+  const renewal = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+
+  /* A new build has taken over the page. Until it reloads, the code in memory is
+     the old build talking to the new one's files — which is how a prompt came to
+     be missing the Maltese frame that its own freshly-fetched data was asking for.
+     So reload, once, and not mid-turn: an answer being typed or graded is the one
+     moment when losing the page costs the learner something. */
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!renewal || reloading) return;
+    reloading = true;
+    const whenIdle = () => {
+      if (drill.busy || $('drillInput').value.trim()
+        || document.querySelector('.is-recording')) {
+        setTimeout(whenIdle, 1500);
+        return;
+      }
+      location.reload();
+    };
+    whenIdle();
   });
 }
 

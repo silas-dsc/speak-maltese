@@ -2,7 +2,7 @@
 """Assemble the whole app as static files, for GitHub Pages or any dumb host.
 
 Nothing here is a port — the ports already happened (frontend/text.js,
-dialogue.js, srs.js, schedule.js, store.js, localstt.js, each with a parity test
+dialogue.js, srs.js, schedule.js, store.js, nanostt.js, each with a parity test
 against the Python it came from). This just pre-renders what the server used to
 answer and lays it out so the same `index.html` works with no backend:
 
@@ -19,12 +19,11 @@ the line up instead. Only lines the app can actually say are included — the de
 its examples and every scripted line — which is what `prebuild_audio.py` already
 renders.
 
-Speech recognition has no static equivalent: it runs on the device (localstt.js)
-or not at all. The build writes `capabilities.stt = []` so the UI says so honestly
-rather than offering a mic that posts into the void.
+Speech recognition runs on the device (nanostt.js), from a 2.1MB model copied out of
+`frontend/stt/`. The build writes `capabilities.stt = []` because there is no server
+behind it, not because nothing can listen.
 
     python scripts/build_static.py                    # → dist/
-    python scripts/build_static.py --models-base https://huggingface.co/…/resolve/main/
 """
 
 from __future__ import annotations
@@ -46,8 +45,13 @@ DIST = ROOT / "dist"
 
 # Everything the client loads by name. Anything missing here is a blank page.
 SHELL = ("index.html", "style.css", "app.js", "srs.js", "store.js", "schedule.js",
-         "splash.js", "localstt.js", "text.js", "dialogue.js", "session.js", "capture.js", "sw.js",
+         "splash.js", "nanostt.js", "text.js", "dialogue.js", "session.js", "capture.js", "sw.js",
          "manifest.webmanifest")
+
+# The on-device recogniser. 2.1MB, which is why it can live in the repository and be
+# served from the same origin as the page — GitHub refuses single files over 100MB, and
+# the 200MB model this replaces had to be fetched from the Hugging Face Hub.
+STT_DIR = "stt"
 
 
 def cache_key(text: str, voice: str, rate: float, provider: str = "edge") -> str:
@@ -63,9 +67,14 @@ def copy_shell() -> None:
             print(f"  ! missing {name}")
     if (FRONTEND_DIR / "img").is_dir():
         shutil.copytree(FRONTEND_DIR / "img", DIST / "img", dirs_exist_ok=True)
+    # Without this the page loads, the deck seeds, and the mic silently never works.
+    if (FRONTEND_DIR / STT_DIR).is_dir():
+        shutil.copytree(FRONTEND_DIR / STT_DIR, DIST / STT_DIR, dirs_exist_ok=True)
+    else:
+        print(f"  ! missing {STT_DIR}/ — the build will have no recogniser")
 
 
-def write_api(models_base: str, stt_base: str) -> dict:
+def write_api(stt_base: str) -> dict:
     api = DIST / "api"
     api.mkdir(parents=True, exist_ok=True)
 
@@ -82,17 +91,16 @@ def write_api(models_base: str, stt_base: str) -> dict:
 
     (api / "bootstrap.json").write_text(json.dumps({
         "capabilities": {
-            # No server of its own: synthesis is pre-rendered, and recognition is
-            # either on this device or at `stt_base` — a deployment of this same
-            # FastAPI app, which is what the Hugging Face Space is.
+            # No server of its own: synthesis is pre-rendered, and recognition happens
+            # on the device unless `stt_base` names somewhere else. `stt` describes what
+            # a *server* could do for this build, which is nothing.
             "tts": ["prerendered"],
             "stt": ["remote"] if stt_base else [],
         },
         "static": True,
-        "models_base": models_base,
-        # Empty means on-device only. Set it and the 200MB model is never fetched:
-        # a WebKit page on an iPhone SE has 250-350MB to live in, and the model does
-        # not fit, which is a reloaded tab rather than slow recognition.
+        # Empty — the normal case — means the device does it, from the 2.1MB model in
+        # `stt/`. Setting it hands recognition to a deployment of the FastAPI app
+        # instead, which no longer buys a phone anything.
         "stt_base": stt_base.rstrip("/"),
         "defaults": {
             "voice": CFG.azure_voice,
@@ -179,13 +187,10 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--rate", type=float, default=0.95)
     ap.add_argument("--stt-base", default="",
-                    help="base URL of a deployment that can transcribe — the Hugging "
-                         "Face Space runs this same app. Empty keeps recognition on "
-                         "the device, which needs WebGPU and 200MB of memory.")
-    ap.add_argument("--models-base", default="/models/",
-                    help="where localstt.js should fetch the ONNX weights from; "
-                         "for Pages this has to be off-site, since GitHub refuses "
-                         "files over 100MB")
+                    help="base URL of a deployment that can transcribe, for a build "
+                         "that would rather centralise it. Empty — the default — keeps "
+                         "recognition on the device, which is now 2.1MB and shipped "
+                         "with the page.")
     args = ap.parse_args()
 
     global DIST
@@ -195,7 +200,7 @@ def main() -> int:
     DIST.mkdir(parents=True)
 
     copy_shell()
-    counts = write_api(args.models_base, args.stt_base)
+    counts = write_api(args.stt_base)
     audio = copy_audio(args.rate)
 
     # Pages serves _-prefixed paths oddly and runs Jekyll unless told not to.
@@ -213,7 +218,6 @@ def main() -> int:
               f"scripts/prebuild_audio.py first")
         for line in audio["examples"]:
             print(f"      {line}")
-    print(f"  models base: {args.models_base}")
     print(f"  recogniser: {args.stt_base or 'on-device only'}")
     return 1 if audio["missing"] else 0
 

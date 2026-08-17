@@ -234,6 +234,189 @@ a different sentence entirely, and WER above 100% means it invented more words t
 were said. On a low-resource language the fine-tune is the difference between working
 and not.
 
+### A smaller CTC model, for the browser
+
+The 200MB on-device model is what kills a tab on an iPhone SE, so the same author's
+**QuartzNet15x5** — 18.9M parameters against wav2vec2-large's 315M, trained on the same
+64h Maltese corpus — was measured on the same 25 clips, through the ONNX export at
+[`OpenVoiceOS/…quartznet15x5…_onnx`](https://huggingface.co/OpenVoiceOS/carlosdanielhernandezmena-stt_mt_quartznet15x5_sp_ep255_64h_onnx):
+
+| model | params | weights | fWER | app score | **would pass** | s/clip |
+|---|---|---|---|---|---|---|
+| **wav2vec2-large-xlsr-53-maltese-64h** | 315M | 201MB (q4f16) | **5.3%** | **0.98** | **96%** | 0.2 (Metal) |
+| QuartzNet15x5 (NeMo CTC, ONNX) | **18.9M** | **76MB** (fp32) | 18.5% | 0.93 | 80% | **0.1 (CPU)** |
+
+**Rejected, and not by a close margin.** 80% pass means one correct answer in five is
+thrown back at the learner, and being told you are wrong when you are right is the one
+failure this app cannot afford. The errors are not noise either, they are confident
+wrong words: `mingħajr zokkor` → `min għajd sokkor`, `nqum fis-sitta` → `u fis-sitta`,
+`hawn` → `hawl`, and the degemination this project keeps fighting (`irrid` → `irid`).
+Both models miss `minn l-Awstralja` and `x'jum hu` identically, so those two are the
+reference audio, not the recogniser.
+
+What it does prove is the *shape* of the win, if the accuracy could be recovered: half
+the wall-clock on a **CPU** against the large model on the GPU, convolution-only so no
+WebGPU is needed, and small enough to load anywhere.
+
+Reproduce with `scripts/compare_stt.py`; the NeMo backend builds its own 64-bin log-mel
+features (`onnx-asr` ships only 80 and 128), with every constant taken from the
+checkpoint's `model_config.yaml` — `window_size: 0.02` is 320 samples, not the 400 the
+Conformer models use, and that one is a silent accuracy loss rather than an error.
+
+### Constrained decoding, and why it does not rescue the small model
+
+The app never has to transcribe. It shows a line, the learner says it, and the only
+question is whether what came back was that line — so scoring the *known target* with
+the CTC forward algorithm asks a strictly easier question than free decoding, and none
+of QuartzNet's confident wrong words above is a plausible alignment of the target.
+`scripts/constrained_ctc.py` measures that, per frame, against the greedy path as a
+ceiling.
+
+It works, spectacularly, on the wrong test. Scored against the other 24 lines in the
+eval set both models pick the true line **100%** of the time, with true confidence ~0.98
+against ~0.10 for the alternatives. That number is worthless: `Bonġu` against `In-nanna
+tagħmel il-pastizzi` is not a decision anything gets wrong, and a decoder that only ever
+scores the target would accept silence.
+
+The test that counts uses **near-misses** — the same line with a word dropped, a
+geminate lost (`irrid` → `irid`), an assimilated article swapped (`mal-` → `mill-`) —
+which share most of their audio with the target:
+
+| model | beats other lines | **beats every near-miss** | conf ✓ | conf near-miss | **TPR@95 hard** |
+|---|---|---|---|---|---|
+| **wav2vec2-large-xlsr-53-maltese-64h** | 100% | **88%** | 0.983 | 0.539 | **92%** |
+| QuartzNet15x5 | 100% | 72% | 0.988 | 0.594 | **8%** |
+
+The last column is the one that decides it: at the confidence threshold that rejects 95%
+of near-misses, the large model still accepts 92% of correct answers and QuartzNet
+accepts **8%**. Its acoustic posteriors are not sharp enough for the ratio to mean
+anything — a near-miss explains its audio almost as well as the truth does, so no
+threshold separates them. Constrained decoding is a real capability, and it needs a
+model that is confident frame by frame.
+
+Two of the 25 clips (`Illum x'jum hu?`, `Jien minn l-Awstralja.`) fail for *both* models
+in the same way, here and under free decoding. Those are the reference audio, not the
+recognisers.
+
+### Matching against the stored audio instead
+
+The app ships a recording of every line it can ask for, so the recogniser could in
+principle be replaced by a comparison: encode what was said, encode what should have
+been said, warp one onto the other. No transcription, and — with cepstral features — no
+model at all. `scripts/dtw_match.py` measures it, with the reference in the app's own
+`mt-MT-GraceNeural` and the query in `mt-MT-JosephNeural`, so speaker mismatch is
+present rather than assumed. Negatives are the same near-misses as above, spoken in the
+query voice.
+
+| encoder | rank-1 | closer than every near-miss | **TPR@95 hard** |
+|---|---|---|---|
+| wav2vec2 posteriors (201MB) | 100% | 72% | **44%** |
+| QuartzNet posteriors (76MB) | 96% | 60% | 32% |
+| MFCC + CMVN (**no model**) | 92% | 68% | 28% |
+
+**All three fail, including the large model.** That is the useful part: at 44% against
+the 92% the same model reaches by scoring the target sequence directly, the weakness is
+the *method*, not the size of the encoder. Template matching asks whether the audio
+resembles one particular rendering of the line, and warping is glad to stretch across a
+missing word — the deletion costs a little extra path, not a contradiction. Constrained
+CTC asks whether the audio contains that exact sequence of tokens, where a missing word
+is an obligatory emission that never happened. Structural beats similar.
+
+Both voices here are synthetic, so a human learner is a larger mismatch than this and
+the numbers are optimistic — most of all for MFCC. The step pattern is also the
+slope-constrained symmetric one, chosen so the search vectorises, and it absorbs
+deletions more cheaply than a stricter pattern would; a duration penalty would recover
+some of the near-miss gap. Neither caveat is worth chasing while the ceiling sits at
+44%.
+
+### Distilling the teacher into 10MB
+
+Every attempt above took a model that already existed. The one thing left was to train
+one *for this app*, which is a different problem: the answer space is closed, the audio
+distribution is `edge-tts` output, and there is a 315M-parameter model on hand to
+supervise it frame by frame. `scripts/distill_stt.py` does that.
+
+* **Teacher signal.** The large model's log-posteriors over its 44 characters, at 50fps,
+  for every clip — a soft distribution per frame rather than a hard label per utterance.
+  That is the part that matters: near-miss rejection is a likelihood ratio, so what has
+  to be transferred is the teacher's *confidence*, not its argmax.
+* **Data.** Every line the app can ask for, in both `mt-MT` voices at two rates each —
+  1,494 lines, 5,976 clips, rendered by `prebuild_audio.py`. The 25 evaluation sentences
+  are excluded by name, and the eval clips are rendered at a rate that is not in the
+  training set either.
+* **Student.** A QuartzNet-shaped depthwise-separable convolution stack. No attention
+  anywhere, deliberately: WASM has no fast attention kernel, and WebGPU is exactly what
+  an iPhone could not afford. 2.56M parameters, 10.2MB of fp32 ONNX.
+
+Augmentation is SpecAugment in the feature domain only, because the teacher's posteriors
+were computed on the clean audio and anything that shifted the waveform in time would
+leave them describing the wrong frames.
+
+Four sizes were trained on the same data with the same schedule, to find where it breaks:
+
+| | params | size | fWER | app score | free pass | closer than every near-miss | **near-miss TPR@95** | s/clip |
+|---|---|---|---|---|---|---|---|---|
+| wav2vec2-large (teacher) | 315M | 201MB | **5.3%** | **0.98** | **96%** | 88% | **92%** | 0.26 (Metal) |
+| student | 2.56M | 10.2MB | 13.1% | 0.94 | 88% | 92% | 84% | 0.11 (CPU) |
+| student | 1.01M | 4.0MB | 18.3% | 0.95 | 88% | **96%** | 80% | 0.08 (CPU) |
+| **student** | **0.53M** | **2.1MB** | 21.5% | **0.95** | **88%** | 92% | **84%** | **0.08 (CPU)** |
+| student | 0.24M | 1.0MB | 25.4% | 0.92 | 80% | 92% | 80% | 0.08 (CPU) |
+| QuartzNet15x5 | 18.9M | 76MB | 18.5% | 0.93 | 80% | 72% | 8% | 0.15 (CPU) |
+
+**These are the first small models that work at all.** 84% against the teacher's 92% on
+the test that decides — at a hundredth of the size, on the CPU, in a third of the
+wall-clock the teacher needs on the GPU. Every student beats the 76MB QuartzNet's 8% by
+an order of magnitude, and on "closer than every near-miss" all of them beat the teacher
+outright. Where they lose is the *tail*: near-miss confidences average 0.69-0.77 against
+the teacher's 0.539, so a threshold strict enough to reject 95% of them costs more right
+answers.
+
+**The curve is flat, and that is the finding.** fWER degrades exactly as capacity falls —
+13% → 18% → 22% → 25% — and the app-level numbers do not move with it: 84%, 80%, 84%,
+80% on 25 clips, where one clip is four points. Free transcription gets steadily worse
+while *deciding whether the learner said the line* does not, because deciding was never
+the hard part. Under those two metrics **2.1MB is indistinguishable from 10MB**, and
+capacity is not what is binding — the data is. All four overfit 1,494 lines: train KD
+falls to 0.05 while dev sits at 0.18 from about epoch 50.
+
+Twenty-five clips is a small set and four points is one of them, so read this as "flat
+between 1MB and 10MB", not as a ranking within it.
+
+**The caveat that matters more than any of the numbers.** The student has never heard a
+human being. Its entire training distribution is two synthetic voices, while the teacher
+inherits XLSR-53's pretraining on ~56,000 hours of real multilingual speech — which is
+precisely what makes a recogniser survive an unfamiliar voice. These numbers are measured
+on synthetic speech and should be read as an upper bound on real learners.
+`scripts/compare_stt.py --record 20` is how that gets settled, and it needs somebody's
+actual voice.
+
+Which also says where the next gains are, and they are cheap: more lines and more voices.
+`edge-tts` has other `mt-MT` speakers, `--rate` is a free axis, and
+`scripts/import_corpus.py` can widen the text far past the 1,494 lines the deck holds.
+Nothing here suggests a bigger student would help.
+
+### Is 201MB the floor?
+
+For anything `onnxruntime-web` can execute on a GPU, close to it. The shipped
+`model_q4f16.onnx` breaks down as:
+
+| | size | why it is not smaller |
+|---|---|---|
+| 4-bit `MatMulNBits` weights | 156.0 MB | already the smallest ORT web executes |
+| fp16 block scales | ~19.5 MB | one per 32 weights; `block_size=128` would save ~15MB |
+| fp16 `Conv` weights | 25.2 MB | no sub-8-bit convolution kernel exists in ORT web |
+| norms, biases, constants | ~0.6 MB | |
+
+So ~185MB is the realistic floor, which does not change the outcome on a phone — a
+WebKit page gets 250-350MB. **Below that means fewer parameters, not fewer bits.** int8
+is not the answer either and was rejected on measurement, not principle: onnxruntime-web
+has no int8 GPU kernel, so an int8 model falls back to WASM at 0.22× realtime.
+
+One incidental find in that accounting: a single 16.8MB fp16 tensor feeds a `ReduceL2`
+node — the weight-norm reparameterisation of `pos_conv_embed`, which the export left to
+be renormalised on every forward pass. `remove_weight_norm()` before export folds it.
+That is compute, not bytes.
+
 Read `fWER`, not `WER`, for the fine-tune: it transcribes lowercase and unpunctuated,
 which strict WER punishes even when every word is right.
 
@@ -459,12 +642,27 @@ transcripts against the real grader.
 ## Deploying
 
 `Dockerfile` builds a self-contained image; `README.hf.md` is the Space card for
-Hugging Face (rename it to `README.md` in the Space). Two things make it work on a
-free tier:
+Hugging Face (rename it to `README.md` in the Space).
+
+**A Docker Space is not free any more.** `POST /api/repos/create` answers `402
+Payment Required` — "Static Spaces are free for everyone, but hosting Gradio and
+Docker Spaces on free cpu-basic requires a PRO subscription" — so the recogniser
+needs either a PRO account or any other container host with ~2GB of memory. The
+image is not tied to Spaces; it wants a port and 2GB.
+
+Wherever it ends up, that URL is what `STT_BASE` names in
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml). Set the repository
+variable and the next Pages deploy stops shipping on-device recognition entirely,
+which is the only way speaking works on a phone: a WebKit page on an iPhone SE has
+250-350MB to live in, and the model is 200MB before a single tensor. Leave it unset
+and the static build stays on-device, where iOS is excluded by
+`localstt.affordable()` and speaking is only offered to devices that can hold it.
+
+Two things make the image behave on a small host:
 
 * **The model is baked in at build time.** Downloading 1.2GB of weights on first
   request would put the whole wait on whoever opens the app after a restart, and
-  free Spaces restart often.
+  a host that sleeps when idle restarts often.
 * **Startup is shown, not hidden.** A cold container needs up to a minute to load
   the recogniser. `/api/health` reports whether it is actually loaded — the
   *loaded object*, not merely that a preload thread started — and the client holds
@@ -472,6 +670,13 @@ free tier:
   the model wait creeps asymptotically and snaps to full when health flips, because
   the server cannot know how far through it is and a fake percentage is worse than
   an honest "still working".
+
+  The static build does the same thing across origins: given `STT_BASE` it polls
+  `/api/health` there during startup, which both wakes a sleeping container and
+  shows the wait. That poll is the pre-warm — paying the cold start behind the
+  progress bar rather than at the moment somebody holds the mic. It is bounded at
+  30 seconds, after which the app opens anyway and says speaking is still coming;
+  reading, listening and reviewing never needed the recogniser.
 
 ---
 

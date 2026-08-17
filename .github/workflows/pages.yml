@@ -28,11 +28,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MODELS_BASE: https://huggingface.co/silasdsc/speak-maltese-w2v2-web/resolve/main/
-  # Where an utterance goes to be recognised. Set the repository variable STT_BASE to
-  # the Hugging Face Space's URL and the next deploy stops shipping on-device
-  # recognition entirely — no 200MB model, which is the only way speech works on a
-  # phone whose whole page budget is 250-350MB. Empty keeps it on the device.
+  # Where an utterance goes to be recognised. Leave the repository variable STT_BASE
+  # unset — the normal case — and recognition happens on the device, from the 2.1MB
+  # model committed under frontend/stt/. Setting it to a deployment of the FastAPI app
+  # moves recognition there instead, which is no longer something a phone needs.
   STT_BASE: ${{ vars.STT_BASE }}
 
 jobs:
@@ -62,9 +61,7 @@ jobs:
         run: python scripts/prebuild_audio.py --what all
 
       - name: Build
-        run: |
-          python scripts/build_static.py --models-base "$MODELS_BASE" \
-                                        --stt-base "$STT_BASE"
+        run: python scripts/build_static.py --stt-base "$STT_BASE"
 
       - name: Check the build is actually complete
         run: |
@@ -80,7 +77,13 @@ jobs:
           assert not missing, f"{len(missing)} manifest entries have no file"
           cards = json.loads((dist / "api/deck.json").read_text())["cards"]
           assert len(cards) > 400, f"only {len(cards)} cards"
-          print(f"{len(cards)} cards, {len(idx)} audio files")
+          # The recogniser. Without it the page loads and the mic never works, which
+          # is the one failure a build check should never let through.
+          model = dist / "stt" / "model.onnx"
+          assert model.exists(), "no recogniser in the build"
+          assert (dist / "stt" / "vocab.txt").exists(), "weights without a vocabulary"
+          print(f"{len(cards)} cards, {len(idx)} audio files, "
+                f"recogniser {model.stat().st_size / 1e6:.1f}MB")
           PY
 
       - uses: actions/upload-pages-artifact@v3

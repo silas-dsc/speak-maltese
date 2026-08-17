@@ -50,7 +50,12 @@ print('cached', m)"
 RUN python scripts/prebuild_audio.py --what drills || \
     echo "audio prebuild skipped — will synthesise on demand"
 
-ENV SM_STT_CHAIN=wav2vec2 \
+# Named for the variable the app actually reads. It used to say SM_STT_CHAIN, which
+# nothing looks at, so the chain stayed on `auto` — and `auto` ends in faster-whisper,
+# whose weights are not baked into this image. The startup warm then downloaded a
+# second recogniser at runtime, on a free tier, to back up one that was already
+# loaded and 80x faster.
+ENV SM_STT_PROVIDER=wav2vec2 \
     SM_PORT=7860
 EXPOSE 7860
 

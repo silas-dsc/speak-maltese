@@ -68,14 +68,18 @@ console.log(JSON.stringify({
 
 @pytest.fixture(scope="module")
 def pair():
-    """The same clip through both implementations."""
-    from faster_whisper.audio import decode_audio
+    """The same clip through both implementations.
 
-    from compare_stt import _NEMO, _mel_filters, _nemo_features
-
+    Ordered so that the cheap reasons to skip come first: this needs real audio and an
+    MP3 decoder, and an environment missing either should say so rather than raise a
+    collection error five times over."""
     clips = sorted(CLIPS.glob("synth_*.mp3"))
     if not clips:
         pytest.skip("no eval clips; run scripts/compare_stt.py --synth 25")
+    decode_audio = pytest.importorskip("faster_whisper.audio").decode_audio
+
+    from compare_stt import _NEMO, _mel_filters, _nemo_features
+
     wave = np.asarray(decode_audio(str(clips[0]), sampling_rate=16000), dtype=np.float32)
 
     fb = _mel_filters(_NEMO["n_fft"] // 2 + 1, 64, _NEMO["sample_rate"])

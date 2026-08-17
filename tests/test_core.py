@@ -768,6 +768,50 @@ def test_hints_quote_something_the_node_accepts():
     assert not offenders, "hint is not accepted:\n" + "\n".join(offenders)
 
 
+_TRAILING_QUESTION = re.compile(r"(?<=[.!?])\s+")
+# Words too common to mean the two lines are about the same thing.
+_NOT_A_TOPIC = {"hawn", "hemm", "issa", "illum"}
+
+
+def _closing_question(mt: str) -> str:
+    """The last sentence of a reply, if the reply ends by asking something."""
+    last = _TRAILING_QUESTION.split((mt or "").strip())[-1]
+    return last if last.endswith("?") else ""
+
+
+def test_a_reply_never_asks_something_the_next_line_abandons():
+    """A turn puts two lines on the screen: the reply to what was said, and then the
+    next prompt. So a reply that ends by asking something has to be asking what is
+    about to be asked — `Għandi pjaċir! Minn fejn int?` before `Minn fejn int?` — or
+    the question is raised and dropped, and the learner answers a question that is no
+    longer the one in front of them.
+
+    Reported from the app: "Fejn toqgħod?" was answered, the reply asked "Kemm ilek
+    hawn?" — how long have you been here — and the next line asked "Titkellem
+    bil-Malti?" instead. Five scenes did this. The other shape is fine and used in
+    28 nodes: a reply that simply says something, and lets the next line ask."""
+    from backend import dialogue, phonetics
+
+    offenders = []
+    for d in dialogue.all_dialogues():
+        for node_id, n in d["nodes"].items():
+            asked = _closing_question((n.get("correct") or {}).get("mt", ""))
+            if not asked:
+                continue
+            where = f"{d['id']}.{node_id}"
+            nxt = d["nodes"].get(n.get("next") or "")
+            if not nxt:
+                offenders.append(f"{where}: ends the scene asking {asked!r}")
+                continue
+            coming = nxt["say_mt"]
+            shared = {w for w in text.fold(asked).split() if len(w) >= 4} \
+                & {w for w in text.fold(coming).split() if len(w) >= 4}
+            if shared - _NOT_A_TOPIC or phonetics.similarity(asked, coming, soft=True) >= 0.55:
+                continue
+            offenders.append(f"{where}: reply asks {asked!r} but next line asks {coming!r}")
+    assert not offenders, "a question is asked and then dropped:\n" + "\n".join(offenders)
+
+
 def test_dialogues_are_well_formed():
     from backend import dialogue
 

@@ -110,8 +110,8 @@
             }
           ],
           "correct": {
-            "mt": "Post sabiħ! Kemm ilek hawn?",
-            "en": "A lovely place! How long have you been here?"
+            "mt": "Post sabiħ! Titkellem bil-Malti?",
+            "en": "A lovely place! Do you speak Maltese?"
           },
           "close": {
             "mt": "Kważi. Għid: Noqgħod Tas-Sliema.",
@@ -1933,8 +1933,8 @@
             }
           ],
           "correct": {
-            "mt": "Prosit! Mela nitkellmu bil-Malti biss. Kollox sew?",
-            "en": "Well done! Then we'll speak only Maltese. All right?"
+            "mt": "Prosit! Mela nitkellmu bil-Malti biss. Jekk ma tifhimx, x'tgħid?",
+            "en": "Well done! Then we'll speak only Maltese. If you don't understand, what do you say?"
           },
           "close": {
             "mt": "Kważi. Għid: Iva, imma qed nitgħallem il-Malti.",
@@ -2659,8 +2659,8 @@
             }
           ],
           "correct": {
-            "mt": "Dejjem hawn jien. Kif nista' ngħinek?",
-            "en": "I'm always here. How can I help you?"
+            "mt": "Dejjem hawn jien. Għada tħossok aħjar?",
+            "en": "I'm always here. Will you feel better tomorrow?"
           },
           "close": {
             "mt": "Kważi. Għid: Iva, għinni jekk jogħġbok.",
@@ -2772,8 +2772,8 @@
             }
           ],
           "correct": {
-            "mt": "Ejja miegħi. Nistenna hawn — lest?",
-            "en": "Come with me. I'll wait here — ready?"
+            "mt": "Ejja miegħi. Nistenna hawn.",
+            "en": "Come with me. I'll wait here."
           },
           "close": {
             "mt": "Kważi. Għid: Iva, grazzi ħafna!",
@@ -3693,8 +3693,8 @@
             }
           ],
           "correct": {
-            "mt": "Le le, nġib jien. Trid ilma kiesaħ jew te sħun?",
-            "en": "No no, I'll bring it. Do you want cold water or hot tea?"
+            "mt": "Le le, nġib jien ilma kiesaħ. Kif tħossok issa?",
+            "en": "No no, I'll bring cold water. How do you feel now?"
           },
           "close": {
             "mt": "Kważi. Għid: Jien bil-għatx.",

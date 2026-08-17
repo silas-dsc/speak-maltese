@@ -137,6 +137,37 @@ def copy_audio(rate: float) -> dict:
             "examples": missing[:3]}
 
 
+def stamp_shell_version() -> str:
+    """Give the service worker a cache name that changes when the build does.
+
+    The worker serves the shell stale-while-revalidate, so without this a deploy
+    arrived in pieces: a page open across one ran the new `api/dialogues.json`
+    against the previous `app.js`. Naming the cache after the build makes the old
+    one unreachable, so the next load refetches the shell whole.
+
+    Hashed over what the shell cache actually holds — the JS, the CSS, the HTML,
+    the manifests — and not over the commit, so a deploy that changes nothing the
+    device would notice leaves its cache alone. The MP3s are excluded: they live in
+    a cache of their own that no build should ever invalidate.
+    """
+    sw = DIST / "sw.js"
+    if not sw.exists():
+        return ""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in DIST.rglob("*") if p.is_file()):
+        if path == sw or path.suffix == ".mp3":
+            continue
+        digest.update(path.relative_to(DIST).as_posix().encode())
+        digest.update(path.read_bytes())
+    build = digest.hexdigest()[:12]
+    src = sw.read_text(encoding="utf-8")
+    stamped = src.replace("const BUILD = 'dev'", f"const BUILD = '{build}'", 1)
+    if stamped == src:
+        raise SystemExit("sw.js has no `const BUILD = 'dev'` line to stamp")
+    sw.write_text(stamped, encoding="utf-8")
+    return build
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=None)
@@ -160,8 +191,12 @@ def main() -> int:
     # Pages serves _-prefixed paths oddly and runs Jekyll unless told not to.
     (DIST / ".nojekyll").write_text("", encoding="utf-8")
 
+    # Last, so the hash covers everything above it.
+    build = stamp_shell_version()
+
     print(f"{DIST.relative_to(ROOT) if DIST.is_relative_to(ROOT) else DIST}")
     print(f"  {counts['cards']} cards · {counts['scenes']} scenes")
+    print(f"  shell cache: {build or 'unstamped'}")
     print(f"  {audio['files']} audio files · {audio['bytes'] / 1e6:.0f} MB")
     if audio["missing"]:
         print(f"  ! {audio['missing']} lines have no audio — run "

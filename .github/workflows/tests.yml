@@ -21,10 +21,16 @@ jobs:
       # exercises the scheduler, the Maltese text handling, the phonetic matcher
       # and the authored decks. So CI installs the light dependencies only —
       # torch and faster-whisper are multi-gigabyte and prove nothing here.
+      #
+      # numpy is the exception, and it earns its place: `tests/test_scripts.py` imports
+      # every script to check the parts above `main()` still work, and three of them
+      # (compare_stt, constrained_ctc, dtw_match, distill_stt) are numerical tools that
+      # need it at module scope. Without it that check is a collection error rather than
+      # a test. It is a wheel, not a gigabyte.
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi "uvicorn[standard]" python-multipart python-dotenv httpx pytest
+          pip install fastapi "uvicorn[standard]" python-multipart python-dotenv httpx pytest numpy
 
       - name: Tests
         run: python -m pytest tests/ -q

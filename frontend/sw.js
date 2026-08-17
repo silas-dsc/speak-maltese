@@ -34,7 +34,11 @@ const SHELL_ASSETS = [
   // The client is ES modules. Missing one of these offline would not degrade the
   // app, it would fail to boot at all.
   './app.js', './srs.js', './store.js', './schedule.js', './splash.js',
-  './localstt.js', './text.js', './dialogue.js', './session.js', './capture.js',
+  './nanostt.js', './text.js', './dialogue.js', './session.js', './capture.js',
+  /* The recogniser itself. 2.1MB, and precaching it is the difference between an app
+     that listens on a plane and one that only reads there — the 200MB model it
+     replaces could never have been in here. */
+  './stt/model.onnx', './stt/vocab.txt',
   /* The static build's data, and the manifest that maps a line to its MP3. Absent
      on the FastAPI build, where these are live endpoints — `add` failures are
      tolerated below, so listing them costs nothing there. Without them a device

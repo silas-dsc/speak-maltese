@@ -30,6 +30,13 @@ const STEPS = [
 // takes, and is used only to shape the creep — never to declare success.
 const EXPECTED_WARMUP_MS = 45000;
 
+/* How long a static build will hold the door for a recogniser that lives somewhere
+   else. Long enough to cover a Space that is merely loading its weights, nowhere
+   near long enough to sit through a full cold boot: reading, listening and typing
+   never needed it, and the container carries on waking whether or not this page is
+   watching. */
+const REMOTE_WARM_MS = 30000;
+
 let el = null;
 
 function ui() {
@@ -112,8 +119,49 @@ async function waitForModel(from, to, giveUpAfterMs = 4 * 60 * 1000) {
   }
 }
 
+/* Wake the recogniser that lives somewhere else.
+
+   A static build pointed at a deployment never fetches the model — a phone cannot
+   hold it — so its wait is not a download, it is a container waking up. A free
+   Space sleeps when idle and then reads ~1.2GB of weights, and whoever asks first
+   pays for all of it. Paying it here is the same wait moved somewhere it can be
+   seen and explained, instead of arriving as a mic button that does nothing for a
+   minute the first time somebody speaks.
+
+   There is no percentage to report — the server cannot say how far through the load
+   it is — so this creeps like `waitForModel` and snaps to full only on a real
+   answer. Returns whether it got one. */
+async function warmRemote(base, from, to, onNotice) {
+  const startedAt = Date.now();
+  for (;;) {
+    let health = null;
+    try {
+      health = await (await fetchOk(`${base}/api/health`)).json();
+    } catch {
+      /* A sleeping Space answers nothing until its container is up, and the holding
+         pages it serves meanwhile carry no CORS headers — so a boot in progress
+         arrives here as a network failure rather than a status. Either way it is
+         not ready, and the request itself is what started it waking. */
+    }
+    if (health && (health.ready || !health.warming)) return true;
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > REMOTE_WARM_MS) {
+      onNotice?.('The recogniser is still waking up — carry on; speaking will '
+        + 'start working in a moment.');
+      return false;
+    }
+    paint(from + (to - from) * (1 - Math.exp(-elapsed / EXPECTED_WARMUP_MS)),
+      'Waking the Maltese recogniser',
+      elapsed > 8000
+        ? 'It runs on a host that sleeps when idle, so the first visit waits for it.'
+        : 'You can read and listen already; speaking needs this.');
+    await sleep(1000);
+  }
+}
+
 /** Run the whole startup. Resolves with the bootstrap payload. */
-export async function run({ onDeck, onStatic, onModel } = {}) {
+export async function run({ onDeck, onStatic, onModel, onNotice } = {}) {
   paint(0.03, 'Starting');
 
   // A static build ships its answers as files. Try that first: it is one cheap
@@ -135,9 +183,14 @@ export async function run({ onDeck, onStatic, onModel } = {}) {
     await onStatic?.({ boot, dialogues, audio });
     await onDeck?.(deck.cards);
 
-    // The recogniser is the only large thing here and the only one with nothing
-    // to fall back to, so it gets the rest of the bar and a real percentage.
-    if (onModel) {
+    /* The recogniser is the only large thing here and the only one with nothing to
+       fall back to, so it gets the rest of the bar either way. Which wait it is
+       depends on where it runs: a download on this device, with a real percentage,
+       or a container waking up at `stt_base`, with none to be had. */
+    if (boot.stt_base) {
+      paint(STEPS[1][1], 'Waking the Maltese recogniser');
+      await warmRemote(boot.stt_base, STEPS[1][1], STEPS[2][1], onNotice);
+    } else if (onModel) {
       const done = await onModel((f) => paint(
         STEPS[1][1] + (STEPS[2][1] - STEPS[1][1]) * f,
         'Downloading the Maltese recogniser',

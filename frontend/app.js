@@ -6,7 +6,7 @@
    run in Python. The server is stateless — decks, dialogue, recognition, speech. */
 
 import * as dialogueEngine from './dialogue.js';
-import * as localstt from './localstt.js';
+import * as nanostt from './nanostt.js';
 import * as splash from './splash.js';
 import * as store from './store.js';
 import * as schedule from './schedule.js';
@@ -55,22 +55,19 @@ const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(bo
    Speech recognition is the one thing with no static equivalent: it runs on the
    device or not at all. */
 
-const STATIC = { on: false, audio: null, modelsBase: '/models/', sttBase: '' };
+const STATIC = { on: false, audio: null, sttBase: '' };
 
 /** Where an utterance goes to be recognised, when it is not this device.
 
-    A deployment of this same FastAPI app — the Hugging Face Space — does the
-    recognition, which is the only way the static build can offer speech on a phone
-    that cannot hold the model. A WebKit page on an iPhone SE has 250-350MB to live
-    in and the model is 200MB of weights before any tensors, so the tab is reloaded
-    rather than slowed: measured on the reporter's phone as a crash and a blank
-    page. Empty means there is no such deployment and recognition stays on-device. */
+    Kept for a deployment that wants recognition centralised, but it is no longer the
+    way a phone gets to speak: the recogniser is 2.1MB now and ships with the page.
+    Empty — the default — means everything happens here. */
 const remoteStt = () => (STATIC.on ? STATIC.sttBase : '');
 
-/* How long the startup screen will wait for the on-device recogniser before
-   opening the app without it. Long enough for a warm HTTP cache, nowhere near long
-   enough to sit through 200MB over 4G — which is not a wait, it is a broken app. */
-const MODEL_WAIT_MS = 25000;
+/* How long the startup screen waits for the recogniser before opening without it.
+   It is 2.1MB from our own origin, so this is generous rather than a real limit —
+   and if it is exceeded the app opens anyway and the model arrives when it arrives. */
+const MODEL_WAIT_MS = 15000;
 
 /** Pre-rendered speech, looked up by line rather than synthesised on demand. */
 function staticAudioUrl(line) {
@@ -405,9 +402,9 @@ class Recorder {
 async function transcribe(blob, target) {
   /* On-device only when there is nowhere better to send it. The model is the
      heaviest thing this app can do and the least reliable place to do it. */
-  if (!remoteStt() && state.settings.local_stt && localstt.isReady()) {
+  if (!remoteStt() && state.settings.local_stt && nanostt.isReady()) {
     try {
-      const r = await localstt.transcribe(blob);
+      const r = await nanostt.transcribe(blob);
       if (r.text.trim()) {
         // Grading is a few microseconds of string comparison, but it lives on the
         // server with the Maltese rules, so it is one small stateless request.
@@ -450,28 +447,26 @@ async function setLocalStt(on) {
   state.settings.local_stt = on;
   persistSettings();
   if (!on) {
-    localstt.unload();
+    nanostt.unload();
     note.textContent = remoteStt() || !STATIC.on
       ? 'Speech is sent to the server for recognition.'
       : 'Speech recognition is off, and this build has no server to do it.';
     return;
   }
-  /* Asked for deliberately, so the device gets another go. It was written off after
-     the tab died holding the model — a fact worth remembering on startup, and not
-     one to hold against a learner who is telling us to try. */
+  /* A device written off while it was holding the 200MB model gets a clean slate:
+     that fact was about a model this app no longer ships. */
   store.forgetModelTooBig();
-  if (!localstt.supported()) {
+  if (!nanostt.supported()) {
     state.settings.local_stt = false;
     persistSettings();
     box.checked = false;
-    note.textContent = 'This browser has no WebGPU, so on-device recognition '
-      + 'would be far slower than the server. Left off.';
+    note.textContent = 'This browser cannot run WebAssembly, so recognition has to '
+      + 'happen on the server. Left off.';
     return;
   }
   box.disabled = true;
   try {
-    await localstt.load({
-      base: STATIC.modelsBase,
+    await nanostt.load({
       onProgress: (f) => {
         note.textContent = f >= 1
           ? 'Loaded — recognition now runs on this device.'
@@ -590,44 +585,30 @@ async function boot() {
       onStatic: ({ boot, dialogues, audio }) => {
         STATIC.on = true;
         STATIC.audio = audio;
-        STATIC.modelsBase = boot.models_base || STATIC.modelsBase;
         STATIC.sttBase = boot.stt_base || '';
         dialogueEngine.load(dialogues);
       },
+      // Whatever the startup screen learned that the learner should be told once
+      // the app is open — a recogniser still waking, most of it.
+      onNotice: (msg) => { state.sttNotice = msg; },
+      /* Only reached when recognition is this device's job: a build pointed at
+         `stt_base` has nothing to fetch — which is the whole point of pointing it
+         there — and the startup screen wakes that host itself. */
       onModel: async (onProgress) => {
-        /* Nothing to load: recognition happens at `stt_base`. This is the whole
-           point of pointing the build at a deployment — the 200MB model is never
-           fetched, so the page cannot be killed for holding it. */
-        if (remoteStt()) return false;
         // Only worth waiting on where it is the only recogniser there is.
         const settings = store.loadSettings();
-        if (!settings.local_stt || !localstt.supported()) return false;
-        /* The last attempt never finished — the tab died with a 200MB model half
-           loaded on the GPU. Loading it again is how the crash becomes a boot loop
-           and the app becomes a white screen, so it is off until asked for. */
-        if (store.sttLoadCrashed() || store.modelTooBig()) {
-          /* Recognition stays switched on — it is the *place* that is wrong, not the
-             wish. The setting is the learner's and is left alone; what is recorded is
-             a fact about the device, so the model is not started here again and the
-             utterance goes to the server instead. */
-          store.endSttLoad();
-          store.markModelTooBig();
-          state.sttNotice = remoteStt()
-            ? 'Speech is recognised on the server: this phone cannot hold the '
-              + 'recogniser in a browser tab.'
-            : 'This phone cannot hold the recogniser in a browser tab, and no '
-              + 'server is configured to do it — typing still works.';
-          return false;
-        }
+        if (!settings.local_stt || !nanostt.supported()) return false;
+        /* The device-memory guards that used to live here are gone with the model they
+           were written for. A 2.1MB recogniser on the CPU cannot exhaust a page budget
+           the way 200MB of weights on the GPU did, so there is no longer a class of
+           phone that has to be refused, and nothing to remember about one that was.
+           `beginSttLoad` stays: any load that kills the tab should still not be retried
+           on sight, whatever its size. */
         store.beginSttLoad();
-        /* The load is 200MB from another host, and until now the startup screen
-           waited for it with no limit — so a phone on a bad connection sat on
-           "Warming the Maltese recogniser" indefinitely, and a host that never
-           answers meant an app that never opened. It is given a while and then
-           left to finish on its own: the deck, the conversation and typing do not
-           need it, and `isReady()` is checked at the moment something is said, so
-           a late arrival simply starts working. */
-        const loading = localstt.load({ base: STATIC.modelsBase, onProgress })
+        /* Bounded, and then left to finish on its own. The deck, the conversation and
+           typing do not need it, and `isReady()` is checked at the moment something is
+           said — so a late arrival simply starts working. */
+        const loading = nanostt.load({ onProgress })
           .then(() => true)
           .catch(() => false)       // typing still works; the toggle explains why
           .finally(() => store.endSttLoad());
@@ -662,16 +643,13 @@ async function boot() {
   await loadDrills();
   loadGrammar();
 
-  // Opted in on a previous visit: warm it in the background so the first thing
-  // they say is not the slow one. The model is in the HTTP cache by now.
-  // Static builds already loaded it during startup. A server build has a working
-  // recogniser of its own, so this warms in the background instead of blocking.
-  if (!remoteStt() && !store.modelTooBig()
-      && state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
-    // Same marker as the startup path: this load is smaller but it is the same
-    // model on the same GPU, and a tab that dies here must not try again on sight.
+  // Opted in on a previous visit: warm it in the background so the first thing they
+  // say is not the slow one. Static builds already loaded it during startup; a server
+  // build has a recogniser of its own, so this warms rather than blocking.
+  if (!remoteStt() && state.settings.local_stt && nanostt.supported()
+      && !nanostt.isReady()) {
     store.beginSttLoad();
-    localstt.load({ base: STATIC.modelsBase })
+    nanostt.load()
       .catch(() => { /* the server path still works */ })
       .finally(() => store.endSttLoad());
   }
@@ -691,13 +669,23 @@ function applySettings() {
   $('rateLabel').textContent = `${Number(state.settings.rate).toFixed(2)}×`;
   $('showEnglish').checked = state.settings.show_english;
   $('autoplay').checked = state.settings.autoplay;
-  $('localStt').checked = !!state.settings.local_stt;
-  $('localStt').disabled = !localstt.supported();
-  $('localSttNote').textContent = localstt.supported()
-    ? (state.settings.local_stt
-      ? 'Loads when you next speak.'
-      : 'Speech is sent to the server for recognition.')
-    : 'Needs WebGPU — not available in this browser.';
+  $('localStt').checked = !remoteStt() && !!state.settings.local_stt;
+  /* Offered only where it would be used: `transcribe` sends the utterance to
+     `stt_base` whenever there is one, so a switch here would be ignored. */
+  $('localStt').disabled = !!remoteStt() || !nanostt.supported();
+  $('localSttNote').textContent = localSttHint();
+}
+
+/** What the on-device toggle should say about itself. A toggle that explains none of
+    the reasons it might be off is a toggle that reads as broken. */
+function localSttHint() {
+  if (remoteStt()) return 'Speech is recognised on the server for this deployment.';
+  if (!nanostt.supported()) {
+    return 'Needs WebAssembly — not available in this browser.';
+  }
+  return state.settings.local_stt
+    ? 'On. Recognition runs here, offline, on a 2MB Maltese model.'
+    : 'Off. Speech is sent to the server for recognition.';
 }
 
 function renderCaps() {

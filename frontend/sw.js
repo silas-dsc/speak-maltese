@@ -34,7 +34,15 @@ const SHELL_ASSETS = [
   // The client is ES modules. Missing one of these offline would not degrade the
   // app, it would fail to boot at all.
   './app.js', './srs.js', './store.js', './schedule.js', './splash.js',
-  './localstt.js', './text.js', './dialogue.js',
+  './localstt.js', './text.js', './dialogue.js', './session.js',
+  /* The static build's data, and the manifest that maps a line to its MP3. Absent
+     on the FastAPI build, where these are live endpoints — `add` failures are
+     tolerated below, so listing them costs nothing there. Without them a device
+     that installs a new build and then goes offline has a fresh shell and no deck
+     to boot it with, because the per-build cache is empty of everything it did not
+     precache. */
+  './api/bootstrap.json', './api/deck.json', './api/dialogues.json',
+  './api/grammar.json', './audio/index.json',
 ];
 
 self.addEventListener('install', (event) => {
@@ -61,8 +69,18 @@ self.addEventListener('activate', (event) => {
    so the routing can be tested by calling it rather than by grepping for it —
    tests/test_api.py does exactly that. */
 function routeFor(url) {
-  // Synthesised speech is immutable for a given (text, voice, rate).
-  if (url.pathname.endsWith('/api/tts')) return 'audio';
+  /* Synthesised speech is immutable for a given (text, voice, rate): the server
+     path asks for it by those, and the static build ships it as audio/<32 hex>.mp3
+     named after them. Both belong in the audio cache, which is not named after the
+     build — 23MB re-downloaded on every deploy is not a cache. `audio/index.json`,
+     the line→file manifest, is deliberately not matched here: it changes when the
+     audio does, so it belongs with the shell.
+
+     Written as one self-contained expression per case, with nothing from the
+     module around it, so tests/test_api.py can lift this function out and run the
+     real thing rather than grepping for it. */
+  if (url.pathname.endsWith('/api/tts')
+      || /\/audio\/[0-9a-f]{32}\.mp3$/.test(url.pathname)) return 'audio';
   // Live server state must never be served stale. The static build has no live
   // state: its api/*.json are immutable files and cache like any other asset.
   if (url.pathname.includes('/api/') && !url.pathname.endsWith('.json')) return 'network';

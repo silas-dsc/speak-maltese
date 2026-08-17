@@ -37,7 +37,11 @@
     <div class="scenario-bar">
       <label class="sr-only" for="drillSelect">Dialogue</label>
       <select id="drillSelect"></select>
-      <button class="ghost-btn" id="drillRestart">Start over</button>
+      <!-- The conversation is kept across a reload, so this is also the way to be
+           rid of one on purpose: it clears what is on screen and says the scene's
+           first line again. -->
+      <button class="ghost-btn" id="drillRestart"
+              title="Clear this conversation and start the scene again">Clear · start over</button>
       <button class="ghost-btn" id="drillNext">Next unfinished</button>
       <p class="scenario-goal" id="drillProgress"></p>
     </div>

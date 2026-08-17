@@ -46,7 +46,7 @@ DIST = ROOT / "dist"
 
 # Everything the client loads by name. Anything missing here is a blank page.
 SHELL = ("index.html", "style.css", "app.js", "srs.js", "store.js", "schedule.js",
-         "splash.js", "localstt.js", "text.js", "dialogue.js", "sw.js",
+         "splash.js", "localstt.js", "text.js", "dialogue.js", "session.js", "sw.js",
          "manifest.webmanifest")
 
 

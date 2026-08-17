@@ -11,6 +11,7 @@ only parts that do, and they are exercised separately.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -106,6 +107,19 @@ def test_start_returns_a_playable_prompt(client):
 
 def test_unknown_dialogue_is_404(client):
     assert client.post("/api/drill/start", json={"dialogue": "nope"}).status_code == 404
+
+
+def test_a_404_says_which_thing_was_not_found(client):
+    """The client acts on the reason. A conversation is kept across a reload now, so
+    a saved one sitting on a node a later build removed has to be recognised and
+    abandoned — and "not found" is indistinguishable from a mistyped URL. The SPA
+    fallback catches these deliberate 404s too, and used to flatten them."""
+    r = client.post("/api/drill/answer", json={"dialogue": "greet", "node": "g99-gone"})
+    assert r.status_code == 404
+    assert r.json()["detail"] == "unknown node"
+
+    r = client.post("/api/drill/start", json={"dialogue": "nope"})
+    assert r.json()["detail"] == "unknown dialogue"
 
 
 def test_correct_answer_advances_and_carries_the_next_prompt(client):
@@ -291,6 +305,11 @@ def test_service_worker_and_manifest_are_served(client):
     sw = client.get("/sw.js")
     assert sw.status_code == 200
     assert "javascript" in sw.headers["content-type"]
+    # Named after the build, exactly as the static build stamps it. Left as `dev`
+    # the worker's bytes never change, so an edited app.js is served from the old
+    # cache for one more load — which here is every reload while working on it.
+    assert re.search(r"const BUILD = '[0-9a-f]{12}'", sw.text), "shell cache is unstamped"
+    assert "const BUILD = 'dev'" not in sw.text
 
     mf = client.get("/manifest.webmanifest")
     assert mf.status_code == 200
@@ -338,6 +357,12 @@ def test_service_worker_never_caches_live_state():
         "http://x/speak-maltese/api/deck.json",  # shell   — a file in the static build
         "http://x/style.css",
         "http://x/img/scene-cafe.webp",
+        # A pre-rendered line in the static build. Hashed over (voice, rate, text),
+        # so immutable — and 23MB of them must not be thrown away by a deploy, which
+        # is what routing them to the per-build shell cache would do.
+        "http://x/speak-maltese/audio/" + "a" * 32 + ".mp3",
+        # …but the manifest that maps a line to its file changes when they do.
+        "http://x/speak-maltese/audio/index.json",
     ]
     try:
         proc = subprocess.run([node, str(driver), json.dumps(urls)], cwd=ROOT,
@@ -347,7 +372,7 @@ def test_service_worker_never_caches_live_state():
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)
     assert got == ["audio", "audio", "network", "network", "network",
-                   "shell", "shell", "shell"], dict(zip(urls, got))
+                   "shell", "shell", "shell", "audio", "shell"], dict(zip(urls, got))
 
 
 def test_a_new_build_takes_over_the_page_rather_than_half_of_it():
@@ -363,6 +388,27 @@ def test_a_new_build_takes_over_the_page_rather_than_half_of_it():
     assert "drill.busy" in after, "a reload mid-answer costs the learner the turn"
     assert "navigator.serviceWorker.controller" in app.split("controllerchange", 1)[0], \
         "the first activation is not a new build and must be told apart"
+
+
+def test_every_module_the_client_loads_is_in_the_offline_shell():
+    """The client is ES modules, so one missing file is not a degraded app — it is a
+    blank page. A module added to app.js has to be added to the worker's precache
+    list and to the static build's file list, and nothing about writing the import
+    reminds you of either."""
+    frontend = Path(__file__).resolve().parent.parent / "frontend"
+    imported = set()
+    for js in frontend.glob("*.js"):
+        imported |= set(re.findall(r"""from\s+['"]\./([\w.-]+\.js)['"]""",
+                                   js.read_text(encoding="utf-8")))
+    assert "session.js" in imported, "the test itself has gone stale"
+
+    sw = (frontend / "sw.js").read_text(encoding="utf-8")
+    build = (Path(__file__).resolve().parent.parent
+             / "scripts" / "build_static.py").read_text(encoding="utf-8")
+    shell = build.split("SHELL = (", 1)[1].split(")", 1)[0]
+    for name in sorted(imported):
+        assert f"'./{name}'" in sw, f"{name} is not precached by the service worker"
+        assert f'"{name}"' in shell, f"{name} is not copied by build_static.py"
 
 
 def test_service_worker_survives_a_missing_asset():

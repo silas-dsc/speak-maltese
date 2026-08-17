@@ -12,6 +12,7 @@ import * as store from './store.js';
 import * as schedule from './schedule.js';
 import * as srs from './srs.js';
 import * as mtext from './text.js';
+import * as session from './session.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -465,7 +466,30 @@ const drill = {
   // Per-run tally, so finishing a scene ends with something to look at rather
   // than just stopping.
   run: { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: 0 },
+  // What the node asked for, kept as the server or the engine gave it, so the
+  // conversation can be restored without asking either of them again.
+  present: null,
+  // Every bubble on screen, in order. The DOM used to be the only copy.
+  turns: [],
 };
+
+/** The conversation, so a reload does not restart the scene. */
+const saved = session.store();
+
+/** Write the conversation down. Called after anything that adds to the screen. */
+function keepDrill() {
+  if (!drill.dialogue || !drill.present) return;
+  saved.save({
+    dialogue: drill.dialogue,
+    node: drill.node,
+    attempts: drill.attempts,
+    // Elapsed rather than the start time, so a scene picked up tomorrow does not
+    // report the night as time spent answering.
+    run: { ...drill.run, elapsedMs: Date.now() - drill.run.startedAt },
+    present: drill.present,
+    turns: drill.turns,
+  });
+}
 
 /** Scenes you have finished, so the picker can show progress across sessions. */
 const doneScenes = {
@@ -487,7 +511,49 @@ async function loadDrills() {
   const sel = $('drillSelect');
   renderDrillOptions();
   sel.onchange = () => startDrill(sel.value);
-  if (!drill.dialogue) await startDrill(dialogues[0]?.id);
+  if (drill.dialogue) return;
+  if (restoreDrill(dialogues)) return;
+  await startDrill(dialogues[0]?.id);
+}
+
+/** Put back the conversation from last time, if there is one to put back.
+
+    A reload used to restart the scene from its first line — on a phone, where the
+    browser reloads a backgrounded tab whenever it likes, that could happen without
+    the learner doing anything at all. */
+function restoreDrill(dialogues) {
+  const s = saved.load();
+  if (!s || !s.turns.length || !dialogues.some((d) => d.id === s.dialogue)) return false;
+
+  /* Ask the engine for the prompt again rather than trusting the copy in storage.
+     The stored one is from whichever build wrote it, and a saved conversation
+     outlives a deploy — so replaying it would show the old build's prompt beside
+     the new build's grading, which is the very mismatch the versioned shell cache
+     was added to stop. It also answers whether the node still exists: a build can
+     rename or drop one, and a conversation sitting on a node that is gone grades
+     every answer as "unknown node" — a chat you can read and cannot continue.
+
+     Only the engine can be asked. Against the server, the stored prompt is all
+     there is, and a node that has gone is caught when an answer is sent. */
+  const present = STATIC.on ? dialogueEngine.present(s.dialogue, s.node) : s.present;
+  if (!present) return false;
+
+  drill.dialogue = s.dialogue;
+  drill.turns = s.turns;
+  drill.run = s.run || { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
+  // The clock counts time spent in the scene, not time the tab spent closed.
+  drill.run.startedAt = Date.now() - (s.run?.elapsedMs || 0);
+  $('drillSelect').value = s.dialogue;
+  showSceneImage(s.dialogue);
+  $('drillChat').innerHTML = '';
+  for (const t of s.turns) drillBubble(t.role, t.mt, t.en, t);
+  // Silently: the tutor is not going to read the whole conversation back, and the
+  // node is where the learner left off rather than a line just spoken.
+  installDrillNode(present);
+  // After installing, which starts a node's attempts at nought: two tries already
+  // spent are two the learner does not have to spend again to be moved on.
+  drill.attempts = s.attempts || 0;
+  return true;
 }
 
 /** Groups the picker by level and ticks what you've finished.
@@ -524,10 +590,16 @@ function goToNextScene() {
   startDrill(next.id);
 }
 
+/** Start a scene from its first line, throwing away whatever was on screen. This
+    is what "Start over" does, and the only way a saved conversation is discarded
+    on purpose. */
 async function startDrill(id) {
   if (!id) return;
   drill.dialogue = id;
   drill.run = { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
+  drill.turns = [];
+  drill.present = null;
+  saved.clear();
   $('drillChat').innerHTML = '';
   showSceneImage(id);
   const node = STATIC.on
@@ -550,17 +622,30 @@ function showSceneImage(id) {
   img.src = `img/scene-${id}.webp`;
 }
 
-function presentDrillNode(node) {
+/** Point the composer at a node without saying anything: the prompt line, the
+    frame being asked for, and where an answer will be graded. Shared by a fresh
+    turn and by a conversation restored from a previous visit. */
+function installDrillNode(node) {
   drill.node = node.node;
   drill.attempts = 0;
+  drill.present = node;
   // An open question is scored on its Maltese frame, so the frame is on the screen
   // next to the English. Saying "say your name — anything goes" and then marking
   // `Jien …` asked the learner to guess which half was being looked at.
-  const frames = (node.frames || []).map((f) => `<b>${escapeHtml(f)}</b>`).join(' / ');
-  $('drillExpect').innerHTML = node.expect_en
-    ? `→ ${escapeHtml(node.expect_en)}${frames ? ` · ${frames}` : ''}`
-    : '';
+  // Each half stands on its own: a node with a frame and no English still shows the
+  // frame, because the frame is the half that gets marked.
+  const parts = [];
+  if (node.expect_en) parts.push(escapeHtml(node.expect_en));
+  if (node.frames?.length) parts.push(node.frames.map((f) => `<b>${escapeHtml(f)}</b>`).join(' / '));
+  $('drillExpect').innerHTML = parts.length ? `→ ${parts.join(' · ')}` : '';
+}
+
+/** Install a node and say its line — a new turn, as opposed to a restored one. */
+function presentDrillNode(node) {
+  installDrillNode(node);
   drillBubble('tutor', node.say_mt, node.say_en);
+  drill.turns.push({ role: 'tutor', mt: node.say_mt, en: node.say_en });
+  keepDrill();
   if (state.settings.autoplay) speak(node.say_mt);
 }
 
@@ -600,13 +685,20 @@ function showRunSummary() {
   el.querySelector('[data-next]').onclick = goToNextScene;
 }
 
-function drillBubble(role, mt, en, extraClass = '') {
+/** One bubble. `verdict` and `target` are the marking above and the line to repeat
+    below it; passing them here rather than bolting them on afterwards is what lets
+    a restored conversation come back looking exactly like the one you left. */
+function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = null } = {}) {
   const el = document.createElement('div');
   el.className = `turn ${role} ${extraClass}`;
   el.innerHTML = `
     <div class="bubble">
+      ${verdict ? `<p class="drill-verdict ${escapeHtml(verdict.tone || '')}">${
+        escapeHtml(verdict.mark || '')} ${escapeHtml(verdict.text || '')}</p>` : ''}
       <p class="mt">${escapeHtml(mt || '')}</p>
       ${en ? `<p class="en" ${state.settings.show_english ? '' : 'hidden'}>${escapeHtml(en)}</p>` : ''}
+      ${target ? `<p class="drill-target">${escapeHtml(target.mt)}
+           <em>${escapeHtml(target.en || '')}</em></p>` : ''}
       ${role === 'tutor' && mt ? `<div class="bubble-tools">
           <button class="tool" data-play>🔊 Play</button>
           <button class="tool" data-slow>🐢 Slow</button>
@@ -627,6 +719,7 @@ async function answerDrill(said) {
   drill.busy = true;
   $('drillInput').value = '';
   drillBubble('user', said, '');
+  drill.turns.push({ role: 'user', mt: said });
 
   let holdBusy = false;
   try {
@@ -636,12 +729,14 @@ async function answerDrill(said) {
       : await post('/api/drill/answer', {
         dialogue: drill.dialogue, node: drill.node, said, attempts: drill.attempts,
       });
+    // The engine reports an unknown node in the body where the server reports it as
+    // a 404; raising here puts both on the same path out.
+    if (r.error) throw new Error(r.error);
     if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 
     const tone = r.moved_on ? 'near' : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
     const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
-    const el = drillBubble('tutor', r.reply_mt, r.reply_en);
     // An open question is your name, your town, your age: accepted whatever you
     // say, because the app cannot know it. What is scored is the Maltese *frame*
     // around the slot — `Jien …`, `Għandi … sena` — and never the name or age in
@@ -661,14 +756,17 @@ async function answerDrill(said) {
         ? `${freeLabel} · ${Math.round(r.score * 100)}%`
         : 'taken as given · not scored')
       : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
-    el.querySelector('.bubble').insertAdjacentHTML('afterbegin',
-      `<p class="drill-verdict ${tone}">${mark} ${verdictText} · ${ms}ms</p>`);
 
-    if (r.say_this_mt) {
-      el.querySelector('.bubble').insertAdjacentHTML('beforeend',
-        `<p class="drill-target">${escapeHtml(r.say_this_mt)}
-           <em>${escapeHtml(r.say_this_en || '')}</em></p>`);
-    }
+    const turn = {
+      role: 'tutor',
+      mt: r.reply_mt,
+      en: r.reply_en,
+      verdict: { tone, mark, text: `${verdictText} · ${ms}ms` },
+      target: r.say_this_mt ? { mt: r.say_this_mt, en: r.say_this_en } : null,
+    };
+    drillBubble(turn.role, turn.mt, turn.en, turn);
+    drill.turns.push(turn);
+    keepDrill();
 
     if (state.settings.autoplay) await speak(r.reply_mt);
 
@@ -700,10 +798,22 @@ async function answerDrill(said) {
       doneScenes.mark(drill.dialogue);
       renderDrillOptions();
       showRunSummary();
+      // Nothing left to come back to: the scene is done and the summary offers
+      // Again or the next scene. Keeping it would restore a conversation whose
+      // composer has nowhere to send an answer.
+      saved.clear();
       await refreshCounts();
     }
   } catch (err) {
     toast(err.message);
+    /* The scene has moved under a restored conversation: the node it was sitting on
+       is not there any more, so no answer will ever land. Say so once and start the
+       scene, rather than leaving a chat that reads fine and cannot be continued —
+       and forget it, or the next reload would restore the same dead end. */
+    if (/unknown node/i.test(err.message || '')) {
+      saved.clear();
+      await startDrill(drill.dialogue);
+    }
   } finally {
     if (!holdBusy) drill.busy = false;
   }

@@ -40,14 +40,21 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Only what the build itself touches — no torch, no recogniser.
-      - run: pip install edge-tts python-dotenv
+      # Only what the build itself touches — no torch, no recogniser. httpx is not
+      # optional despite nothing here calling it directly: backend/tts.py imports it
+      # at module scope, so without it the render step below dies on import.
+      - run: pip install edge-tts python-dotenv httpx
 
       # The MP3s are rendered by edge-tts and committed, because a build that
       # depends on an unofficial endpoint being up is a build that breaks without
-      # warning. This step only re-renders anything missing.
+      # warning. This step only re-renders anything missing — and it is allowed to
+      # fail loudly. It used to end in `|| true`, so when it started failing on a
+      # missing import it kept reporting success, and the first deploy that actually
+      # needed a new line failed one step later with a build that could not find the
+      # audio. Nothing was gained by the tolerance: the build stops on missing audio
+      # anyway, so hiding this only moved the error away from its cause.
       - name: Render any missing audio
-        run: python scripts/prebuild_audio.py --what all || true
+        run: python scripts/prebuild_audio.py --what all
 
       - name: Build
         run: python scripts/build_static.py --models-base "$MODELS_BASE"

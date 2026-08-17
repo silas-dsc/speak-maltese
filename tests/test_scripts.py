@@ -61,6 +61,25 @@ def _mini_build(mod, out: Path) -> str:
     return mod.stamp_shell_version()
 
 
+def test_every_line_the_app_speaks_has_audio_committed(tmp_path):
+    """The MP3s are rendered by edge-tts and committed on purpose: a build that
+    depends on an unofficial endpoint being up is a build that breaks without
+    warning. Which means editing a line and not re-rendering it is a change that
+    passes every other test, builds fine, and fails the deploy — the build refuses
+    to ship a line the app cannot say.
+
+    That is exactly how it went: five replies were rewritten, and the deploy stopped
+    on missing audio. This is the check that belongs before the push."""
+    from backend.config import AUDIO_CACHE, CFG
+
+    mod = load("build_static")
+    missing = [line for line in mod.wanted_lines()
+               if not (AUDIO_CACHE / f"{mod.cache_key(line, CFG.azure_voice, 0.95)}.mp3").exists()]
+    assert not missing, (
+        f"{len(missing)} lines have no rendered audio — run "
+        f"scripts/prebuild_audio.py --what all:\n  " + "\n  ".join(missing[:8]))
+
+
 def test_build_stamps_the_shell_cache_with_the_build(tmp_path):
     """The worker serves the shell stale-while-revalidate, so a page open across a
     deploy mixes builds — the new `api/dialogues.json` against the previous

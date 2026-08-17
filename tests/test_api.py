@@ -11,6 +11,7 @@ only parts that do, and they are exercised separately.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -363,6 +364,27 @@ def test_a_new_build_takes_over_the_page_rather_than_half_of_it():
     assert "drill.busy" in after, "a reload mid-answer costs the learner the turn"
     assert "navigator.serviceWorker.controller" in app.split("controllerchange", 1)[0], \
         "the first activation is not a new build and must be told apart"
+
+
+def test_every_module_the_client_loads_is_in_the_offline_shell():
+    """The client is ES modules, so one missing file is not a degraded app — it is a
+    blank page. A module added to app.js has to be added to the worker's precache
+    list and to the static build's file list, and nothing about writing the import
+    reminds you of either."""
+    frontend = Path(__file__).resolve().parent.parent / "frontend"
+    imported = set()
+    for js in frontend.glob("*.js"):
+        imported |= set(re.findall(r"""from\s+['"]\./([\w.-]+\.js)['"]""",
+                                   js.read_text(encoding="utf-8")))
+    assert "session.js" in imported, "the test itself has gone stale"
+
+    sw = (frontend / "sw.js").read_text(encoding="utf-8")
+    build = (Path(__file__).resolve().parent.parent
+             / "scripts" / "build_static.py").read_text(encoding="utf-8")
+    shell = build.split("SHELL = (", 1)[1].split(")", 1)[0]
+    for name in sorted(imported):
+        assert f"'./{name}'" in sw, f"{name} is not precached by the service worker"
+        assert f'"{name}"' in shell, f"{name} is not copied by build_static.py"
 
 
 def test_service_worker_survives_a_missing_asset():

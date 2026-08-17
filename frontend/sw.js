@@ -34,7 +34,7 @@ const SHELL_ASSETS = [
   // The client is ES modules. Missing one of these offline would not degrade the
   // app, it would fail to boot at all.
   './app.js', './srs.js', './store.js', './schedule.js', './splash.js',
-  './localstt.js', './text.js', './dialogue.js',
+  './localstt.js', './text.js', './dialogue.js', './session.js',
 ];
 
 self.addEventListener('install', (event) => {

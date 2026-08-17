@@ -310,7 +310,13 @@ def index() -> FileResponse:
 @app.exception_handler(404)
 async def spa_fallback(request: Request, exc):  # noqa: ANN001
     if request.url.path.startswith("/api/"):
-        return JSONResponse({"detail": "not found"}, status_code=404)
+        # Keep the reason an endpoint gave. This handler catches deliberate 404s as
+        # well as missing routes, and flattening them to "not found" threw away the
+        # only thing the client could act on: the drill knows to abandon a saved
+        # conversation whose node has gone, and could not tell that from a typo in
+        # a URL.
+        return JSONResponse({"detail": getattr(exc, "detail", None) or "not found"},
+                            status_code=404)
     return FileResponse(FRONTEND_DIR / "index.html")
 
 

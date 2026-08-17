@@ -632,10 +632,12 @@ function installDrillNode(node) {
   // An open question is scored on its Maltese frame, so the frame is on the screen
   // next to the English. Saying "say your name — anything goes" and then marking
   // `Jien …` asked the learner to guess which half was being looked at.
-  const frames = (node.frames || []).map((f) => `<b>${escapeHtml(f)}</b>`).join(' / ');
-  $('drillExpect').innerHTML = node.expect_en
-    ? `→ ${escapeHtml(node.expect_en)}${frames ? ` · ${frames}` : ''}`
-    : '';
+  // Each half stands on its own: a node with a frame and no English still shows the
+  // frame, because the frame is the half that gets marked.
+  const parts = [];
+  if (node.expect_en) parts.push(escapeHtml(node.expect_en));
+  if (node.frames?.length) parts.push(node.frames.map((f) => `<b>${escapeHtml(f)}</b>`).join(' / '));
+  $('drillExpect').innerHTML = parts.length ? `→ ${parts.join(' · ')}` : '';
 }
 
 /** Install a node and say its line — a new turn, as opposed to a restored one. */
@@ -691,7 +693,8 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
   el.className = `turn ${role} ${extraClass}`;
   el.innerHTML = `
     <div class="bubble">
-      ${verdict ? `<p class="drill-verdict ${verdict.tone}">${verdict.mark} ${escapeHtml(verdict.text)}</p>` : ''}
+      ${verdict ? `<p class="drill-verdict ${escapeHtml(verdict.tone || '')}">${
+        escapeHtml(verdict.mark || '')} ${escapeHtml(verdict.text || '')}</p>` : ''}
       <p class="mt">${escapeHtml(mt || '')}</p>
       ${en ? `<p class="en" ${state.settings.show_english ? '' : 'hidden'}>${escapeHtml(en)}</p>` : ''}
       ${target ? `<p class="drill-target">${escapeHtml(target.mt)}

@@ -55,7 +55,17 @@ const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(bo
    Speech recognition is the one thing with no static equivalent: it runs on the
    device or not at all. */
 
-const STATIC = { on: false, audio: null, modelsBase: '/models/' };
+const STATIC = { on: false, audio: null, modelsBase: '/models/', sttBase: '' };
+
+/** Where an utterance goes to be recognised, when it is not this device.
+
+    A deployment of this same FastAPI app — the Hugging Face Space — does the
+    recognition, which is the only way the static build can offer speech on a phone
+    that cannot hold the model. A WebKit page on an iPhone SE has 250-350MB to live
+    in and the model is 200MB of weights before any tensors, so the tab is reloaded
+    rather than slowed: measured on the reporter's phone as a crash and a blank
+    page. Empty means there is no such deployment and recognition stays on-device. */
+const remoteStt = () => (STATIC.on ? STATIC.sttBase : '');
 
 /* How long the startup screen will wait for the on-device recogniser before
    opening the app without it. Long enough for a warm HTTP cache, nowhere near long
@@ -393,7 +403,9 @@ class Recorder {
 }
 
 async function transcribe(blob, target) {
-  if (state.settings.local_stt && localstt.isReady()) {
+  /* On-device only when there is nowhere better to send it. The model is the
+     heaviest thing this app can do and the least reliable place to do it. */
+  if (!remoteStt() && state.settings.local_stt && localstt.isReady()) {
     try {
       const r = await localstt.transcribe(blob);
       if (r.text.trim()) {
@@ -410,13 +422,24 @@ async function transcribe(blob, target) {
       console.warn('local recogniser failed, using the server', err);
     }
   }
+  if (STATIC.on && !remoteStt()) {
+    /* Nowhere to send it: this build has no server and the device could not hold the
+       model. Say so, rather than posting into a 404 and reporting whatever that
+       returns as though the recording were at fault. */
+    throw new Error('No recogniser available here yet — type your answer for now.');
+  }
   const fd = new FormData();
   // Named for what it is: the server picks its decoder from the content type and the
   // extension, and an mp4 clip called speech.webm is a decode failure waiting to
   // happen — which is exactly what iOS records.
   fd.append('audio', blob, capture.fileNameFor(blob.type));
   if (target) fd.append('target', target);
-  return api('/api/stt', { method: 'POST', body: fd });
+  const r = await api(`${remoteStt()}/api/stt`, { method: 'POST', body: fd });
+  /* Grading stays here. It is microseconds of string work against rules that are
+     already in the page, and sending it away would add a round trip to a decision
+     the browser can make itself. */
+  if (target && STATIC.on && !r.assessment) r.assessment = mtext.assess(r.text, target);
+  return r;
 }
 
 /** Turn local recognition on or off. Loading is the expensive half, so progress
@@ -428,9 +451,15 @@ async function setLocalStt(on) {
   persistSettings();
   if (!on) {
     localstt.unload();
-    note.textContent = 'Speech is sent to the server for recognition.';
+    note.textContent = remoteStt() || !STATIC.on
+      ? 'Speech is sent to the server for recognition.'
+      : 'Speech recognition is off, and this build has no server to do it.';
     return;
   }
+  /* Asked for deliberately, so the device gets another go. It was written off after
+     the tab died holding the model — a fact worth remembering on startup, and not
+     one to hold against a learner who is telling us to try. */
+  store.forgetModelTooBig();
   if (!localstt.supported()) {
     state.settings.local_stt = false;
     persistSettings();
@@ -454,7 +483,8 @@ async function setLocalStt(on) {
     state.settings.local_stt = false;
     persistSettings();
     box.checked = false;
-    note.textContent = `Could not load it: ${err.message}. Still using the server.`;
+    note.textContent = `Could not load it: ${err.message}. `
+      + (remoteStt() ? 'Using the server instead.' : 'Typing still works.');
   } finally {
     box.disabled = false;
   }
@@ -561,21 +591,32 @@ async function boot() {
         STATIC.on = true;
         STATIC.audio = audio;
         STATIC.modelsBase = boot.models_base || STATIC.modelsBase;
+        STATIC.sttBase = boot.stt_base || '';
         dialogueEngine.load(dialogues);
       },
       onModel: async (onProgress) => {
+        /* Nothing to load: recognition happens at `stt_base`. This is the whole
+           point of pointing the build at a deployment — the 200MB model is never
+           fetched, so the page cannot be killed for holding it. */
+        if (remoteStt()) return false;
         // Only worth waiting on where it is the only recogniser there is.
         const settings = store.loadSettings();
         if (!settings.local_stt || !localstt.supported()) return false;
         /* The last attempt never finished — the tab died with a 200MB model half
            loaded on the GPU. Loading it again is how the crash becomes a boot loop
            and the app becomes a white screen, so it is off until asked for. */
-        if (store.sttLoadCrashed()) {
+        if (store.sttLoadCrashed() || store.modelTooBig()) {
+          /* Recognition stays switched on — it is the *place* that is wrong, not the
+             wish. The setting is the learner's and is left alone; what is recorded is
+             a fact about the device, so the model is not started here again and the
+             utterance goes to the server instead. */
           store.endSttLoad();
-          store.saveSettings({ ...settings, local_stt: false });
-          state.settings = store.loadSettings();
-          state.sttNotice = 'Speaking recognition is off: the browser ran out of '
-            + 'memory loading it. Settings can turn it back on.';
+          store.markModelTooBig();
+          state.sttNotice = remoteStt()
+            ? 'Speech is recognised on the server: this phone cannot hold the '
+              + 'recogniser in a browser tab.'
+            : 'This phone cannot hold the recogniser in a browser tab, and no '
+              + 'server is configured to do it — typing still works.';
           return false;
         }
         store.beginSttLoad();
@@ -625,7 +666,8 @@ async function boot() {
   // they say is not the slow one. The model is in the HTTP cache by now.
   // Static builds already loaded it during startup. A server build has a working
   // recogniser of its own, so this warms in the background instead of blocking.
-  if (state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
+  if (!remoteStt() && !store.modelTooBig()
+      && state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
     // Same marker as the startup path: this load is smaller but it is the same
     // model on the same GPU, and a tab that dies here must not try again on sight.
     store.beginSttLoad();

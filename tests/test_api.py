@@ -302,6 +302,30 @@ def test_app_js_defines_everything_it_calls():
 
 # ── Offline shell ──────────────────────────────────────────────────────────
 
+def test_a_browser_on_another_origin_may_send_an_utterance(client):
+    """The static build has no recogniser of its own — an iPhone SE has 250-350MB of
+    page memory and the model is 200MB before any tensors, so it is sent here
+    instead. That is a cross-origin POST, which a browser refuses unless this app
+    names the origin. Named, not `*`: a wildcard on an endpoint that accepts audio
+    offers the internet a free transcription service."""
+    from backend.config import CFG
+
+    origin = CFG.cors_origins.split(",")[0]
+    r = client.options("/api/stt", headers={
+        "Origin": origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    })
+    assert r.status_code in (200, 204), r.text
+    assert r.headers.get("access-control-allow-origin") == origin
+
+    r = client.get("/api/health", headers={"Origin": origin})
+    assert r.headers.get("access-control-allow-origin") == origin
+
+    r = client.get("/api/health", headers={"Origin": "https://not-this-app.example"})
+    assert "access-control-allow-origin" not in r.headers, "must not be a wildcard"
+
+
 def test_service_worker_and_manifest_are_served(client):
     sw = client.get("/sw.js")
     assert sw.status_code == 200

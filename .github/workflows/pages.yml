@@ -29,6 +29,11 @@ concurrency:
 
 env:
   MODELS_BASE: https://huggingface.co/silasdsc/speak-maltese-w2v2-web/resolve/main/
+  # Where an utterance goes to be recognised. Set the repository variable STT_BASE to
+  # the Hugging Face Space's URL and the next deploy stops shipping on-device
+  # recognition entirely — no 200MB model, which is the only way speech works on a
+  # phone whose whole page budget is 250-350MB. Empty keeps it on the device.
+  STT_BASE: ${{ vars.STT_BASE }}
 
 jobs:
   build:
@@ -57,7 +62,9 @@ jobs:
         run: python scripts/prebuild_audio.py --what all
 
       - name: Build
-        run: python scripts/build_static.py --models-base "$MODELS_BASE"
+        run: |
+          python scripts/build_static.py --models-base "$MODELS_BASE" \
+                                        --stt-base "$STT_BASE"
 
       - name: Check the build is actually complete
         run: |

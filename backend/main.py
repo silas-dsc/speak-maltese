@@ -8,6 +8,7 @@ import threading
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import CFG, FRONTEND_DIR
@@ -20,6 +21,19 @@ logging.basicConfig(
 log = logging.getLogger("speak-maltese")
 
 app = FastAPI(title="Speak Maltese", version="1.0.0")
+
+# The static build sends utterances here to be recognised, from another origin, and
+# a browser refuses that unless this says otherwise. Named origins rather than `*`:
+# these endpoints hold no learner state, but a wildcard on a POST that accepts audio
+# invites every page on the internet to use this as a free transcription service.
+_ORIGINS = [o.strip() for o in CFG.cors_origins.split(",") if o.strip()]
+if _ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_ORIGINS,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["content-type"],
+    )
 
 
 @app.on_event("startup")

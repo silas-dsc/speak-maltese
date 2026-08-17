@@ -65,7 +65,7 @@ def copy_shell() -> None:
         shutil.copytree(FRONTEND_DIR / "img", DIST / "img", dirs_exist_ok=True)
 
 
-def write_api(models_base: str) -> dict:
+def write_api(models_base: str, stt_base: str) -> dict:
     api = DIST / "api"
     api.mkdir(parents=True, exist_ok=True)
 
@@ -82,12 +82,18 @@ def write_api(models_base: str) -> dict:
 
     (api / "bootstrap.json").write_text(json.dumps({
         "capabilities": {
-            # No server: synthesis is pre-rendered, recognition is on-device only.
+            # No server of its own: synthesis is pre-rendered, and recognition is
+            # either on this device or at `stt_base` — a deployment of this same
+            # FastAPI app, which is what the Hugging Face Space is.
             "tts": ["prerendered"],
-            "stt": [],
+            "stt": ["remote"] if stt_base else [],
         },
         "static": True,
         "models_base": models_base,
+        # Empty means on-device only. Set it and the 200MB model is never fetched:
+        # a WebKit page on an iPhone SE has 250-350MB to live in, and the model does
+        # not fit, which is a reloaded tab rather than slow recognition.
+        "stt_base": stt_base.rstrip("/"),
         "defaults": {
             "voice": CFG.azure_voice,
             "rate": 0.95,
@@ -172,6 +178,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--rate", type=float, default=0.95)
+    ap.add_argument("--stt-base", default="",
+                    help="base URL of a deployment that can transcribe — the Hugging "
+                         "Face Space runs this same app. Empty keeps recognition on "
+                         "the device, which needs WebGPU and 200MB of memory.")
     ap.add_argument("--models-base", default="/models/",
                     help="where localstt.js should fetch the ONNX weights from; "
                          "for Pages this has to be off-site, since GitHub refuses "
@@ -185,7 +195,7 @@ def main() -> int:
     DIST.mkdir(parents=True)
 
     copy_shell()
-    counts = write_api(args.models_base)
+    counts = write_api(args.models_base, args.stt_base)
     audio = copy_audio(args.rate)
 
     # Pages serves _-prefixed paths oddly and runs Jekyll unless told not to.
@@ -204,6 +214,7 @@ def main() -> int:
         for line in audio["examples"]:
             print(f"      {line}")
     print(f"  models base: {args.models_base}")
+    print(f"  recogniser: {args.stt_base or 'on-device only'}")
     return 1 if audio["missing"] else 0
 
 

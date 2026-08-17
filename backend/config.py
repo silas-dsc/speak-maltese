@@ -37,6 +37,15 @@ class Config:
     elevenlabs_voice: str = field(default_factory=lambda: os.getenv("SM_ELEVENLABS_VOICE", ""))
     tts_provider: str = field(default_factory=lambda: os.getenv("SM_TTS_PROVIDER", "auto"))
 
+    # Browsers that may post an utterance here from another origin. The static build
+    # on GitHub Pages has no recogniser of its own — a phone cannot hold the model —
+    # so it sends audio to a deployment of this app, and that is a cross-origin
+    # request the browser blocks unless it is allowed by name. Comma-separated;
+    # SM_CORS_ORIGINS replaces the list rather than adding to it.
+    cors_origins: str = field(default_factory=lambda: os.getenv(
+        "SM_CORS_ORIGINS",
+        "https://silas-dsc.github.io,http://localhost:8000,http://127.0.0.1:8000"))
+
     # ── Speech to text ─────────────────────────────────────────────────────
     stt_provider: str = field(default_factory=lambda: os.getenv("SM_STT_PROVIDER", "auto"))
     whisper_model: str = field(default_factory=lambda: os.getenv("SM_WHISPER_MODEL", "small"))

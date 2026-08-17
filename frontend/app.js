@@ -55,7 +55,17 @@ const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(bo
    Speech recognition is the one thing with no static equivalent: it runs on the
    device or not at all. */
 
-const STATIC = { on: false, audio: null, modelsBase: '/models/' };
+const STATIC = { on: false, audio: null, modelsBase: '/models/', sttBase: '' };
+
+/** Where an utterance goes to be recognised, when it is not this device.
+
+    A deployment of this same FastAPI app — the Hugging Face Space — does the
+    recognition, which is the only way the static build can offer speech on a phone
+    that cannot hold the model. A WebKit page on an iPhone SE has 250-350MB to live
+    in and the model is 200MB of weights before any tensors, so the tab is reloaded
+    rather than slowed: measured on the reporter's phone as a crash and a blank
+    page. Empty means there is no such deployment and recognition stays on-device. */
+const remoteStt = () => (STATIC.on ? STATIC.sttBase : '');
 
 /* How long the startup screen will wait for the on-device recogniser before
    opening the app without it. Long enough for a warm HTTP cache, nowhere near long
@@ -393,7 +403,9 @@ class Recorder {
 }
 
 async function transcribe(blob, target) {
-  if (state.settings.local_stt && localstt.isReady()) {
+  /* On-device only when there is nowhere better to send it. The model is the
+     heaviest thing this app can do and the least reliable place to do it. */
+  if (!remoteStt() && state.settings.local_stt && localstt.isReady()) {
     try {
       const r = await localstt.transcribe(blob);
       if (r.text.trim()) {
@@ -416,7 +428,12 @@ async function transcribe(blob, target) {
   // happen — which is exactly what iOS records.
   fd.append('audio', blob, capture.fileNameFor(blob.type));
   if (target) fd.append('target', target);
-  return api('/api/stt', { method: 'POST', body: fd });
+  const r = await api(`${remoteStt()}/api/stt`, { method: 'POST', body: fd });
+  /* Grading stays here. It is microseconds of string work against rules that are
+     already in the page, and sending it away would add a round trip to a decision
+     the browser can make itself. */
+  if (target && STATIC.on && !r.assessment) r.assessment = mtext.assess(r.text, target);
+  return r;
 }
 
 /** Turn local recognition on or off. Loading is the expensive half, so progress
@@ -561,9 +578,14 @@ async function boot() {
         STATIC.on = true;
         STATIC.audio = audio;
         STATIC.modelsBase = boot.models_base || STATIC.modelsBase;
+        STATIC.sttBase = boot.stt_base || '';
         dialogueEngine.load(dialogues);
       },
       onModel: async (onProgress) => {
+        /* Nothing to load: recognition happens at `stt_base`. This is the whole
+           point of pointing the build at a deployment — the 200MB model is never
+           fetched, so the page cannot be killed for holding it. */
+        if (remoteStt()) return false;
         // Only worth waiting on where it is the only recogniser there is.
         const settings = store.loadSettings();
         if (!settings.local_stt || !localstt.supported()) return false;
@@ -625,7 +647,7 @@ async function boot() {
   // they say is not the slow one. The model is in the HTTP cache by now.
   // Static builds already loaded it during startup. A server build has a working
   // recogniser of its own, so this warms in the background instead of blocking.
-  if (state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
+  if (!remoteStt() && state.settings.local_stt && localstt.supported() && !localstt.isReady()) {
     // Same marker as the startup path: this load is smaller but it is the same
     // model on the same GPU, and a tab that dies here must not try again on sight.
     store.beginSttLoad();

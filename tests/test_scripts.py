@@ -10,6 +10,7 @@ import each script and call the part that reads the app's own data.
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import shutil
 import sys
@@ -57,7 +58,7 @@ def _mini_build(mod, out: Path) -> str:
     mod.DIST = out
     out.mkdir(parents=True, exist_ok=True)
     mod.copy_shell()
-    mod.write_api("/models/")
+    mod.write_api("/models/", "")
     return mod.stamp_shell_version()
 
 
@@ -78,6 +79,38 @@ def test_every_line_the_app_speaks_has_audio_committed(tmp_path):
     assert not missing, (
         f"{len(missing)} lines have no rendered audio — run "
         f"scripts/prebuild_audio.py --what all:\n  " + "\n  ".join(missing[:8]))
+
+
+def test_the_build_can_point_the_client_at_a_remote_recogniser(tmp_path):
+    """Recognition on the device needs WebGPU and ~200MB of page memory, which an
+    iPhone SE does not have — the tab is reloaded and the app comes back blank. So
+    the build can name a deployment of this same app to send utterances to, and when
+    it does, the client never fetches the model at all."""
+    mod = load("build_static")
+
+    mod.DIST = tmp_path / "local"
+    mod.DIST.mkdir(parents=True)
+    mod.write_api("/models/", "")
+    boot = json.loads((mod.DIST / "api" / "bootstrap.json").read_text(encoding="utf-8"))
+    assert boot["stt_base"] == "", "no remote recogniser by default"
+    assert boot["capabilities"]["stt"] == [], "the UI must not offer what is not there"
+
+    mod.DIST = tmp_path / "remote"
+    mod.DIST.mkdir(parents=True)
+    mod.write_api("/models/", "https://example-space.hf.space/")
+    boot = json.loads((mod.DIST / "api" / "bootstrap.json").read_text(encoding="utf-8"))
+    assert boot["stt_base"] == "https://example-space.hf.space", "trailing slash trimmed"
+    assert boot["capabilities"]["stt"] == ["remote"]
+
+
+def test_the_client_prefers_the_remote_recogniser_over_the_model(tmp_path):
+    """Not a fallback: where a deployment is named, the device does not load the
+    model — not at startup, not in the background, and not to answer with."""
+    app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    for guard in ("if (remoteStt()) return false;",
+                  "if (!remoteStt() && state.settings.local_stt && localstt.isReady())"):
+        assert guard in app_js, f"missing: {guard}"
+    assert app_js.count("remoteStt()") >= 4
 
 
 def test_build_stamps_the_shell_cache_with_the_build(tmp_path):

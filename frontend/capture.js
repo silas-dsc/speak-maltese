@@ -1,19 +1,20 @@
 /* Which container to record in — decided by what this device actually produces,
    not by what it claims it can.
 
-   `MediaRecorder.isTypeSupported` is a claim, and on iOS it is sometimes false. It
-   answered yes to `audio/webm;codecs=opus` on a real iPhone and then returned five
-   bytes — a container header with no audio in it — for a four-and-a-half-second
-   recording. Nothing in the API says so: the recording simply comes back empty, the
-   app says "nothing recorded", and trying again does exactly the same thing, because
-   the next attempt asks for the same container that has already been shown not to
-   work. `audio/mp4` is the one iOS records for real.
+   `MediaRecorder.isTypeSupported` is a claim, and it is not always true. An iPhone
+   answered yes to `audio/webm;codecs=opus` and returned five bytes — a container
+   header with no audio in it — for a four-and-a-half-second recording, twice. What
+   it will not explain on its own is that recognition on the same phone worked
+   *sometimes*: a format that never encodes never works. So there are two candidate
+   faults, they look identical from here, and only one of them is the format's.
 
-   So the choice is remembered instead of recomputed. A container that produced
-   nothing here is struck off and the next one is used, and once one has demonstrably
-   worked it is the one used from then on. The knowledge is per device, because that
-   is where the fault is — no user-agent sniffing, which is how you end up with a
-   list of browsers to maintain and the same bug on the next one. */
+   This module holds the format half: the order to try, what this device has been
+   seen to produce, and the reasoning about which of the two faults a failed
+   recording actually was (see `diagnose`). A container is struck off only with
+   evidence that sound reached it — never on a single failure that a muted
+   microphone explains just as well. Kept per device rather than per browser name,
+   because that is where the fault is: a list of user-agent strings to maintain is
+   how you end up with the same bug on the next browser. */
 
 const KEY = 'sm.capture';
 const VERSION = 1;
@@ -30,6 +31,58 @@ export const CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
 export function pickMime({ supported = () => false, verified = '', blocked = [] } = {}) {
   if (verified && supported(verified) && !blocked.includes(verified)) return verified;
   return CANDIDATES.find((m) => !blocked.includes(m) && supported(m)) || '';
+}
+
+/* Recording is rejected below these, and the numbers are here so the reasoning
+   about *why* is in one place with them. */
+export const MIN_MS = 250;
+export const MIN_BYTES = 600;
+/* Peak amplitude, 0..1, from a level meter over the recording. Room tone through a
+   phone mic sits well above this; a capture session that has been taken away reads
+   as exactly zero. */
+export const SILENT_PEAK = 0.005;
+
+/** Why a recording came back with nothing in it, and what to do about it.
+
+    The first version of this blamed the learner ("too short"). The second reported
+    the numbers, which was honest and left the app with nothing to act on. This one
+    attributes the failure, because the two causes are opposites and the fixes point
+    in different directions:
+
+    * the microphone produced no sound — iOS mutes a capture track when another app
+      takes the mic or the page is backgrounded, and `readyState` still reads live,
+      so a stream that looks fine records silence. The stream has to be thrown away
+      and re-acquired; the format is innocent.
+    * the microphone produced sound and the encoder dropped it — the container was
+      accepted and never written into. That one is the format's fault and it gets
+      struck off.
+
+    Without a level meter the two are indistinguishable, so an unmetered failure
+    concludes nothing: it re-acquires the stream, which is the cheaper and more
+    likely fix, and asks for metering on the next attempt rather than condemning a
+    format that may well have been working a minute ago. */
+export function diagnose({ ms = 0, bytes = 0, chunks = 0, mime = '', peak = null } = {}) {
+  if (ms < MIN_MS) {
+    return { ok: false, blame: 'short', block: false, stale: false, meter: false,
+             reason: `only ${(ms / 1000).toFixed(1)}s of audio` };
+  }
+  if (bytes >= MIN_BYTES) return { ok: true, blame: '', block: false, stale: false, meter: false };
+
+  const measured = `${ms}ms recorded but only ${bytes} bytes captured `
+    + `(${chunks} chunk${chunks === 1 ? '' : 's'}, ${mime || 'no mime'})`;
+
+  if (peak === null) {
+    return { ok: false, blame: 'unknown', block: false, stale: true, meter: true,
+             reason: `${measured} — reopening the microphone, please try again` };
+  }
+  if (peak < SILENT_PEAK) {
+    return { ok: false, blame: 'silence', block: false, stale: true, meter: true,
+             reason: 'the microphone went silent — another app may have taken it. '
+                     + 'Reopened it, please try again' };
+  }
+  return { ok: false, blame: 'encoder', block: true, stale: true, meter: true,
+           reason: `${measured} — sound was there, ${mime || 'that format'} dropped it, `
+                   + 'so the next attempt uses another format' };
 }
 
 /** A file name for an upload, so the server sees the format it is being given. */

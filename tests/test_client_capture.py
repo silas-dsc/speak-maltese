@@ -1,15 +1,15 @@
-"""Which container the recorder asks for, and why it is remembered.
+"""Which container the recorder asks for, and who to blame when nothing comes out.
 
 `MediaRecorder.isTypeSupported` said yes to `audio/webm;codecs=opus` on a real
-iPhone and then encoded nothing into it: 4455ms of speech came back as five bytes,
-twice, with the app telling the learner nothing was recorded and the next attempt
-asking for the same dead format. Nothing in the API reports this, so the only way
-to know is to look at what came out — and the only useful place to keep the answer
-is the device it is true of.
+iPhone and returned five bytes for 4455ms of speech, twice — and recognition on
+that same phone worked *sometimes*, which is the fact that decides how this has to
+behave. A format that never encodes never works, so the container cannot be the
+only explanation: something intermittent was taking the microphone away, and the
+two faults are indistinguishable from the outside.
 
-These are the rules for that: prefer what has been seen to work, never ask again
-for something that produced nothing, and treat storage failures as forgetfulness
-rather than as an error.
+So: prefer what has been seen to work, strike a format off only with evidence that
+sound reached it and was dropped, reopen the capture session when there is no such
+evidence, and treat storage failures as forgetfulness rather than as an error.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ node = shutil.which("node")
 pytestmark = pytest.mark.skipif(node is None, reason="node is not installed")
 
 DRIVER = r"""
-import { CANDIDATES, pickMime, fileNameFor, store } from '../frontend/capture.js';
+import { CANDIDATES, pickMime, fileNameFor, store, diagnose } from '../frontend/capture.js';
 
 function fake(initial = {}, mode = 'ok') {
   const map = new Map(Object.entries(initial));
@@ -89,6 +89,15 @@ full.verify('audio/mp4');
 out.fullSurvives = full.verified() === '' && full.blocked().length === 0;
 out.corruptSurvives = store(fake({ 'sm.capture': 'not json' })).verified() === '';
 
+// ── why a recording came back empty, and what to do about it ───────────────
+const empty = { ms: 4455, bytes: 5, chunks: 1, mime: 'audio/webm;codecs=opus' };
+out.tooShort = diagnose({ ...empty, ms: 100, bytes: 5000 });
+out.fine = diagnose({ ms: 3000, bytes: 40000, mime: 'audio/mp4' });
+out.unmetered = diagnose(empty);                       // first failure: no meter yet
+out.silent = diagnose({ ...empty, peak: 0 });          // the mic gave nothing
+out.roomTone = diagnose({ ...empty, peak: 0.04 });     // sound was there
+out.loud = diagnose({ ...empty, peak: 0.8 });
+
 // ── an upload says what it is ──────────────────────────────────────────────
 out.names = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', '']
   .map(fileNameFor);
@@ -144,6 +153,51 @@ def test_the_device_remembers_across_sessions(result):
 def test_storage_failure_costs_the_memory_and_nothing_else(result):
     assert result["fullSurvives"]
     assert result["corruptSurvives"]
+
+
+def test_a_recording_that_worked_is_left_alone(result):
+    assert result["fine"]["ok"] is True
+    assert result["fine"]["block"] is False and result["fine"]["stale"] is False
+
+
+def test_a_clip_too_short_to_grade_blames_nothing(result):
+    """Let go of the button too early and there is nothing to attribute — no format
+    to strike off, no stream to reopen."""
+    assert result["tooShort"]["blame"] == "short"
+    assert result["tooShort"]["block"] is False and result["tooShort"]["stale"] is False
+
+
+def test_the_first_empty_recording_concludes_nothing(result):
+    """Recognition on the phone this was reported from worked *sometimes*, which
+    rules out a format that never encodes. With no level meter yet the two possible
+    causes are indistinguishable, so the cheap and likely fix is taken — reopen the
+    microphone — and the format is left alone rather than condemned on one failure."""
+    d = result["unmetered"]
+    assert d["blame"] == "unknown"
+    assert d["block"] is False, "must not strike off a format on a guess"
+    assert d["stale"] is True, "must reopen the capture session"
+    assert d["meter"] is True, "must measure the next attempt"
+    assert "try again" in d["reason"]
+
+
+def test_silence_blames_the_microphone_not_the_format(result):
+    """iOS mutes a capture track when another app takes the mic, and `readyState`
+    still reads live. No sound reaching us is not the container's fault."""
+    d = result["silent"]
+    assert d["blame"] == "silence"
+    assert d["block"] is False
+    assert d["stale"] is True
+    assert "another app" in d["reason"]
+
+
+@pytest.mark.parametrize("case", ["roomTone", "loud"])
+def test_sound_that_was_dropped_blames_the_format(result, case):
+    """Audio reached the encoder and nothing came out of it. That is the one case
+    where striking the container off is the right answer."""
+    d = result[case]
+    assert d["blame"] == "encoder"
+    assert d["block"] is True
+    assert "another format" in d["reason"]
 
 
 def test_an_upload_is_named_for_what_it_is(result):

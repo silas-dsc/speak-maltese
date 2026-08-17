@@ -13,6 +13,7 @@ import * as schedule from './schedule.js';
 import * as srs from './srs.js';
 import * as mtext from './text.js';
 import * as session from './session.js';
+import * as capture from './capture.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -109,8 +110,31 @@ function speak(text, { rate } = {}) {
 let sharedStream = null;
 let pendingStream = null;
 
+/* …but a stream you hold is not a stream that works. iOS mutes a capture track when
+   another app takes the microphone, when a call arrives, or when the page goes to the
+   background, and `readyState` keeps saying `live` afterwards — so the app records
+   silence and cannot tell. That is the shape of "it works sometimes": nothing here
+   was ever watching for the moment it stopped.
+
+   So the stream is marked stale on every signal there is, and a stale one is thrown
+   away and reopened rather than reused. Reopening costs 100-500ms, once, after
+   something has already gone wrong. */
+let streamStale = false;
+
+function markStreamStale() { streamStale = true; }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) markStreamStale();
+});
+
 async function ensureStream() {
-  if (sharedStream?.active) return sharedStream;
+  if (sharedStream?.active && !streamStale) return sharedStream;
+  if (sharedStream && streamStale) {
+    // Let the device go before asking for it again: two live capture sessions on iOS
+    // is how you get one that produces nothing.
+    for (const t of sharedStream.getTracks()) t.stop();
+    sharedStream = null;
+  }
   // Share the in-flight request. prewarmMic() and a mic press can land together,
   // and without this each opened its own stream — the loser was overwritten but
   // never stopped, leaving the recording indicator on for a stream nothing held.
@@ -129,12 +153,127 @@ async function ensureStream() {
   } finally {
     pendingStream = null;
   }
+  streamStale = false;
+  // The events iOS does give us when it takes the microphone away. `mute` is the one
+  // that matters — the track stays `live` through it, which is why checking
+  // `readyState` alone was never enough.
+  for (const t of sharedStream.getAudioTracks()) {
+    t.addEventListener('mute', markStreamStale);
+    t.addEventListener('ended', markStreamStale);
+  }
   return sharedStream;
 }
 
-/** Warm the mic on the first interaction so the first recording isn't the slow one. */
+/* Was there any sound at all? Without this, "nothing recorded" cannot tell a
+   microphone that has been taken away from a container that threw the audio out —
+   and those two want opposite fixes.
+
+   Only attached after something has already failed. It costs an AudioContext, and on
+   iOS every extra audio node is another way to disturb the capture session the app
+   is trying to protect; paying that on every turn to answer a question that has not
+   been asked would be the wrong trade. */
+let meterWanted = false;
+let meterCtx = null;
+
+function levelMeter(stream) {
+  if (!meterWanted) return null;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    meterCtx = meterCtx || new Ctx();
+    const analyser = meterCtx.createAnalyser();
+    analyser.fftSize = 512;
+    const src = meterCtx.createMediaStreamSource(stream);
+    src.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    let peak = 0;
+    const timer = setInterval(() => {
+      analyser.getFloatTimeDomainData(buf);
+      for (const v of buf) peak = Math.max(peak, Math.abs(v));
+    }, 50);
+    return {
+      peak: () => peak,
+      stop() {
+        clearInterval(timer);
+        try { src.disconnect(); analyser.disconnect(); } catch { /* already gone */ }
+      },
+    };
+  } catch {
+    return null;      // no metering, so a failure stays honestly unattributed
+  }
+}
+
+/* Try the chosen container for a fraction of a second, on the first interaction and
+   off the answer path, to find out whether the browser encodes into it at all.
+
+   Without this the discovery costs a turn: on an iPhone the first thing a learner
+   says goes into a format the browser recommended and does not implement, and comes
+   back as five bytes. The probe is 300ms of nothing, and after it the first real
+   recording asks for a container this device has been seen to produce. */
+const PROBE_MS = 300;
+/* 300ms of Opus or AAC is a couple of thousand bytes; an empty container is tens.
+   The bar only has to tell "something" from "nothing". */
+const PROBE_BYTES = 120;
+
+let probing = null;
+
+function recordBriefly(stream, mime) {
+  // Outside the promise on purpose: a browser that refuses the format throws here,
+  // and the caller's try/catch is the right place for that — it strikes the format
+  // off and moves down the list.
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  return new Promise((done) => {
+    let bytes = 0;
+    rec.ondataavailable = (e) => { bytes += e.data?.size || 0; };
+    // Safari can deliver the last chunk after `stop`, so the count is read a moment
+    // later rather than in the handler that fired first.
+    rec.onstop = () => setTimeout(() => done(bytes), 250);
+    rec.onerror = () => done(bytes);
+    rec.start();
+    setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, PROBE_MS);
+  });
+}
+
+async function verifyCapture(stream) {
+  if (capabilities.verified()) return;            // already known on this device
+  /* Walk the list itself rather than asking `chosenMime()` each time: the probe does
+     not strike a format off until it has seen another one work, so the answer would
+     not change between rounds and the loop would ask the same question three times. */
+  const blocked = capabilities.blocked();
+  const empty = [];
+  for (const mime of capture.CANDIDATES) {
+    if (!supportsMime(mime) || blocked.includes(mime)) continue;
+    let bytes = 0;
+    try {
+      bytes = await recordBriefly(stream, mime);
+    } catch {
+      capabilities.block(mime);                   // refused outright: a real answer
+      continue;
+    }
+    if (bytes >= PROBE_BYTES) {
+      /* This one records. The ones before it were asked the same question in the
+         same second and produced nothing, so the difference is them. */
+      capabilities.verify(mime);
+      for (const m of empty) capabilities.block(m);
+      return;
+    }
+    empty.push(mime);
+  }
+  /* Every format produced nothing, which is not three broken encoders — it is a
+     microphone that is not giving us anything, so no format is condemned for it.
+     Let go of the capture session and measure the next real recording instead. */
+  if (empty.length) {
+    markStreamStale();
+    meterWanted = true;
+  }
+}
+
+/** Warm the mic on the first interaction so the first recording isn't the slow one,
+    and find out what this device can actually record while we are here. */
 function prewarmMic() {
-  ensureStream().catch(() => { /* permission comes later, on first real use */ });
+  probing = ensureStream()
+    .then((stream) => verifyCapture(stream))
+    .catch(() => { /* permission comes later, on first real use */ })
+    .finally(() => { probing = null; });
 }
 
 /* Recording, written for Safari on iOS rather than for the spec.
@@ -157,10 +296,31 @@ function prewarmMic() {
    And a stream can go stale. iOS mutes or ends tracks when the page is
    backgrounded or another app takes the mic, and `stream.active` can still read
    true afterwards, so a live-looking stream produces silence. The tracks are
-   checked before use and re-acquired if they are not ready. */
+   checked before use, watched while held, and re-acquired if either says stop.
 
-const MIN_MS = 250;
-const MIN_BYTES = 600;
+   The report is an attribution now, not a measurement. Recognition on the phone it
+   was failing on worked *sometimes*, which rules out the simple explanations: a
+   format that never encodes never works, and a permission that is refused never
+   works either. Something intermittent was taking the microphone away, so a failed
+   recording asks which of the two possible culprits it was — no sound reaching us,
+   or sound we failed to encode — and does the matching thing. See capture.js. */
+
+/** What this device has been seen to record, across sessions. */
+const capabilities = capture.store();
+
+const supportsMime = (m) => {
+  try {
+    return MediaRecorder.isTypeSupported(m);
+  } catch {
+    return false;
+  }
+};
+
+const chosenMime = () => capture.pickMime({
+  supported: supportsMime,
+  verified: capabilities.verified(),
+  blocked: capabilities.blocked(),
+});
 
 class Recorder {
   constructor() { this.chunks = []; this.rec = null; }
@@ -168,12 +328,12 @@ class Recorder {
   async start() {
     let stream = await ensureStream();
     if (!stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted)) {
-      sharedStream = null;                 // stale: drop it and ask again
+      markStreamStale();                   // stale: drop it and ask again
       stream = await ensureStream();
     }
-    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
-      .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+    const mime = chosenMime();
     this.chunks = [];
+    this.meter = levelMeter(stream);       // only after something has gone wrong
     this.rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     this.gotData = new Promise((resolve) => { this.resolveData = resolve; });
     this.rec.ondataavailable = (e) => {
@@ -199,14 +359,28 @@ class Recorder {
     // Safari can deliver the last chunk after `stop`; give it a moment either way.
     await Promise.race([this.gotData, new Promise((r) => setTimeout(r, 1200))]);
 
+    const peak = this.meter ? this.meter.peak() : null;
+    this.meter?.stop();
+    this.meter = null;
+
     const blob = new Blob(this.chunks, { type: rec.mimeType || 'audio/webm' });
-    if (ms < MIN_MS) return { reason: `only ${(ms / 1000).toFixed(1)}s of audio` };
-    if (blob.size < MIN_BYTES) {
-      return { reason: `${ms}ms recorded but only ${blob.size} bytes captured `
-        + `(${this.chunks.length} chunk${this.chunks.length === 1 ? '' : 's'}, `
-        + `${rec.mimeType || 'no mime'})` };
+    const verdict = capture.diagnose({
+      ms, bytes: blob.size, chunks: this.chunks.length, mime: rec.mimeType, peak,
+    });
+    if (verdict.ok) {
+      // It worked: stop guessing at the format on this device.
+      capabilities.verify(rec.mimeType);
+      return { blob };
     }
-    return { blob };
+    // Sound was there and the container dropped it: that format is the culprit.
+    if (verdict.block) capabilities.block(rec.mimeType);
+    // Nothing reached us, or nothing can be said about why: the likelier cause is a
+    // capture session that has been taken away, so let go of it and reopen.
+    if (verdict.stale) markStreamStale();
+    // And measure the next one, so a second failure can be attributed rather than
+    // guessed at.
+    if (verdict.meter) meterWanted = true;
+    return { reason: verdict.reason };
   }
 }
 
@@ -229,7 +403,10 @@ async function transcribe(blob, target) {
     }
   }
   const fd = new FormData();
-  fd.append('audio', blob, 'speech.webm');
+  // Named for what it is: the server picks its decoder from the content type and the
+  // extension, and an mp4 clip called speech.webm is a decode failure waiting to
+  // happen — which is exactly what iOS records.
+  fd.append('audio', blob, capture.fileNameFor(blob.type));
   if (target) fd.append('target', target);
   return api('/api/stt', { method: 'POST', body: fd });
 }
@@ -291,6 +468,9 @@ function bindMic(button, { onResult, onStatus, target }) {
     // of the first, which then ran on unreferenced and unstoppable.
     if (active || starting || button.classList.contains('is-busy')) return;
     starting = true;
+    // A tap can land while the format probe is still recording its 300ms; two
+    // MediaRecorders on one stream is how you get a clip with nothing in it.
+    if (probing) await probing;
     try {
       await recorder.start();
       active = true;

@@ -286,7 +286,8 @@ def test_app_js_defines_everything_it_calls():
         "constructor", "do", "else", "try", "throw",
     }
     globals_ = {
-        "fetch", "setTimeout", "clearTimeout", "setInterval", "Promise", "Audio",
+        "fetch", "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+        "Promise", "Audio",
         "Blob", "FormData", "MediaRecorder", "Error", "Number", "String", "Boolean",
         "Array", "Object", "JSON", "Math", "console", "document", "window",
         "navigator", "performance", "encodeURIComponent", "parseInt", "parseFloat",

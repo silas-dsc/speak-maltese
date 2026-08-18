@@ -125,6 +125,37 @@ async def synth(n: int, voice: str | None) -> None:
     print(f"\n✓ {len(rows)} synthetic clips in {CLIPS}")
 
 
+def redo(spec: str, n: int) -> None:
+    """Throw away recordings so they can be made again.
+
+    `all`, or a list like `2` / `2,7,19`. A take that came out wrong has to be removable
+    or the only way back is deleting files by hand and hand-editing a TSV — and the
+    numbering has to survive it, because `me_007.wav` is what pairs a clip with prompt 7.
+    So the file and its manifest row go, and nothing renumbers."""
+    rows = _read_manifest()
+    if spec.strip().lower() == "all":
+        drop = {r["file"] for r in rows if not r["file"].startswith("synth_")}
+    else:
+        try:
+            wanted = {int(x) for x in spec.replace(" ", "").split(",") if x}
+        except ValueError:
+            sys.exit(f"--redo takes 'all' or numbers like 2,7,19 — got {spec!r}")
+        bad = [i for i in wanted if not 1 <= i <= n]
+        if bad:
+            sys.exit(f"--redo out of range for {n} prompts: {sorted(bad)}")
+        drop = {f"me_{i:03d}.wav" for i in wanted}
+
+    gone = 0
+    for name in sorted(drop):
+        path = CLIPS / name
+        if path.exists():
+            path.unlink()
+            gone += 1
+    kept = [r for r in rows if r["file"] not in drop]
+    _write_manifest(kept)
+    print(f"cleared {gone} recording(s); {len([r for r in kept if not r['file'].startswith('synth_')])} left on disk")
+
+
 def _guide() -> tuple[dict, dict]:
     """English glosses and an English-speaker respelling for each line.
 
@@ -528,6 +559,8 @@ def main() -> int:
                     help="show the microphones ffmpeg can see, then exit")
     ap.add_argument("--guide", type=int, metavar="N", default=None,
                     help="print the N lines to record, with pronunciation, then exit")
+    ap.add_argument("--redo", metavar="WHICH", default=None,
+                    help="discard recordings before recording: 'all', or '2,7,19'")
     ap.add_argument("--clips-dir", type=Path, default=None,
                     help="score a different eval set, e.g. data/fleurs/eval")
     ap.add_argument("--clips", choices=["all", "synth", "voice"], default="all",
@@ -548,6 +581,13 @@ def main() -> int:
         use_clips_dir(args.clips_dir)
     if args.synth:
         asyncio.run(synth(args.synth, args.voice))
+    if args.redo:
+        redo(args.redo, args.record or 25)
+        if not args.record:
+            # Clearing takes and then scoring whatever is left — against the default
+            # model list, which downloads Whisper — is nobody intent.
+            print("Nothing to record. Add --record 25 to record them now.")
+            return 0
     if args.record:
         record(args.record, args.input)
 

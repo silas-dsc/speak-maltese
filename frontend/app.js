@@ -426,10 +426,20 @@ class Recorder {
    consonant length in a learner's speech. Saying a *different* line is still turned away.
    For somebody learning, being able to progress beats a phonetic precision that no
    available Maltese model can actually judge. */
-const MIN_CONFIDENCE = 0.60;
+/* Both fitted by sweeping them against 25 clean recordings in a learner's voice, 75
+   wrong-line pairings, and 30 clips of silence and room noise at several levels. 0.65 is
+   the lowest floor with no false accepts in any of those: 0.60 accepts one more correct
+   answer and also accepts noise, which is the worse trade for something that tells people
+   they were right.
 
-/** How far ahead of the runner-up the target has to be. Real answers clear their field by
-    0.06-0.43; the false accept cleared it by 0.006. */
+   One speaker, 25 utterances — a real measurement, not a large one. Re-run
+   `--clips voice` after adding recordings and move them if the split has moved. */
+const MIN_CONFIDENCE = 0.65;
+
+/** How far ahead of the runner-up the target has to be. It changes nothing at this floor,
+    and it costs nothing: correct answers clear their field by 0.06-0.43, where the one
+    false accept seen at a lower floor cleared it by 0.006. Kept as insurance against a
+    thin win this sample did not happen to contain. */
 const MIN_MARGIN = 0.02;
 
 /** How many alternatives to rank against. Each is one CTC forward pass over posteriors

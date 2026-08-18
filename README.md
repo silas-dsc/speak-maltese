@@ -419,12 +419,30 @@ the ordering rather than the value:
 | threshold at 0.92 | 0% |
 | **target beats a field of 24** | **75%** |
 
-Two negative controls stopped that being the whole rule. Against an all-blank posterior a
-*shorter* sequence is the likelier reading, so silence (0.346) and room noise (0.589) both
-won against a field of longer alternatives. And one wrong answer beat its field by 0.006,
-which is noise, not evidence. So acceptance needs a floor (0.60) and a margin (0.02) as
-well — after which silence, room noise and nine wrong-line attempts are all turned away,
-and 12 of 16 correct answers get through.
+Ranking alone is not the whole rule, and negative controls are what showed it. Against an
+all-blank posterior a *shorter* sequence is the likelier reading, so silence and room noise
+both won against a field of longer alternatives. And one wrong answer beat its field by
+0.006, which is noise rather than evidence.
+
+So acceptance also needs a floor and a margin, and both were fitted by sweeping them
+against 25 clean recordings, 75 wrong-line pairings, and 36 clips of silence and noise at
+several levels:
+
+| floor | accepted | wrong-line | silence/noise |
+|---|---|---|---|
+| 0.55 | 22/25 | 0/75 | 4/36 |
+| 0.60 | 20/25 | 0/75 | 1/36 |
+| **0.65** | **19/25** | **0/75** | **0/36** |
+
+0.65 is the lowest floor that accepts nothing it should not. An energy gate was tried, to
+let the floor come down — real speech peaked at 0.26 and above, noise mostly below — and it
+bought exactly one clip (19→20) while loud noise still cleared it. One extra knob fitted on
+25 samples for a four-point gain is over-fitting, so it was dropped.
+
+Three of the six remaining rejections rank *first* and are refused by the floor alone
+(`Dur lejn ix-xellug` at 0.621, `Magħluq il-Ħadd` at 0.570, `Ma jogħġobnix` at 0.573). That
+is the cost of the setting, taken knowingly: a tutor that congratulates room noise is worse
+than one that occasionally asks again.
 
 **The trade is deliberate.** Ranking accepts near-misses: say `irid` for `irrid` and it
 passes, because the posteriors do not resolve consonant length in a learner's speech. Saying

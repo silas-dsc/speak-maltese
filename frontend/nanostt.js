@@ -247,7 +247,11 @@ export function load({ base = DEFAULT_MODEL_BASE, onProgress } = {}) {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     });
-    parts = { ort, session, idToTok, blankId, mel: melFilters(), window: analysisWindow() };
+    const tokToId = new Map();
+    idToTok.forEach((tok, id) => { if (tok !== undefined) tokToId.set(tok, id); });
+
+    parts = { ort, session, idToTok, tokToId, blankId,
+              mel: melFilters(), window: analysisWindow() };
     onProgress?.(1);
     return parts;
   })();
@@ -258,6 +262,105 @@ export function load({ base = DEFAULT_MODEL_BASE, onProgress } = {}) {
 export function unload() {
   parts = null;
   ready = null;
+}
+
+/* ── Scoring the line we asked for ───────────────────────────────────────── */
+
+/* The app never has to transcribe. It shows a line, the learner says it, and the only
+   question is whether what came back was that line — which is a strictly easier
+   question than "what did they say", and the one this model is much better at. Free
+   decoding of the same audio marks 88% of correct answers correct; scoring the known
+   target with the CTC forward algorithm gets that to ~100% at a threshold that still
+   turns away 95% of near-misses.
+
+   The score is a *ratio* — how well the target explains the audio against how well the
+   model's own best path does — so it does not depend on the model being good in
+   absolute terms. A weaker model has a weaker greedy path too, and the comparison
+   survives. That is what makes one threshold usable across devices and voices. */
+
+const NEG = -1e30;
+
+function logaddexp(a, b) {
+  if (a <= NEG) return b;
+  if (b <= NEG) return a;
+  const m = Math.max(a, b);
+  return m + Math.log(Math.exp(a - m) + Math.exp(b - m));
+}
+
+/** Target text → token ids, dropping anything the model has no token for: it is a
+    character CTC with no punctuation, so `Mingħajr zokkor.` must lose its full stop
+    before it can be aligned to anything. Expects text already normalised and
+    lower-cased by the caller, which owns the Maltese rules. */
+export function encodeTarget(flat, tokToId, space = '▁') {
+  const ids = [];
+  for (const ch of flat) {
+    const tok = ch === ' ' ? space : ch;
+    const id = tokToId.get(tok);
+    if (id !== undefined) ids.push(id);
+  }
+  return ids;
+}
+
+/** log P(ids | audio), summed over every alignment — the CTC forward algorithm.
+
+    The extended sequence interleaves blanks (`b s1 b s2 … b`) so a path may or may not
+    emit one between tokens, and a repeated token *must* have one between its copies.
+    That rule is why `irrid` and `irid` are different hypotheses here rather than the
+    same one — the distinction greedy decoding throws away. */
+export function ctcLogp(logprobs, frames, vocab, ids, blank) {
+  if (!ids.length) return NEG;
+  const size = 2 * ids.length + 1;
+  const ext = new Int32Array(size).fill(blank);
+  for (let i = 0; i < ids.length; i += 1) ext[2 * i + 1] = ids[i];
+
+  // A path may skip from s-2 to s only where that does not merge two identical
+  // tokens, and never onto a blank.
+  const skip = new Uint8Array(size);
+  for (let s = 2; s < size; s += 1) {
+    skip[s] = ext[s] !== blank && ext[s] !== ext[s - 2] ? 1 : 0;
+  }
+
+  let cur = new Float64Array(size).fill(NEG);
+  let next = new Float64Array(size);
+  cur[0] = logprobs[ext[0]];
+  if (size > 1) cur[1] = logprobs[ext[1]];
+
+  for (let t = 1; t < frames; t += 1) {
+    const base = t * vocab;
+    for (let s = 0; s < size; s += 1) {
+      let acc = cur[s];
+      if (s >= 1) acc = logaddexp(acc, cur[s - 1]);
+      if (s >= 2 && skip[s]) acc = logaddexp(acc, cur[s - 2]);
+      next[s] = acc + logprobs[base + ext[s]];
+    }
+    const swap = cur; cur = next; next = swap;
+  }
+  return size > 1 ? logaddexp(cur[size - 1], cur[size - 2]) : cur[size - 1];
+}
+
+/** The best single path — the most any sequence could have scored on this audio. */
+export function greedyLogp(logprobs, frames, vocab) {
+  let total = 0;
+  for (let t = 0; t < frames; t += 1) {
+    let best = -Infinity;
+    const base = t * vocab;
+    for (let v = 0; v < vocab; v += 1) {
+      const x = logprobs[base + v];
+      if (x > best) best = x;
+    }
+    total += best;
+  }
+  return total;
+}
+
+/** 0..~1. Per *frame*, because a long sentence accumulates more log-probability than a
+    short one and an unnormalised total would rank `Bonġu` above every full sentence in
+    the deck regardless of what was said. Can slightly exceed 1: the numerator sums over
+    every alignment while the denominator is one path. */
+export function targetConfidence(logprobs, frames, vocab, ids, blank) {
+  const gap = (ctcLogp(logprobs, frames, vocab, ids, blank)
+    - greedyLogp(logprobs, frames, vocab)) / Math.max(1, frames);
+  return Math.exp(gap);
 }
 
 /* ── Decode ──────────────────────────────────────────────────────────────── */
@@ -290,8 +393,13 @@ export async function decode(blob) {
 }
 
 /** Transcribe a recording. Same shape as the /api/stt response, minus the assessment —
-    the caller grades locally. */
-export async function transcribe(blob) {
+    the caller grades locally.
+
+    Pass `target` — already normalised and lower-cased by the caller, which owns the
+    Maltese rules — and the result also carries `confidence`: how well that exact line
+    explains the audio, against the model's own best guess. That is the number the app
+    should grade on. The transcript is what to *show* when it does not match. */
+export async function transcribe(blob, { target = '' } = {}) {
   if (!parts) throw new Error('Local recogniser is not loaded');
   const audio = await decode(blob);
   const { data, nMels, frames } = features(audio, parts.mel, parts.window);
@@ -312,10 +420,18 @@ export async function transcribe(blob) {
     }
     ids[t] = best;
   }
-  return {
+  const result = {
     text: ctcDecode(ids, parts.idToTok, parts.blankId),
     provider: 'mt-nano-wasm',
     ms,
     seconds: audio.length / SR,
   };
+
+  if (target) {
+    const ids2 = encodeTarget(target, parts.tokToId);
+    result.confidence = ids2.length
+      ? targetConfidence(d, outFrames, vocab, ids2, parts.blankId)
+      : 0;
+  }
+  return result;
 }

@@ -348,6 +348,11 @@ def main() -> int:
               f"{r['near_conf']:>8.3f}{r['tpr_at_95']:>8.0%}"
               f"{r['hard_tpr_at_95']:>7.0%}{r['sec_per_clip']:>8.2f}")
     print("═" * 100)
+    for r in reports:
+        # The number the app has to hard-code, so print it rather than making someone
+        # re-derive it: accept at or above this and 95% of near-misses are turned away.
+        print(f"  accept threshold for {r['model'].split('/')[-1]}: "
+              f"{r['hard_cut']:.4f}  (other-lines cut {r['cut']:.4f})")
     print("  rank-1 = beats the other 24 lines · >near = also beats every near-miss of "
           "itself\n  TPR@95 / hard = right answers kept at the cut that rejects 95% of "
           "other lines / near-misses")

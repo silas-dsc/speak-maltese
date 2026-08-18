@@ -395,6 +395,38 @@ Which also says where the next gains are, and they are cheap: more lines and mor
 `scripts/import_corpus.py` can widen the text far past the 1,494 lines the deck holds.
 Nothing here suggests a bigger student would help.
 
+### What the app grades on now
+
+The app used to free-decode and then string-match the transcript against the line it had
+asked for — grading on the model's weakest output while holding its strongest in reserve.
+It now scores the target sequence directly (`frontend/nanostt.js`, parity-tested against
+`scripts/constrained_ctc.py`) and accepts at a confidence of **0.9867**, the cut that
+rejects 95% of near-misses while keeping 84% of correct answers.
+
+It is a **floor, never a penalty**: below the threshold, grading falls back to the
+transcript diff exactly as before. So a threshold miscalibrated for a real voice can fail
+to help, but cannot mark a good answer wrong.
+
+Measured in the browser, target fixed and the speech varied — the direction the app
+actually faces:
+
+| spoken | transcript | confidence | verdict |
+|---|---|---|---|
+| `Hemm spiżerija hawn qrib?` | `hemm spiżerija aw rib` | 1.0085 | **accept** |
+| `Irrid nara tabib.` | `irrid nara tabib` | 1.0317 | accept |
+| `Nara tabib.` (word dropped) | `nara tabib` | 0.3461 | reject |
+| `Irrid nara.` (trailed off) | `irrid nara` | 0.3651 | reject |
+| `Irid nara tabib.` (degeminated) | `irid nara tabib` | 1.0021 | **accept — wrong** |
+
+The first row is the point: a transcript that string-matching would have failed, correctly
+accepted. Word-level errors are turned away with a wide margin.
+
+**Geminates are not caught, and this does not fix them.** `kolox` for `kollox` scores 1.02
+— the model transcribed the degeminated audio as `kollox`, so its posteriors do not resolve
+consonant length at all. That is not a regression (string-matching accepted it too, for the
+same reason) but it is the clearest thing the next round of training has to buy, and the
+teacher can already do it: 5.3% fWER against the student's 21.5%.
+
 ### Is 201MB the floor?
 
 For anything `onnxruntime-web` can execute on a GPU, close to it. The shipped

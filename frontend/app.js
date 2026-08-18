@@ -399,12 +399,38 @@ class Recorder {
   }
 }
 
+/* How well the target line has to explain the audio before the app takes the learner's
+   word for it, whatever the transcript says.
+
+   Derived, not guessed: `scripts/constrained_ctc.py` reports the cut that turns away
+   95% of near-misses — a dropped word, a lost geminate, a swapped article — and at
+   0.9867 that still accepts 84% of correct answers, against 88% for grading the
+   transcript. It is a ratio against the model's own best path rather than an absolute
+   likelihood, so it does not drift with how good the model is in general.
+
+   Calibrated on synthetic speech, which is the honest limit of it: this was measured
+   against the app's own TTS voices, not against people. It is used as a floor and never
+   a penalty, so if it is miscalibrated for a real voice the worst case is that it never
+   fires and grading falls back to what it did before. */
+const ACCEPT_CONFIDENCE = 0.9867;
+
 async function transcribe(blob, target) {
   /* On-device only when there is nowhere better to send it. The model is the
      heaviest thing this app can do and the least reliable place to do it. */
   if (!remoteStt() && state.settings.local_stt && nanostt.isReady()) {
     try {
-      const r = await nanostt.transcribe(blob);
+      /* Hand the recogniser the line we asked for. Deciding whether the audio *is* that
+         line is a far easier question than transcribing it, and it is the only question
+         the app has — so the transcript stops being the verdict and becomes the
+         explanation for when the answer was wrong. */
+      const flat = target ? mtext.normalise(target).toLowerCase().trim() : '';
+      const r = await nanostt.transcribe(blob, { target: flat });
+      if (r.confidence >= ACCEPT_CONFIDENCE) {
+        /* The audio explains the target about as well as anything could. A garbled
+           transcript here is the model failing at the harder task, not the learner
+           failing at the easier one — so it is not shown as though they said it. */
+        return { ...r, text: mtext.normalise(target), assessment: mtext.assess(target, target) };
+      }
       if (r.text.trim()) {
         // Grading is a few microseconds of string comparison, but it lives on the
         // server with the Maltese rules, so it is one small stateless request.

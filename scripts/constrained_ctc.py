@@ -317,6 +317,8 @@ def main() -> int:
     ap.add_argument("--worst", type=int, default=5)
     ap.add_argument("--clips-dir", type=Path, default=None,
                     help="score a different eval set, e.g. data/fleurs/eval")
+    ap.add_argument("--clips", choices=["all", "synth", "voice"], default="all",
+                    help="score synthetic clips, recorded ones, or both")
     ap.add_argument("--limit", type=int, default=None,
                     help="cap the clips: the matrix is quadratic in this")
     args = ap.parse_args()
@@ -330,6 +332,10 @@ def main() -> int:
         return 2
     with manifest.open(encoding="utf-8") as fh:
         rows = [r for r in csv.DictReader(fh, delimiter="\t") if r.get("file")]
+    if args.clips == "synth":
+        rows = [r for r in rows if r["file"].startswith("synth_")]
+    elif args.clips == "voice":
+        rows = [r for r in rows if not r["file"].startswith("synth_")]
     rows = [r for r in rows if (CLIPS / r["file"]).exists()][:args.limit]
 
     print(f"Scoring {len(rows)} clips against all {len(rows)} targets "

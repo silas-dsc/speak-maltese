@@ -227,7 +227,7 @@ def record(n: int, device: str = ":default") -> None:
     en, say = _guide()
     rows = _read_manifest()
     existing = {r["file"] for r in rows}
-    quiet = 0
+    quiet = clipped = 0
     for i, sentence in enumerate(_sentences(n), 1):
         name = f"me_{i:03d}.wav"
         if name in existing:
@@ -250,18 +250,30 @@ def record(n: int, device: str = ":default") -> None:
         proc.communicate(b"q")
 
         level = _peak(CLIPS / name)
-        if level < 0.01:
+        # 0.01 was far too lenient: a take at peak 0.03 passed it, sat 30dB under every
+        # other clip, and was the single worst-scoring recording in the set — both Whisper
+        # models hallucinated on it. Anything this far down is unusable, not merely quiet.
+        if level < 0.10:
             quiet += 1
-            print(f"       ! silent (peak {level:.4f}) — wrong input device? "
-                  f"try --list-inputs")
+            print(f"       ! too quiet to use (peak {level:.2f}) — move closer or raise "
+                  f"the input gain, then --redo {i}")
+        elif level >= 0.99:
+            # Digital clipping. It cost 8 of the first 25 clips, all late in the run, as
+            # the speaker leaned in — so it is worth saying at the time rather than
+            # discovering it in the scores.
+            clipped += 1
+            print(f"       ! clipping (peak {level:.2f}) — lower the input gain, "
+                  f"then --redo {i}")
         else:
             print(f"       ok (peak {level:.2f})")
         rows.append({"file": name, "text": sentence})
         _write_manifest(rows)
-    if quiet:
-        print(f"\n! {quiet} clips came back silent. Delete data/eval_clips/me_*.wav "
-              f"and the me_ rows in manifest.tsv, then retry with --input.")
+    if quiet or clipped:
+        print(f"\n! {quiet} too quiet, {clipped} clipping. Re-record just those with "
+              f"--redo <numbers> --record {n}; a bad clip measures the microphone rather "
+              f"than the recogniser.")
     print(f"\n✓ {len(rows)} clips in {CLIPS}")
+    print(f"  score them with:  --clips voice --models <model>")
 
 
 def _peak(path: Path) -> float:
@@ -570,6 +582,8 @@ def main() -> int:
     ap.add_argument("--beam", type=int, default=5)
     ap.add_argument("--worst", type=int, default=5, help="show N worst clips per model")
     args = ap.parse_args()
+    # Whether --models was passed explicitly, as opposed to defaulted.
+    args.models_given = any(a.startswith("--models") for a in sys.argv[1:])
 
     if args.list_inputs:
         list_inputs()
@@ -590,6 +604,12 @@ def main() -> int:
             return 0
     if args.record:
         record(args.record, args.input)
+        # Recording used to fall straight into scoring against the *default* model list,
+        # which is two Whisper builds — so finishing a take session downloaded 3GB and
+        # graded the new clips mixed in with the synthetic ones, against models the app
+        # does not use. Say what to run instead.
+        if not args.models_given:
+            return 0
 
     rows = _read_manifest(args.clips)
     if not rows:

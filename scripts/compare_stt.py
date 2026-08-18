@@ -472,22 +472,34 @@ def main() -> int:
     ap.add_argument("--worst", type=int, default=5, help="show N worst clips per model")
     args = ap.parse_args()
 
+    if args.list_inputs:
+        list_inputs()
+        return 0
     if args.clips_dir:
         use_clips_dir(args.clips_dir)
     if args.synth:
         asyncio.run(synth(args.synth, args.voice))
     if args.record:
-        record(args.record)
+        record(args.record, args.input)
 
-    rows = _read_manifest()
+    rows = _read_manifest(args.clips)
     if not rows:
-        print("No clips. Run with --synth 25 or --record 20 first.", file=sys.stderr)
+        print(f"No {args.clips} clips. Run with --synth 25 or --record 25 first.",
+              file=sys.stderr)
         return 2
 
-    synthetic = any(r["file"].startswith("synth_") for r in rows)
-    print(f"\nComparing on {len(rows)} clips"
-          + ("  (synthetic — ranking is the result, not the absolute numbers)"
-             if synthetic else "  (your voice)"))
+    kinds = {"synth" if r["file"].startswith("synth_") else "voice" for r in rows}
+    if kinds == {"synth"}:
+        note = "  (synthetic — ranking is the result, not the absolute numbers)"
+    elif kinds == {"voice"}:
+        note = "  (your voice — the numbers that actually matter)"
+    else:
+        # Averaging a synthetic voice with a real one reports a number for neither, and
+        # the synthetic half is the optimistic one, so the mix flatters whatever is being
+        # tested. Say so rather than printing it as a single figure.
+        note = ("  (MIXED synthetic and real — pass --clips voice or --clips synth to "
+                "separate them)")
+    print(f"\nComparing on {len(rows)} clips{note}")
 
     reports = []
     for name in [m.strip() for m in args.models.split(",") if m.strip()]:

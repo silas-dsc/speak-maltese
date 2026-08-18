@@ -30,6 +30,30 @@ const STEPS = [
 // takes, and is used only to shape the creep — never to declare success.
 const EXPECTED_WARMUP_MS = 45000;
 
+/* What to read while the bar creeps.
+
+   This line used to report the download: "About 200MB, once". That was true of the
+   wav2vec2 model and has not been true since the recogniser became a 2.1MB one — a
+   number that size now reads as a warning about the learner's data allowance for a
+   file smaller than the pictures on the scenes screen. Rather than correct it to
+   "about 2MB", which is not information anybody wants either, the wait says nothing
+   about itself. What the learner needs from this screen is that something is
+   happening and it is worth waiting for, and the Maltese kitchen says that better
+   than a byte count.
+
+   Rotated on the clock rather than per call, so it reads at the same pace whether it
+   is driven by a 1s poll or by download progress arriving in bursts. */
+const KITCHEN = [
+  'Blending the bigilla…',
+  'Baking the pastizzi…',
+  'Stirring the kusksu…',
+  'Warming the ftira…',
+  'Pouring the Kinnie…',
+  'Rolling the qagħaq tal-għasel…',
+];
+
+const kitchen = () => KITCHEN[Math.floor(Date.now() / 2400) % KITCHEN.length];
+
 /* How long a static build will hold the door for a recogniser that lives somewhere
    else. Long enough to cover a Space that is merely loading its weights, nowhere
    near long enough to sit through a full cold boot: reading, listening and typing
@@ -112,9 +136,7 @@ async function waitForModel(from, to, giveUpAfterMs = 4 * 60 * 1000) {
     const elapsed = Date.now() - startedAt;
     const progress = 1 - Math.exp(-elapsed / EXPECTED_WARMUP_MS);
     paint(from + (to - from) * progress, 'Warming the Maltese recogniser',
-      elapsed > 12000
-        ? 'Loading the speech model — a few hundred megabytes, once per restart.'
-        : 'You can read and listen already; speaking needs this.');
+      elapsed > 6000 ? kitchen() : 'You can read and listen already; speaking needs this.');
     await sleep(1000);
   }
 }
@@ -153,9 +175,7 @@ async function warmRemote(base, from, to, onNotice) {
     }
     paint(from + (to - from) * (1 - Math.exp(-elapsed / EXPECTED_WARMUP_MS)),
       'Waking the Maltese recogniser',
-      elapsed > 8000
-        ? 'It runs on a host that sleeps when idle, so the first visit waits for it.'
-        : 'You can read and listen already; speaking needs this.');
+      elapsed > 6000 ? kitchen() : 'You can read and listen already; speaking needs this.');
     await sleep(1000);
   }
 }
@@ -193,10 +213,11 @@ export async function run({ onDeck, onStatic, onModel, onNotice } = {}) {
     } else if (onModel) {
       const done = await onModel((f) => paint(
         STEPS[1][1] + (STEPS[2][1] - STEPS[1][1]) * f,
-        'Downloading the Maltese recogniser',
-        f > 0.02 ? 'About 200MB, once — it is cached after this, and everything '
-          + 'except speaking works already.' : ''));
-      if (done === false) paint(1, 'Ready — speaking needs WebGPU, so it is off');
+        'Fetching the Maltese recogniser',
+        f > 0.02 ? kitchen() : ''));
+      // WebAssembly, not WebGPU: the 2.1MB model runs on the CPU, and the browsers
+      // that cannot run it are the ones with no WASM rather than no GPU.
+      if (done === false) paint(1, 'Ready — speaking needs WebAssembly, so it is off');
     }
     paint(1, 'Mela — ejja nibdew!');
     await sleep(280);

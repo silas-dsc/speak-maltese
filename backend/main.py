@@ -133,8 +133,12 @@ def grammar() -> dict:
 
 @app.get("/api/drill/dialogues")
 def drill_list() -> dict:
+    # `steps` is how many turns the scene is, which the client shows as "2/4" in the
+    # conversation's header — the one bit of "how far in am I" that survived the
+    # scene picker being replaced by its own screen.
     return {"dialogues": [
-        {k: d[k] for k in ("id", "name", "name_en", "level")}
+        {**{k: d[k] for k in ("id", "name", "name_en", "level")},
+         "steps": len(d.get("nodes") or {})}
         for d in dialogue.all_dialogues()
     ]}
 

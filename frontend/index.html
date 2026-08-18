@@ -14,12 +14,20 @@
 <body>
 
 <header class="topbar">
+  <!-- Phones only. The four-tab row wrapped to a second line on a 375px screen and
+       cost about 40px of every conversation; below 640px the same destinations are
+       one tap away in the sheet instead. -->
+  <button class="nav-btn" id="navBtn" aria-label="Menu" aria-expanded="false" aria-haspopup="dialog">
+    <span></span><span></span><span></span>
+    <span class="badge" id="navBadge" hidden>0</span>
+  </button>
   <div class="brand">
     <span class="brand-mark">Nitkellmu</span>
     <span class="brand-sub">Maltese, by talking</span>
   </div>
   <nav class="tabs" role="tablist">
     <button class="tab is-active" data-view="drill" role="tab">Taħdita<em>Talk</em></button>
+    <button class="tab" data-view="scenes" role="tab">Xeni<em>Scenes</em></button>
     <button class="tab" data-view="review" role="tab">Reviżjoni<em>Review</em><span class="badge" id="dueBadge" hidden>0</span></button>
     <button class="tab" data-view="progress" role="tab">Progress<em>Stats</em></button>
     <button class="tab" data-view="reference" role="tab">Gwida<em>Guide</em></button>
@@ -34,16 +42,17 @@
 
   <!-- ══ DRILL (scripted, no model in the loop) ════════════════════════ -->
   <section class="view is-active" id="view-drill">
-    <div class="scenario-bar">
-      <label class="sr-only" for="drillSelect">Dialogue</label>
-      <select id="drillSelect"></select>
-      <!-- The conversation is kept across a reload, so this is also the way to be
-           rid of one on purpose: it clears what is on screen and says the scene's
-           first line again. -->
-      <button class="ghost-btn" id="drillRestart"
-              title="Clear this conversation and start the scene again">Clear · start over</button>
-      <button class="ghost-btn" id="drillNext">Next unfinished</button>
-      <p class="scenario-goal" id="drillProgress"></p>
+    <!-- One slim row where a picker, two buttons and a sentence of progress used to
+         be. Chrome is in English and content is in Maltese: naming the scene in the
+         language being learned made the one control that navigates unreadable. -->
+    <div class="drill-head">
+      <button class="head-btn head-scene" id="drillScene" aria-label="Choose a scene">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="M15 5l-7 7 7 7"/></svg>
+        <span id="drillSceneName">Scenes</span>
+      </button>
+      <span class="head-step" id="drillStep" hidden></span>
+      <button class="head-btn" id="drillMore" aria-label="This conversation"
+              aria-haspopup="dialog">⋯</button>
     </div>
 
     <figure class="scene-hero" id="sceneHero" hidden>
@@ -54,7 +63,12 @@
       <figcaption id="sceneCaption"></figcaption>
     </figure>
 
-    <div class="chat" id="drillChat" aria-live="polite"></div>
+    <!-- Focus mode hides everything but the exchange being worked on, so the answer
+         and its marking are never below the fold. The earlier turns are one tap
+         away rather than gone. -->
+    <button class="transcript-toggle" id="transcriptToggle" hidden></button>
+
+    <div class="chat is-focus" id="drillChat" aria-live="polite"></div>
 
     <div class="composer">
       <p class="drill-expect" id="drillExpect"></p>
@@ -70,6 +84,20 @@
       </div>
       <p class="composer-status" id="drillStatus">Hold the mic and answer</p>
     </div>
+  </section>
+
+  <!-- ══ SCENES — the learning path ════════════════════════════════════
+       Thirty-five scenes in a <select> told a learner nothing about where they
+       were or what came next, and it sat above every conversation paying for the
+       privilege. As its own screen it can show the pictures, the level it belongs
+       to and what is finished — which is the one place that information is worth
+       vertical space. -->
+  <section class="view" id="view-scenes">
+    <div class="path-head">
+      <h2>Xeni <em>Scenes</em></h2>
+      <p class="path-progress" id="pathProgress"></p>
+    </div>
+    <div class="path" id="scenePath"></div>
   </section>
 
   <!-- ══ REVIEW ════════════════════════════════════════════════════════ -->
@@ -171,6 +199,41 @@
   </section>
 
 </main>
+
+<!-- ══ NAVIGATION SHEET ════════════════════════════════════════════════
+     A bottom sheet rather than a side drawer: on a phone the reachable part of the
+     screen is the bottom third, and this is opened one-handed while the other hand
+     is nowhere near the top-left corner. Both the ☰ and the conversation's ⋯ open
+     it; ⋯ scrolls to the actions. -->
+<dialog id="navSheet" class="sheet" aria-label="Menu">
+  <div class="sheet-body">
+    <div class="sheet-grip" aria-hidden="true"></div>
+
+    <nav class="sheet-nav">
+      <button class="sheet-item is-active" data-view="drill"><i>💬</i><b>Taħdita</b><em>Talk</em></button>
+      <button class="sheet-item" data-view="scenes"><i>🗺</i><b>Xeni</b><em>Scenes</em></button>
+      <button class="sheet-item" data-view="review"><i>🔁</i><b>Reviżjoni</b><em>Review</em><span class="badge" id="sheetBadge" hidden>0</span></button>
+      <button class="sheet-item" data-view="progress"><i>📈</i><b>Progress</b><em>Stats</em></button>
+      <button class="sheet-item" data-view="reference"><i>📖</i><b>Gwida</b><em>Guide</em></button>
+    </nav>
+
+    <div class="sheet-group" id="sheetConversation">
+      <h3>This conversation</h3>
+      <button class="ghost-btn" id="sheetTranscript">Show every turn</button>
+      <!-- The conversation is kept across a reload, so this is also the way to be
+           rid of one on purpose: it clears what is on screen and says the scene's
+           first line again. -->
+      <button class="ghost-btn" id="sheetRestart">Clear · start over</button>
+      <button class="ghost-btn" id="sheetNext">Next unfinished scene</button>
+    </div>
+
+    <div class="sheet-group">
+      <button class="ghost-btn" id="sheetSettings">⚙ Settings</button>
+    </div>
+
+    <button class="ghost-btn wide" id="sheetClose">Close</button>
+  </div>
+</dialog>
 
 <!-- ══ SETTINGS ════════════════════════════════════════════════════════ -->
 <dialog id="settingsDialog">

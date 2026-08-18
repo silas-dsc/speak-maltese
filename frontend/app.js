@@ -795,10 +795,16 @@ function persistSettings() {
 
 function updateCounts(counts) {
   if (!counts) return;
-  const badge = $('dueBadge');
   const n = counts.due + Math.min(counts.new, 12);
-  badge.textContent = n;
-  badge.hidden = n === 0;
+  /* Three of them: the tab (wide screens), the hamburger and the sheet's Review
+     row. On a phone the tab row is gone, so a count that only lived there would
+     mean nothing told the learner there was anything to review. */
+  for (const id of ['dueBadge', 'navBadge', 'sheetBadge']) {
+    const badge = $(id);
+    if (!badge) continue;
+    badge.textContent = n;
+    badge.hidden = n === 0;
+  }
 }
 
 /* ── Drill: scripted conversation ──────────────────────────────────────────
@@ -834,9 +840,12 @@ function keepDrill() {
     present: drill.present,
     turns: drill.turns,
   });
+  // Called after anything that adds to the screen, which is also exactly when the
+  // header's "2/4" moves.
+  updateDrillHead();
 }
 
-/** Scenes you have finished, so the picker can show progress across sessions. */
+/** Scenes you have finished, so the path can show progress across sessions. */
 const doneScenes = {
   key: 'sm.completedScenes',
   all() { try { return JSON.parse(localStorage.getItem(this.key)) || {}; } catch { return {}; } },
@@ -849,13 +858,11 @@ const doneScenes = {
 
 async function loadDrills() {
   const { dialogues } = STATIC.on
-    ? { dialogues: dialogueEngine.all().map(({ id, name, name_en, level }) =>
-        ({ id, name, name_en, level })) }
+    ? { dialogues: dialogueEngine.all().map(({ id, name, name_en, level, nodes }) =>
+        ({ id, name, name_en, level, steps: Object.keys(nodes || {}).length })) }
     : await api('/api/drill/dialogues');
   drill.dialogues = dialogues;
-  const sel = $('drillSelect');
-  renderDrillOptions();
-  sel.onchange = () => startDrill(sel.value);
+  renderScenePath();
   if (drill.dialogue) return;
   if (restoreDrill(dialogues)) return;
   await startDrill(dialogues[0]?.id);
@@ -888,7 +895,6 @@ function restoreDrill(dialogues) {
   drill.run = s.run || { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
   // The clock counts time spent in the scene, not time the tab spent closed.
   drill.run.startedAt = Date.now() - (s.run?.elapsedMs || 0);
-  $('drillSelect').value = s.dialogue;
   showSceneImage(s.dialogue);
   $('drillChat').innerHTML = '';
   for (const t of s.turns) drillBubble(t.role, t.mt, t.en, t);
@@ -898,41 +904,117 @@ function restoreDrill(dialogues) {
   // After installing, which starts a node's attempts at nought: two tries already
   // spent are two the learner does not have to spend again to be moved on.
   drill.attempts = s.attempts || 0;
+  markCurrentScene();
+  updateDrillHead();
   return true;
 }
 
-/** Groups the picker by level and ticks what you've finished.
+/** The learning path: every scene as a card, grouped by level, with its picture.
 
-    Thirty-odd scenes in a flat list tells a learner nothing about where to start,
-    so they are grouped by level in the order the vocabulary builds, and the first
-    unfinished scene is offered as the obvious next thing. */
-function renderDrillOptions() {
+    This used to be a `<select>` sitting above the conversation. Thirty-five scenes
+    in a flat list tells a learner nothing about where they are or what comes next,
+    and it charged every conversation about 76px for the privilege — on an iPhone SE
+    that is an eighth of the screen. As its own screen it can afford the pictures,
+    which is where they were always worth showing: this is the point at which you
+    are choosing between scenes, so the scenes should be recognisable.
+
+    Ordered so the vocabulary builds, and the first unfinished scene is flagged as
+    the obvious next thing. */
+function renderScenePath() {
   const done = doneScenes.all();
-  const sel = $('drillSelect');
-  const current = sel.value;
+  const nextUp = drill.dialogues.find((d) => !done[d.id]);
   const levels = [...new Set(drill.dialogues.map((d) => d.level))].sort();
 
-  sel.innerHTML = levels.map((lvl) => {
-    const opts = drill.dialogues.filter((d) => d.level === lvl)
-      .map((d) => `<option value="${d.id}">${done[d.id] ? '✓ ' : ''}${d.name} — ${d.name_en}</option>`)
-      .join('');
-    return `<optgroup label="${lvl}">${opts}</optgroup>`;
+  $('scenePath').innerHTML = levels.map((lvl) => {
+    const cards = drill.dialogues.filter((d) => d.level === lvl).map((d) => {
+      const state = done[d.id] ? 'is-done'
+        : d.id === nextUp?.id ? 'is-next' : '';
+      // Only where there is something to say. A badge on every card — the turn
+      // count, say — reads as an unread count and makes the three that matter
+      // invisible.
+      const flag = done[d.id] ? '✓ Done' : d.id === nextUp?.id ? 'Next' : '';
+      return `<button class="scene-card ${state}" data-scene="${escapeHtml(d.id)}">
+          <img src="img/scene-${escapeHtml(d.id)}.webp" alt="" loading="lazy"
+               decoding="async" width="320" height="160">
+          ${flag ? `<span class="flag">${escapeHtml(flag)}</span>` : ''}
+          <span class="body">
+            <span class="mt">${escapeHtml(d.name)}</span>
+            <!-- The English name and nothing else. A turn count appended here
+                 wrapped half the cards onto a third line, and the conversation's
+                 own header says how long the scene is once you are in it. -->
+            <span class="en">${escapeHtml(d.name_en)}</span>
+          </span>
+        </button>`;
+    }).join('');
+    return `<h3 class="path-level">${escapeHtml(lvl)}</h3>
+            <div class="path-grid">${cards}</div>`;
   }).join('');
-  if (current) sel.value = current;
 
-  const nextUp = drill.dialogues.find((d) => !done[d.id]);
+  for (const card of $('scenePath').querySelectorAll('.scene-card')) {
+    card.onclick = () => openScene(card.dataset.scene);
+    // A card with no art is a card, not a broken-image icon.
+    const img = card.querySelector('img');
+    if (img) img.onerror = () => img.remove();
+  }
+
   const finished = drill.dialogues.filter((d) => done[d.id]).length;
-  $('drillProgress').textContent = nextUp
-    ? `${finished} of ${drill.dialogues.length} scenes done · next up: ${nextUp.name_en}`
-    : `All ${drill.dialogues.length} scenes done — go round again, they get easier.`;
+  $('pathProgress').textContent = nextUp
+    ? `${finished} of ${drill.dialogues.length} done · next: ${nextUp.name_en}`
+    : `All ${drill.dialogues.length} done — go round again, they get easier.`;
+
+  markCurrentScene();
+  updateDrillHead();
+}
+
+/** Which card is the conversation you are in the middle of. Separate from the rest
+    of the path so switching scenes does not have to rebuild all thirty-five. */
+function markCurrentScene() {
+  for (const card of $('scenePath').querySelectorAll('.scene-card')) {
+    const here = card.dataset.scene === drill.dialogue;
+    card.classList.toggle('is-current', here);
+    /* "Here" beats "Next" on the scene you are actually in, and a finished scene
+       keeps its tick — going round again is the point of a finished one. Added as
+       its own element rather than by overwriting the flag that is there: rewriting
+       it lost the "Next" mark permanently as soon as you moved on. */
+    const mark = card.querySelector('.flag.here');
+    if (here && !card.classList.contains('is-done')) {
+      if (!mark) {
+        const el = document.createElement('span');
+        el.className = 'flag here';
+        el.textContent = 'Here';
+        card.append(el);
+      }
+    } else if (mark) {
+      mark.remove();
+    }
+  }
+}
+
+/** Tapping a card. Carrying on where you left off is the common case, so the same
+    scene resumes rather than restarting — throwing away a conversation is what
+    "Clear · start over" is for, and it should take saying so. */
+function openScene(id) {
+  switchView('drill');
+  if (id === drill.dialogue && drill.turns.length) return;
+  startDrill(id);
+}
+
+/** The conversation's header: the scene's name, and how far into it you are. */
+function updateDrillHead() {
+  const meta = drill.dialogues.find((d) => d.id === drill.dialogue);
+  $('drillSceneName').textContent = meta ? meta.name_en : 'Scenes';
+  const step = $('drillStep');
+  // Every tutor line that is a prompt rather than a reply is one turn of the scene.
+  const at = drill.turns.filter((t) => t.role === 'tutor' && !t.verdict).length;
+  step.hidden = !(meta?.steps && at);
+  if (!step.hidden) step.textContent = `${Math.min(at, meta.steps)}/${meta.steps}`;
 }
 
 /** Jump to the first scene not yet completed. */
 function goToNextScene() {
   const done = doneScenes.all();
   const next = drill.dialogues.find((d) => !done[d.id]) || drill.dialogues[0];
-  $('drillSelect').value = next.id;
-  startDrill(next.id);
+  if (next) startDrill(next.id);
 }
 
 /** Start a scene from its first line, throwing away whatever was on screen. This
@@ -947,6 +1029,7 @@ async function startDrill(id) {
   saved.clear();
   $('drillChat').innerHTML = '';
   showSceneImage(id);
+  markCurrentScene();
   const node = STATIC.on
     ? dialogueEngine.start(id)
     : await post('/api/drill/start', { dialogue: id });
@@ -954,17 +1037,102 @@ async function startDrill(id) {
 }
 
 /* Scene art is decoration: if an image is missing the header simply stays hidden,
-   because a broken-image icon above a conversation is worse than no picture. */
+   because a broken-image icon above a conversation is worse than no picture.
+
+   Two places want it. In focus mode it is the backdrop of the exchange — free,
+   vertically, which is the whole reason focus mode can show a picture at all on a
+   phone. With focus off it is the band above the conversation it always was. */
 function showSceneImage(id) {
   const hero = $('sceneHero');
   const img = $('sceneImg');
   const meta = drill.dialogues?.find((d) => d.id === id);
-  img.onerror = () => { hero.hidden = true; };
-  img.onload = () => { hero.hidden = false; };
+  const src = `img/scene-${id}.webp`;
+  img.onerror = () => {
+    hero.hidden = true;
+    $('drillChat').style.removeProperty('--scene-img');
+  };
+  img.onload = () => {
+    hero.hidden = focusMode.on;
+    $('drillChat').style.setProperty('--scene-img', `url("${src}")`);
+  };
   img.alt = meta ? `${meta.name_en}` : '';
   $('sceneCaption').textContent = meta ? `${meta.name} · ${meta.name_en}` : '';
   hero.hidden = true;
-  img.src = `img/scene-${id}.webp`;
+  $('drillChat').style.removeProperty('--scene-img');
+  img.src = src;
+}
+
+/* ── Focus mode ────────────────────────────────────────────────────────────
+   One exchange on screen: the tutor's line, the answer, and the marking of it.
+
+   The complaint this answers is scrolling. On an iPhone SE a conversation had
+   about 280px to live in, a turn is 60–90px of it, and by the third turn the
+   prompt you were answering had gone off the top — so reading the question meant
+   scrolling up, and reading the marking meant scrolling back down. Every drill app
+   that works on a phone solves this the same way: during a lesson there is one
+   prompt on screen and no navigation around it.
+
+   A conversation is not a quiz, though, and the earlier turns are the context that
+   makes a dialogue a dialogue — so they are one tap away rather than discarded.
+   Off by default on a screen with the room for the whole transcript. */
+const ROOM_FOR_TRANSCRIPT = window.matchMedia('(max-width: 640px), (max-height: 560px)');
+const focusMode = { on: ROOM_FOR_TRANSCRIPT.matches };
+
+/** Which turns belong to the exchange in progress, walking back from the end.
+
+    The shape of an exchange is prompt → answer → reply, and the reply is a tutor
+    turn carrying a verdict while a prompt is a tutor turn without one. So: take
+    turns from the end until a tutor turn with no verdict, and take that too. That
+    is the prompt, what was said to it, and how it was marked — and on a fresh
+    prompt, before anything has been said, it is just the prompt.
+
+    Pure and named so it can be tested without a DOM; the alternative was a rule
+    like "keep the last three", which is right until a scene has two replies to one
+    prompt and then silently hides the question. */
+function currentExchange(kinds) {
+  const keep = [];
+  for (let i = kinds.length - 1; i >= 0; i -= 1) {
+    keep.unshift(i);
+    if (kinds[i] === 'prompt') break;
+  }
+  return keep;
+}
+
+/** Mark the current exchange in the DOM, and say what is being hidden. */
+function applyFocus() {
+  const chat = $('drillChat');
+  chat.classList.toggle('is-focus', focusMode.on);
+  // The picture is the exchange's backdrop in focus mode and a band without it, so
+  // it never costs height twice. Only touched once it has actually loaded — the
+  // figure starts hidden and `showSceneImage` is what reveals it.
+  if ($('sceneImg').complete && $('sceneImg').naturalWidth) {
+    $('sceneHero').hidden = focusMode.on;
+  }
+
+  const turns = [...chat.querySelectorAll('.turn')];
+  const kinds = turns.map((el) => el.dataset.kind || 'prompt');
+  const keep = new Set(currentExchange(kinds));
+  turns.forEach((el, i) => el.classList.toggle('is-current', keep.has(i)));
+
+  /* The way back to the rest of the conversation, and the way back to one exchange.
+     Hidden while there is no history either way round, because a control that
+     switches between two identical screens reads as broken. */
+  const earlier = turns.length - keep.size;
+  const toggle = $('transcriptToggle');
+  toggle.hidden = earlier === 0;
+  toggle.textContent = focusMode.on
+    ? `▾ ${earlier} earlier ${earlier === 1 ? 'turn' : 'turns'}`
+    : '▴ Just this exchange';
+
+  $('sheetTranscript').textContent = focusMode.on
+    ? 'Show every turn' : 'Show one exchange at a time';
+
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function setFocus(on) {
+  focusMode.on = on;
+  applyFocus();
 }
 
 /** Point the composer at a node without saying anything: the prompt line, the
@@ -1005,6 +1173,9 @@ function showRunSummary() {
 
   const el = document.createElement('div');
   el.className = 'turn tutor run-summary';
+  // A prompt, as far as focus mode is concerned: the end of a scene is a screen of
+  // its own, not something to read underneath the last answer.
+  el.dataset.kind = 'prompt';
   el.innerHTML = `
     <div class="bubble">
       <p class="mt">Spiċċajna. Prosit!</p>
@@ -1023,7 +1194,7 @@ function showRunSummary() {
       </div>
     </div>`;
   $('drillChat').append(el);
-  $('drillChat').scrollTop = $('drillChat').scrollHeight;
+  applyFocus();
   speak(scene ? 'Prosit! Spiċċajna.' : 'Prosit!');
 
   el.querySelector('[data-again]').onclick = () => startDrill(drill.dialogue);
@@ -1036,6 +1207,11 @@ function showRunSummary() {
 function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = null } = {}) {
   const el = document.createElement('div');
   el.className = `turn ${role} ${extraClass}`;
+  /* What part of an exchange this is, which is what focus mode slices on. A tutor
+     turn with a verdict is the marking of an answer; one without is a new prompt.
+     Recorded here rather than worked out later, so a conversation restored from
+     storage slices exactly like the one it was. */
+  el.dataset.kind = role === 'user' ? 'answer' : (verdict ? 'reply' : 'prompt');
   el.innerHTML = `
     <div class="bubble">
       ${verdict ? `<p class="drill-verdict ${escapeHtml(verdict.tone || '')}">${
@@ -1054,7 +1230,8 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
     el.querySelector('[data-slow]').onclick = () => speak(mt, { rate: 0.7 });
   }
   $('drillChat').append(el);
-  $('drillChat').scrollTop = $('drillChat').scrollHeight;
+  // Re-slices the exchange and scrolls; a new turn is the only thing that moves it.
+  applyFocus();
   return el;
 }
 
@@ -1141,7 +1318,7 @@ async function answerDrill(said) {
     } else if (r.finished) {
       $('drillExpect').textContent = '';
       doneScenes.mark(drill.dialogue);
-      renderDrillOptions();
+      renderScenePath();
       showRunSummary();
       // Nothing left to come back to: the scene is done and the summary offers
       // Again or the next scene. Keeping it would restore a conversation whose
@@ -1488,27 +1665,98 @@ function renderMarkdown(md) {
 /* ── Wiring ────────────────────────────────────────────────────────────── */
 
 function switchView(name) {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.view === name));
+  for (const t of document.querySelectorAll('.tab, .sheet-item')) {
+    t.classList.toggle('is-active', t.dataset.view === name);
+  }
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('is-active', v.id === `view-${name}`));
   if (name === 'review' && !state.card) loadQueue().catch((e) => toast(e.message));
   if (name === 'progress') loadStats().catch((e) => toast(e.message));
   if (name === 'drill' && !drill.dialogue) loadDrills().catch((e) => toast(e.message));
+  // The path is built with the dialogue list, which the Talk view is what loads.
+  if (name === 'scenes' && !drill.dialogues.length) {
+    loadDrills().catch((e) => toast(e.message));
+  }
   if (name === 'reference' && !$('vocabList').children.length) {
     initVocab().catch((e) => toast(e.message));
   }
+  // Focus mode re-measures on a view change: nothing else re-runs it, and the chat
+  // has no height to scroll while it is display:none.
+  if (name === 'drill') applyFocus();
 }
 
 document.querySelectorAll('.tab').forEach((t) => {
   t.addEventListener('click', () => switchView(t.dataset.view));
 });
 
+/* ── Navigation sheet ──────────────────────────────────────────────────────
+   Everything the top bar used to hold on a phone, plus the two buttons that used
+   to sit above the conversation. Below 640px this is the only way to the other
+   views, so it has to be complete. */
+
+function openSheet() {
+  $('sheetConversation').hidden = !$('view-drill').classList.contains('is-active');
+  applyFocus();                      // so the transcript button says the right thing
+  $('navBtn').setAttribute('aria-expanded', 'true');
+  $('navSheet').showModal();
+}
+
+function closeSheet() {
+  $('navSheet').close();
+}
+
+$('navSheet').addEventListener('close', () => {
+  $('navBtn').setAttribute('aria-expanded', 'false');
+});
+
+// Tapping the backdrop. A sheet you can only leave by finding a button is a trap on
+// a phone, and `dialog` gives the click to the element itself when it is the scrim.
+$('navSheet').addEventListener('click', (e) => {
+  if (e.target === $('navSheet')) closeSheet();
+});
+
+$('navBtn').addEventListener('click', openSheet);
+$('sheetClose').addEventListener('click', closeSheet);
+
+document.querySelectorAll('.sheet-item').forEach((b) => {
+  b.addEventListener('click', () => { closeSheet(); switchView(b.dataset.view); });
+});
+
+$('sheetSettings').addEventListener('click', () => {
+  closeSheet();
+  openSettings().catch((e) => toast(e.message));
+});
+$('sheetRestart').addEventListener('click', () => {
+  closeSheet();
+  startDrill(drill.dialogue);
+});
+$('sheetNext').addEventListener('click', () => { closeSheet(); goToNextScene(); });
+$('sheetTranscript').addEventListener('click', () => {
+  closeSheet();
+  focusTouched = true;
+  setFocus(!focusMode.on);
+});
+
+/* The conversation's own header. `‹ scene name` is the way back to the path — the
+   same gesture as any list-then-detail screen — and `⋯` is the actions. */
+$('drillScene').addEventListener('click', () => switchView('scenes'));
+$('drillMore').addEventListener('click', openSheet);
+
+/* A phone rotated into landscape, or a window dragged narrow, changes whether there
+   is room for the whole transcript. Only the automatic default moves — a learner who
+   has said which they want keeps it. */
+let focusTouched = false;
+$('transcriptToggle').addEventListener('click', () => {
+  focusTouched = true;
+  setFocus(!focusMode.on);
+});
+ROOM_FOR_TRANSCRIPT.addEventListener('change', (e) => {
+  if (!focusTouched) setFocus(e.matches);
+});
 
 $('drillSend').addEventListener('click', () => answerDrill($('drillInput').value));
 $('drillInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') answerDrill($('drillInput').value);
 });
-$('drillRestart').addEventListener('click', () => startDrill(drill.dialogue));
-$('drillNext').addEventListener('click', goToNextScene);
 
 bindMic($('drillMic'), {
   onStatus: (s) => { $('drillStatus').textContent = s || 'Hold the mic and answer'; },
@@ -1540,13 +1788,16 @@ document.querySelectorAll('.grade').forEach((b) => {
   b.addEventListener('click', () => submitGrade(Number(b.dataset.grade)));
 });
 
-/* Settings */
-$('settingsBtn').addEventListener('click', async () => {
+/* Settings. Reached from the gear on a wide screen and from the sheet on a phone,
+   where the gear is one of the things that had to leave the top bar. */
+async function openSettings() {
   $('settingsDialog').showModal();
   const c = await schedule.counts();
   $('progressSummary').textContent =
     `${c.learned} learned · ${c.total - c.new} started · ${c.today} reviews in the last day`;
-});
+}
+
+$('settingsBtn').addEventListener('click', () => { openSettings().catch(() => {}); });
 
 /* Progress lives on this device, so the learner needs a way to carry it. */
 $('exportProgress').addEventListener('click', async () => {

@@ -271,8 +271,19 @@ def test_app_js_defines_everything_it_calls():
     src = re.sub(r"'(?:[^'\\\n]|\\.)*'", " '' ", src)
     src = re.sub(r'"(?:[^"\\\n]|\\.)*"', ' "" ', src)
 
-    defined = set(re.findall(r"(?:async\s+)?function\s+(\w+)", src))
-    defined |= set(re.findall(r"\b(?:const|let|var)\s+(\w+)\s*=", src))
+    # Declarations are read from the *raw* file, not the stripped copy. The
+    # stripping is a heuristic — a template literal with another nested in it ends the
+    # outer match early, and from there whole regions of the file vanish. That was
+    # survivable while a swallowed region lost its definitions and its call sites
+    # together; the day a call moved out of one and its definition did not, this failed
+    # on `switchView`, which was plainly defined twenty lines away.
+    #
+    # A declaration is unambiguous in raw text — `function x`, `const x =` — and reading
+    # it there costs nothing, because the failure this test exists to catch is a
+    # function that is *gone*, and a gone function is gone from the raw file too. Only
+    # the calls need the stripping, to keep prose out of them.
+    defined = set(re.findall(r"(?:async\s+)?function\s+(\w+)", raw))
+    defined |= set(re.findall(r"\b(?:const|let|var)\s+(\w+)\s*=", raw))
     defined |= set(re.findall(r"class\s+(\w+)", src))
     # methods, and object/param destructuring like ({ onResult, target })
     defined |= set(re.findall(r"^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{", src, re.M))

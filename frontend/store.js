@@ -240,10 +240,10 @@ export const DEFAULT_SETTINGS = {
   target_retention: 0.9,
   /* On by default. On the static build there is no server recogniser, so this is
      the difference between an app you can speak to and one you can only type at.
-     It costs a ~200MB download on first use, which is why the startup screen
-     shows it happening rather than stalling silently — and it turns itself off
-     where there is no WebGPU, because there the model would be slower than
-     useless. */
+     It costs a 2.1MB download on first use — it was ~200MB and needed a WebGPU
+     adapter, which is what the startup screen's progress bar was built for and why
+     the settings dialog still says how big it is. Now it turns itself off only
+     where there is no WebAssembly. */
   local_stt: true,
 };
 

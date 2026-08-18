@@ -473,13 +473,21 @@ So acceptance also needs a floor and a margin, and both were fitted by sweeping 
 against 25 clean recordings, 75 wrong-line pairings, and 36 clips of silence and noise at
 several levels:
 
-| floor | accepted | wrong-line | silence/noise |
-|---|---|---|---|
-| 0.55 | 22/25 | 0/75 | 4/36 |
-| 0.60 | 20/25 | 0/75 | 1/36 |
-| **0.65** | **19/25** | **0/75** | **0/36** |
+| floor | ranking | accepted | wrong-line | silence/noise |
+|---|---|---|---|---|
+| 0.65 | yes | 19/25 | 3/175 (2%) | 0/64 (0%) |
+| **0.55** | **yes** | **22/25** | **4/175 (2%)** | **6/64 (9%)** |
+| 0.24 | no | 25/25 | 131/175 (**75%**) | 20/64 (**31%**) |
 
-0.65 is the lowest floor that accepts nothing it should not. An energy gate was tried, to
+0.55 is the setting: three more of a learner's correct answers for no measurable change in
+wrong-line acceptance. It does let some room noise through, which `capture.js` is the first
+line against.
+
+Accepting all 25 was asked for and costed. It requires dropping the ranking test altogether,
+because three of those clips *lose* their rank — the model prefers a different deck line to
+the one that was said. At that point 75% of wrong answers and a third of all silence are
+marked correct, which is not a lenient grader but no grader, and it would feed false correct
+answers into the FSRS scheduler and rot the review deck. Declined on those numbers. An energy gate was tried, to
 let the floor come down — real speech peaked at 0.26 and above, noise mostly below — and it
 bought exactly one clip (19→20) while loud noise still cleared it. One extra knob fitted on
 25 samples for a four-point gain is over-fitting, so it was dropped.

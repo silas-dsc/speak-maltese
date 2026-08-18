@@ -426,15 +426,27 @@ class Recorder {
    consonant length in a learner's speech. Saying a *different* line is still turned away.
    For somebody learning, being able to progress beats a phonetic precision that no
    available Maltese model can actually judge. */
-/* Both fitted by sweeping them against 25 clean recordings in a learner's voice, 75
-   wrong-line pairings, and 30 clips of silence and room noise at several levels. 0.65 is
-   the lowest floor with no false accepts in any of those: 0.60 accepts one more correct
-   answer and also accepts noise, which is the worse trade for something that tells people
-   they were right.
+/* Swept against 25 clean recordings in a learner's voice, 175 wrong-line pairings, and 64
+   clips of silence and room noise at several levels:
+
+     floor  ranking   correct     wrong-line      silence/noise
+      0.65    yes      19/25      3/175   2%       0/64    0%
+      0.55    yes      22/25      4/175   2%       6/64    9%
+      0.24     no      25/25    131/175  75%      20/64   31%
+
+   0.55 is the chosen point: three more of a learner's correct answers accepted for no
+   measurable change in wrong-line acceptance. It does let some room noise through, which
+   `capture.js` is the first line against.
+
+   Accepting all 25 was asked for and costed. It requires dropping the ranking test
+   altogether — three of those clips *lose* their rank, the model preferring a different
+   deck line — and at that point 75% of wrong answers and a third of all silence are marked
+   correct. That is not a lenient grader, it is no grader, and it would feed false correct
+   answers into the FSRS scheduler and rot the review deck. Declined on those numbers.
 
    One speaker, 25 utterances — a real measurement, not a large one. Re-run
-   `--clips voice` after adding recordings and move them if the split has moved. */
-const MIN_CONFIDENCE = 0.65;
+   `--clips voice` after adding recordings and move this if the split has moved. */
+const MIN_CONFIDENCE = 0.55;
 
 /** How far ahead of the runner-up the target has to be. It changes nothing at this floor,
     and it costs nothing: correct answers clear their field by 0.06-0.43, where the one

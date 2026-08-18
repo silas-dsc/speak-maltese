@@ -21,6 +21,30 @@ export const all = () => doc.dialogues || [];
 export const get = (id) => all().find((d) => d.id === id) || null;
 export const node = (did, nid) => get(did)?.nodes?.[nid] || null;
 
+/** Every Maltese answer the script will ever accept, deduplicated.
+
+    Used as the field a spoken answer is ranked against. Grading a learner cannot rely on
+    an absolute confidence — measured on real recordings the target scored 0.766 where its
+    own near-misses scored 0.784, so there is no cut between them, and the value moves with
+    the speaker. Asking instead "does the line we asked for explain this audio better than
+    the other things you could have said" is scale-free, and it worked on the same clips
+    where a threshold accepted nothing. */
+export function everyAnswer() {
+  const out = new Set();
+  for (const d of all()) {
+    for (const node of Object.values(d.nodes || {})) {
+      for (const a of node.accept || []) {
+        // Open answers are a frame with anything in the gap — a name, a town — so they
+        // are not a line anybody says verbatim and make a poor alternative.
+        if (a.open) continue;
+        const mt = (a.mt || '').trim();
+        if (mt) out.add(mt);
+      }
+    }
+  }
+  return [...out];
+}
+
 export function present(did, nid) {
   const n = node(did, nid);
   if (!n) return null;

@@ -396,10 +396,16 @@ export async function decode(blob) {
     the caller grades locally.
 
     Pass `target` — already normalised and lower-cased by the caller, which owns the
-    Maltese rules — and the result also carries `confidence`: how well that exact line
-    explains the audio, against the model's own best guess. That is the number the app
-    should grade on. The transcript is what to *show* when it does not match. */
-export async function transcribe(blob, { target = '' } = {}) {
+    Maltese rules — and the result carries `confidence`: how well that exact line explains
+    the audio, against the model's own best guess.
+
+    Pass `distractors` too and it also reports whether the target *beat* them, which is
+    the number to grade on. Measured on a learner's own recordings, an absolute threshold
+    cannot work: the target scored 0.766 where near-misses scored 0.784, so no cut
+    separates them, and the value drifts with the speaker anyway. Ranking is scale-free —
+    the target won against 24 alternatives 75% of the time on the same clips, where the
+    threshold accepted none of them. The transcript is what to *show* when nothing wins. */
+export async function transcribe(blob, { target = '', distractors = [] } = {}) {
   if (!parts) throw new Error('Local recogniser is not loaded');
   const audio = await decode(blob);
   const { data, nMels, frames } = features(audio, parts.mel, parts.window);
@@ -428,10 +434,25 @@ export async function transcribe(blob, { target = '' } = {}) {
   };
 
   if (target) {
-    const ids2 = encodeTarget(target, parts.tokToId);
-    result.confidence = ids2.length
-      ? targetConfidence(d, outFrames, vocab, ids2, parts.blankId)
-      : 0;
+    const score = (line) => {
+      const seq = encodeTarget(line, parts.tokToId);
+      return seq.length ? targetConfidence(d, outFrames, vocab, seq, parts.blankId) : 0;
+    };
+    result.confidence = score(target);
+
+    /* Every alternative is scored against the same audio and the same denominator, so
+       only the ordering is being trusted — not the absolute value, which is the part that
+       does not survive a change of speaker. */
+    let best = -Infinity;
+    let bestLine = '';
+    for (const line of distractors) {
+      if (!line || line === target) continue;
+      const c = score(line);
+      if (c > best) { best = c; bestLine = line; }
+    }
+    result.runnerUp = Number.isFinite(best) ? best : null;
+    result.runnerUpLine = bestLine;
+    result.wins = result.runnerUp === null || result.confidence > result.runnerUp;
   }
   return result;
 }

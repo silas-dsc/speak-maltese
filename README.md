@@ -395,6 +395,47 @@ Which also says where the next gains are, and they are cheap: more lines and mor
 `scripts/import_corpus.py` can widen the text far past the 1,494 lines the deck holds.
 Nothing here suggests a bigger student would help.
 
+### Grading a learner, measured on a learner
+
+25 recordings in a non-native voice settled several things at once, and most of them were
+not what the model was doing.
+
+**The ceiling is not the small model.** On 16 clean clips of a learner's Maltese, the 201MB
+teacher — 315M parameters, fine-tuned on 64 hours of native Maltese — marks **25%** of
+correct answers correct. The 2.1MB student manages 0%. Every recogniser available is
+trained on native speech, and a learner's `għ`, geminates and `q` are not what any of them
+expect. No amount of distillation closes that.
+
+**An absolute confidence cannot be calibrated across speakers.** The first threshold,
+0.9867, came from synthetic speech; on a real voice a *correct* answer scored 0.766, so it
+never fired once. Worse, near-misses scored 0.784 — above the target — so no cut exists.
+
+**Ranking does work, because it is scale-free.** Score the line we asked for against a field
+of other answers the script accepts, on the same audio with the same denominator, and take
+the ordering rather than the value:
+
+| on the learner's clean clips | accepted |
+|---|---|
+| threshold at 0.92 | 0% |
+| **target beats a field of 24** | **75%** |
+
+Two negative controls stopped that being the whole rule. Against an all-blank posterior a
+*shorter* sequence is the likelier reading, so silence (0.346) and room noise (0.589) both
+won against a field of longer alternatives. And one wrong answer beat its field by 0.006,
+which is noise, not evidence. So acceptance needs a floor (0.60) and a margin (0.02) as
+well — after which silence, room noise and nine wrong-line attempts are all turned away,
+and 12 of 16 correct answers get through.
+
+**The trade is deliberate.** Ranking accepts near-misses: say `irid` for `irrid` and it
+passes, because the posteriors do not resolve consonant length in a learner's speech. Saying
+a *different* line is still rejected. For somebody learning, being able to progress beats a
+phonetic precision that no available Maltese model can actually judge — and that was a
+product decision, taken with these numbers in hand, not a technical accident.
+
+The recordings also exposed the recorder: 9 of the 25 were faulty and nothing said so at the
+time. One clip sat 30dB below the rest and was the worst-scoring in the set; eight more were
+digitally clipped, all late in the run. Both are now reported per clip as they land.
+
 ### The model had never heard a human
 
 The first student was trained on two synthetic voices and nothing else, and the report

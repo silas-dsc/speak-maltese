@@ -399,29 +399,60 @@ class Recorder {
   }
 }
 
-/* How well the target line has to explain the audio before the app takes the learner's
-   word for it, whatever the transcript says.
+/* How a spoken answer is graded.
 
-   The first value here, 0.9867, was derived entirely from synthetic speech and did not
-   transfer: measured against real human recordings, the *correct* line scored 0.622 on
-   average, so the threshold sat above the thing it was meant to accept and never fired
-   once off the app's own TTS voices. A number calibrated in one acoustic domain is not a
-   number.
+   Not by an absolute confidence. That was tried, twice, and the recordings settled it: on a
+   learner's own voice the target line scored 0.766 while its own near-misses scored 0.784,
+   so no cut separates them — and the level moves with the speaker anyway, which is why the
+   first threshold (0.9867, calibrated on synthetic speech) never once fired on a real one.
 
-   Two measurements bracket the case the app actually faces — a short phrase spoken by a
-   person — and neither is exactly it:
+   What survives is the *ordering*. Score the line we asked for against a field of other
+   things the learner could have said, all against the same audio and the same denominator,
+   and accept if it wins. On the same recordings where a threshold accepted none of 16
+   correct answers, ranking accepted 75% of them.
 
-     short synthetic phrases   correct 1.026 · near-miss 0.821 · other lines 0.213
-     real human speech         correct 0.973 ·                   other lines 0.344
+   Ranking alone is not enough, and the negative controls are what showed it. Against an
+   all-blank posterior a *shorter* sequence is the likelier reading, so silence and room
+   noise both "won" against a field of longer alternatives — 0.346 and 0.589, accepted on a
+   technicality. `capture.js` already turns away a recording with no signal in it, but the
+   floor here is the second line: below it, nothing is accepted however it ranks.
 
-   0.92 sits above the near-miss band with margin and below where a correct real answer
-   lands. It is still an interpolation between two proxies, and the way to replace it with
-   a measurement is `scripts/compare_stt.py --record 25` — short phrases, real voice, the
-   combination nothing here covers.
+   The margin exists for the same reason. One wrong answer beat its field by 0.006, which
+   is noise, not evidence. Requiring daylight costs two thin-margin accepts out of fifteen
+   and removes the false one.
 
-   Used as a floor and never a penalty, so being wrong about it costs a missed acceptance
-   rather than a good answer marked bad. */
-const ACCEPT_CONFIDENCE = 0.92;
+   The trade is deliberate and was chosen knowingly: ranking accepts near-misses — say
+   `irid` for `irrid` and it passes, because the model's posteriors genuinely cannot resolve
+   consonant length in a learner's speech. Saying a *different* line is still turned away.
+   For somebody learning, being able to progress beats a phonetic precision that no
+   available Maltese model can actually judge. */
+const MIN_CONFIDENCE = 0.60;
+
+/** How far ahead of the runner-up the target has to be. Real answers clear their field by
+    0.06-0.43; the false accept cleared it by 0.006. */
+const MIN_MARGIN = 0.02;
+
+/** How many alternatives to rank against. Each is one CTC forward pass over posteriors
+    already computed — about a millisecond — so this is bounded by patience, not cost. */
+const RANK_AGAINST = 24;
+
+/** A field of plausible other answers, sampled fresh so a learner cannot be unlucky in the
+    same way twice. The target is excluded by the caller.
+
+    Empty on the FastAPI dev build, which never loads the whole script — it asks the server
+    per turn, where the static build ships all of it. With no field to rank against the
+    acceptance falls back to the floor alone, which is weaker but not wrong; the deployed
+    build is the static one. */
+function distractorsFor(target) {
+  const pool = dialogueEngine.everyAnswer()
+    .map((line) => mtext.normalise(line).toLowerCase().trim())
+    .filter((line) => line && line !== target);
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, RANK_AGAINST);
+}
 
 async function transcribe(blob, target) {
   /* On-device only when there is nowhere better to send it. The model is the
@@ -433,11 +464,16 @@ async function transcribe(blob, target) {
          the app has — so the transcript stops being the verdict and becomes the
          explanation for when the answer was wrong. */
       const flat = target ? mtext.normalise(target).toLowerCase().trim() : '';
-      const r = await nanostt.transcribe(blob, { target: flat });
-      if (r.confidence >= ACCEPT_CONFIDENCE) {
-        /* The audio explains the target about as well as anything could. A garbled
-           transcript here is the model failing at the harder task, not the learner
-           failing at the easier one — so it is not shown as though they said it. */
+      const r = await nanostt.transcribe(blob, {
+        target: flat,
+        distractors: flat ? distractorsFor(flat) : [],
+      });
+      const clear = r.runnerUp === null || r.confidence > r.runnerUp + MIN_MARGIN;
+      if (flat && clear && r.confidence >= MIN_CONFIDENCE) {
+        /* The line we asked for explains this audio better than anything else it could
+           have been. A garbled transcript here is the model failing at the harder task,
+           not the learner failing at the easier one — so it is not shown back to them as
+           though they had said it. */
         return { ...r, text: mtext.normalise(target), assessment: mtext.assess(target, target) };
       }
       if (r.text.trim()) {

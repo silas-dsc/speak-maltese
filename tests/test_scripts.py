@@ -193,3 +193,29 @@ def test_coverage_report_runs():
     used, lines = cov.dialogue_words()
     assert lines > 0 and used
     assert cov.deck_words()
+
+
+def test_every_recording_prompt_has_a_pronunciation_guide():
+    """Whoever records the evaluation clips is a Maltese *learner* — that is the whole
+    premise of the app — so a prompt without a respelling, a meaning and something to
+    listen to is a prompt that gets mispronounced, and a mispronounced clip measures the
+    recogniser against the wrong sound.
+
+    This fails when the deck changes and `data/pronunciation.tsv` is not updated with it,
+    which is exactly when the gap would otherwise go unnoticed."""
+    mod = load("compare_stt")
+    en, say = mod._guide()
+    prompts = mod._sentences(25)
+
+    missing_say = [s for s in prompts if not say.get(s, "").strip()]
+    assert not missing_say, ("no pronunciation in data/pronunciation.tsv for:\n  "
+                            + "\n  ".join(missing_say))
+    missing_en = [s for s in prompts if not en.get(s, "").strip()]
+    assert not missing_en, f"no English gloss for: {missing_en}"
+
+    # And the reference audio, which is what a non-speaker actually copies.
+    from backend import tts
+    from backend.config import AUDIO_CACHE, CFG
+    silent = [s for s in prompts
+              if not (AUDIO_CACHE / f"{tts._cache_key(s, CFG.azure_voice, 0.95, 'edge')}.mp3").exists()]
+    assert not silent, f"nothing to listen to for: {silent}"

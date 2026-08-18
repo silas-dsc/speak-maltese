@@ -125,6 +125,63 @@ async def synth(n: int, voice: str | None) -> None:
     print(f"\n✓ {len(rows)} synthetic clips in {CLIPS}")
 
 
+def _guide() -> tuple[dict, dict]:
+    """English glosses and an English-speaker respelling for each line.
+
+    The respellings follow the sound table in `data/grammar_notes.md`, which is the same
+    one the app's Guide tab shows: `x`=sh, `ġ`=j, `ż`=z, `z`=ts, `ħ`=a strong throaty h,
+    `q`=a glottal stop (written `'`), `għ`=silent but lengthens the vowel beside it, `j`=y,
+    `ie`=one long ee-eh. CAPITALS mark the stressed syllable, which in Maltese is usually
+    the second to last.
+
+    Kept in `data/pronunciation.tsv` rather than in this file so the phrasing can be fixed
+    by somebody who actually speaks Maltese without touching the harness."""
+    from backend import curriculum
+
+    en = {}
+    for tsv in (curriculum.PHRASES_TSV, curriculum.VOCAB_TSV):
+        for r in curriculum._read_tsv(tsv):
+            if r.get("mt"):
+                en.setdefault(r["mt"], r.get("en", ""))
+            if r.get("ex_mt"):
+                en.setdefault(r["ex_mt"], r.get("ex_en") or r.get("en", ""))
+
+    say = {}
+    path = DATA_DIR / "pronunciation.tsv"
+    if path.exists():
+        with path.open(encoding="utf-8") as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                if row.get("mt"):
+                    say[row["mt"]] = row.get("say", "")
+    return en, say
+
+
+def _play(line: str) -> bool:
+    """Play the app's own recording of the line, so there is something to mimic.
+
+    Whoever is reading these prompts may not speak Maltese — that is the normal case for
+    this app — and a phonetic respelling only goes so far. The audio is already on disk
+    from `prebuild_audio.py`."""
+    from backend import tts
+    from backend.config import AUDIO_CACHE, CFG
+
+    path = AUDIO_CACHE / f"{tts._cache_key(line, CFG.azure_voice, 0.95, 'edge')}.mp3"
+    if not path.exists() or not shutil.which("afplay"):
+        return False
+    subprocess.run(["afplay", str(path)], check=False)
+    return True
+
+
+def print_guide(n: int) -> None:
+    """The whole sheet at once, for reading before starting."""
+    en, say = _guide()
+    print(f"\n{n} lines to record. CAPITALS mark the stressed syllable.\n")
+    for i, line in enumerate(_sentences(n), 1):
+        print(f"{i:2}. {line}")
+        print(f"    say:     {say.get(line, '(no guide yet)')}")
+        print(f"    meaning: {en.get(line, '?')}\n")
+
+
 def record(n: int, device: str = ":default") -> None:
     """Prompt for each sentence and record it from a microphone via ffmpeg.
 
@@ -136,6 +193,7 @@ def record(n: int, device: str = ":default") -> None:
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is required for --record (brew install ffmpeg)")
     CLIPS.mkdir(parents=True, exist_ok=True)
+    en, say = _guide()
     rows = _read_manifest()
     existing = {r["file"] for r in rows}
     quiet = 0
@@ -143,8 +201,14 @@ def record(n: int, device: str = ":default") -> None:
         name = f"me_{i:03d}.wav"
         if name in existing:
             continue
-        print(f"\n[{i}/{n}]  Say:  {sentence}")
-        input("       press Enter, speak, then press Enter again to stop… ")
+        print(f"\n[{i}/{n}]  {sentence}")
+        print(f"          say:     {say.get(sentence, '(no guide yet)')}")
+        print(f"          meaning: {en.get(sentence, '?')}")
+        if not _play(sentence):
+            print("          (no reference audio — run scripts/prebuild_audio.py)")
+        input("       Enter to hear it again, or just speak after the next Enter… ")
+        _play(sentence)
+        input("       Enter to start recording, speak, then Enter again to stop… ")
         proc = subprocess.Popen(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-f", "avfoundation", "-i", device,
@@ -462,6 +526,8 @@ def main() -> int:
                     help="ffmpeg avfoundation input for --record, e.g. ':1'")
     ap.add_argument("--list-inputs", action="store_true",
                     help="show the microphones ffmpeg can see, then exit")
+    ap.add_argument("--guide", type=int, metavar="N", default=None,
+                    help="print the N lines to record, with pronunciation, then exit")
     ap.add_argument("--clips-dir", type=Path, default=None,
                     help="score a different eval set, e.g. data/fleurs/eval")
     ap.add_argument("--clips", choices=["all", "synth", "voice"], default="all",
@@ -474,6 +540,9 @@ def main() -> int:
 
     if args.list_inputs:
         list_inputs()
+        return 0
+    if args.guide:
+        print_guide(args.guide)
         return 0
     if args.clips_dir:
         use_clips_dir(args.clips_dir)

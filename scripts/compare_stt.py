@@ -125,15 +125,39 @@ async def synth(n: int, voice: str | None) -> None:
     print(f"\n✓ {len(rows)} synthetic clips in {CLIPS}")
 
 
+def bad_takes() -> list[tuple[str, str]]:
+    """Recordings that measure the microphone rather than the speaker.
+
+    The same two faults that cost 9 of the first 25 clips: one so far below the others as
+    to be unusable, and eight clipped flat at full scale. Selecting them by measurement
+    rather than by remembering which ones went wrong."""
+    out = []
+    for row in _read_manifest("voice"):
+        peak = _peak(CLIPS / row["file"])
+        if peak < 0.10:
+            out.append((row["file"], f"too quiet (peak {peak:.2f})"))
+        elif peak >= 0.99:
+            out.append((row["file"], f"clipping (peak {peak:.2f})"))
+    return out
+
+
 def redo(spec: str, n: int) -> None:
     """Throw away recordings so they can be made again.
 
-    `all`, or a list like `2` / `2,7,19`. A take that came out wrong has to be removable
-    or the only way back is deleting files by hand and hand-editing a TSV — and the
-    numbering has to survive it, because `me_007.wav` is what pairs a clip with prompt 7.
-    So the file and its manifest row go, and nothing renumbers."""
+    `all`, `bad`, or a list like `2` / `2,7,19`. A take that came out wrong has to be
+    removable or the only way back is deleting files by hand and hand-editing a TSV — and
+    the numbering has to survive it, because `me_007.wav` is what pairs a clip with prompt
+    7. So the file and its manifest row go, and nothing renumbers."""
     rows = _read_manifest()
-    if spec.strip().lower() == "all":
+    if spec.strip().lower() == "bad":
+        faults = bad_takes()
+        if not faults:
+            print("no clips fail the level checks — nothing to redo")
+            return
+        for name, why in faults:
+            print(f"  {name}  {why}")
+        drop = {name for name, _ in faults}
+    elif spec.strip().lower() == "all":
         drop = {r["file"] for r in rows if not r["file"].startswith("synth_")}
     else:
         try:
@@ -572,7 +596,8 @@ def main() -> int:
     ap.add_argument("--guide", type=int, metavar="N", default=None,
                     help="print the N lines to record, with pronunciation, then exit")
     ap.add_argument("--redo", metavar="WHICH", default=None,
-                    help="discard recordings before recording: 'all', or '2,7,19'")
+                    help="discard recordings before recording: 'bad' (fails the "
+                         "level checks), 'all', or '2,7,19'")
     ap.add_argument("--clips-dir", type=Path, default=None,
                     help="score a different eval set, e.g. data/fleurs/eval")
     ap.add_argument("--clips", choices=["all", "synth", "voice"], default="all",

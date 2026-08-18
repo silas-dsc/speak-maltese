@@ -395,6 +395,51 @@ Which also says where the next gains are, and they are cheap: more lines and mor
 `scripts/import_corpus.py` can widen the text far past the 1,494 lines the deck holds.
 Nothing here suggests a bigger student would help.
 
+### Accented TTS as a proxy for learner speech — tried, and it did not work
+
+There is no L2 Maltese corpus; I looked. But `edge-tts` has 322 voices of which two are
+Maltese, and a foreign voice reading Maltese orthography mispronounces it roughly the way a
+speaker of that language would. The label is the deck line regardless, so it is supervised
+data in unlimited quantity, aimed squarely at the gap. `scripts/render_accents.py` renders
+it — 6,008 clips across English, Italian, Arabic, French, German and Spanish voices.
+
+It genuinely does mangle Maltese. Against `Bonġu! Jien Marija. X'jismek?` the teacher hears:
+
+| voice | heard |
+|---|---|
+| it-IT | `bonu gejne maria eks jesmeck` |
+| ar-EG | `bondgo l-agin maraggi lixe gismak` |
+| es-ES | `bonù kien marika inkis hismajk` |
+| en-AU | `bongu ġian marija eks ġiżmek` |
+
+`ġ` confused with g and j, no gemination, and `x` read as the English letter name — the
+learner error classes, exactly.
+
+**It made no difference, and slightly hurt.** 12,016 accented passes added to the 74,571
+already there, trained the same way, measured on the same held-out sets:
+
+| | | v2 (shipped) | v3 (with accents) |
+|---|---|---|---|
+| learner's voice | fWER | **93.7%** | 94.3% |
+| | rank-1 | **80%** | **80%** |
+| synthetic | fWER | **16.3%** | 19.0% |
+| native (FLEURS) | fWER | **74.6%** | 78.1% |
+
+Identical on the number the app grades with, worse on everything else — consistently, not
+noisily. The training itself worked (dev KD 0.49 → 0.29); it learned the wrong thing. A
+grapheme-to-phoneme engine produces one deterministic mispronunciation per voice, where a
+learner produces a variable, partly-correct approximation that drifts word to word. The
+model got better at English-TTS-reading-Maltese, which is a different point in acoustic
+space from a human attempting it.
+
+Not deployed. The renderer and the pipeline support stay, because the negative result is
+worth keeping and the next person will otherwise have the same idea.
+
+**The two levers that did work**, for contrast: real native speech (102.5% → 74.6% fWER)
+and constrained ranking (0% → 76% of a learner's correct answers accepted). What is left
+with evidence behind it is real learner speech from many speakers, which is a
+data-collection problem rather than a modelling one.
+
 ### Grading a learner, measured on a learner
 
 25 recordings in a non-native voice settled several things at once, and most of them were

@@ -335,6 +335,22 @@ def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None
         train_rows, _held = fleurs_split(train_limit=real_limit)
         jobs += [(FLEURS / "clips" / r["file"], "", "fleurs") for r in train_rows]
         print(f"{len(train_rows)} real-speech clips")
+
+    if "accent" in sources:
+        # Deck lines read by voices that mispronounce Maltese. The label is the deck line
+        # regardless of what came out of the speaker — that is the entire point, and it is
+        # why these carry a target where FLEURS does not.
+        from render_accents import VOICES, clip_path as accent_path, corpus as accent_corpus
+
+        n = 0
+        for voice in VOICES:
+            for line in accent_corpus(None):
+                path = accent_path(line, voice)
+                if path.exists():
+                    jobs.append((path, mtext.normalise(line).lower().strip(),
+                                 f"accent:{voice}"))
+                    n += 1
+        print(f"{n} accented clips")
     print(f"{len(jobs)} clips × {len(augments)} variants = "
           f"{len(jobs) * len(augments)} passes → shard {shard!r}")
     if not jobs:
@@ -552,6 +568,15 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
     # CTC term only exists to keep the output sequence honest where a target is known.
     targets = [encode(it.get("text") or "") for it in items]
 
+    # How much to trust the teacher, per item. On accented speech it is guessing — it
+    # transcribes a learner at 74% fWER — so its posteriors there describe its own
+    # confusion, not the sound. The text label, by contrast, is exactly right: we know
+    # which line was asked for. So accented items lean on CTC and barely on KD, the
+    # opposite balance from FLEURS, where there is no label and the posteriors are all
+    # there is. Getting this backwards is what silenced the first attempt at real speech.
+    kd_scale = np.array([0.2 if (it.get("source") or "").startswith("accent") else 1.0
+                         for it in items], dtype=np.float32)
+
     # Split by *line*, so a dev sentence is never seen in another voice either.
     rng = np.random.default_rng(11)
     # Split by line so a dev sentence is unseen in every voice and every augmentation.
@@ -615,7 +640,8 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
         return (xt.to(device), torch.from_numpy(y).to(device),
                 torch.tensor(frames, dtype=torch.long),
                 flat.to(device),
-                torch.tensor([len(targets[i]) for i in ix], dtype=torch.long))
+                torch.tensor([len(targets[i]) for i in ix], dtype=torch.long),
+                torch.from_numpy(kd_scale[list(ix)]).to(device))
 
     def run_epoch(ix: list[int], train: bool):
         model.train(train)
@@ -627,7 +653,7 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
         order = [i for ch in chunks for i in sorted(ch, key=lambda k: offs[k][3])]
         tot_kd = tot_ctc = n = 0
         for s in range(0, len(order) - batch + 1, batch):
-            bx, by, blen, flat, tlen = batch_of(order[s:s + batch], augment=train)
+            bx, by, blen, flat, tlen, kscale = batch_of(order[s:s + batch], augment=train)
             with torch.set_grad_enabled(train):
                 out = model(bx)                                # (B, T, V)
                 keep = min(out.shape[1], by.shape[1])
@@ -637,7 +663,7 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 # distribution is the point — a hard label per frame would throw away
                 # exactly the confidence that near-miss rejection depends on.
                 kd = (by_.exp() * (by_ - out)).sum(-1)
-                kd = (kd * mask).sum() / mask.sum()
+                kd = (kd * mask * kscale[:, None]).sum() / mask.sum()
                 # `aten::_ctc_loss` has no MPS kernel, so this one term crosses to the
                 # CPU and back. `.cpu()` is differentiable, so the gradient still
                 # reaches the GPU weights; the copy is ~600KB a step and does not show
@@ -746,7 +772,7 @@ def main() -> int:
     ap.add_argument("--tag", default="student")
     ap.add_argument("--shard", default="tts", help="name for this teacher shard")
     ap.add_argument("--sources", default="tts,real",
-                    help="which audio to run the teacher over: tts, real, or both")
+                    help="which audio to run the teacher over: tts, real, accent")
     args = ap.parse_args()
 
     if args.stage == "teacher":

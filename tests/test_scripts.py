@@ -219,3 +219,102 @@ def test_every_recording_prompt_has_a_pronunciation_guide():
     silent = [s for s in prompts
               if not (AUDIO_CACHE / f"{tts._cache_key(s, CFG.azure_voice, 0.95, 'edge')}.mp3").exists()]
     assert not silent, f"nothing to listen to for: {silent}"
+
+
+def test_every_turn_can_show_and_say_its_answer():
+    """The drill offers **Show me**, which puts a model answer on screen and speaks
+    it. Two ways for that to become a button that does nothing, both silent:
+
+    * a node whose accepted answers are *all* open frames (`Jisimni …`) has no line
+      to show — a gap with an ellipsis in it is not a model of anything;
+    * a line that exists but was never rendered to speech, which in the static build
+      means the audio manifest has no entry and the player has nothing to play.
+
+    `present()` picks a non-open answer for exactly the second reason — those are the
+    entries `every_line()` synthesises — so this checks the guarantee end to end
+    rather than trusting the comment that states it."""
+    from backend import dialogue
+    from backend.config import AUDIO_CACHE, CFG
+
+    mod = load("build_static")
+    silent, missing = [], []
+    for d in dialogue.all_dialogues():
+        for nid in (d.get("nodes") or {}):
+            answer = (dialogue.present(d["id"], nid).get("answer") or {}).get("mt")
+            if not answer:
+                missing.append(f"{d['id']}/{nid}")
+                continue
+            key = mod.cache_key(answer, CFG.azure_voice, 0.95)
+            if not (AUDIO_CACHE / f"{key}.mp3").exists():
+                silent.append(f"{d['id']}/{nid}: {answer}")
+
+    assert not missing, ("nodes with no answer to show — every `accept` entry is "
+                        "open:\n  " + "\n  ".join(missing[:8]))
+    assert not silent, ("answers with nothing to play — run "
+                       "scripts/prebuild_audio.py --what all:\n  "
+                       + "\n  ".join(silent[:8]))
+
+
+def test_every_turn_has_a_picture_and_every_picture_a_turn():
+    """The conversation shows a square beside each question, named after the turn:
+    `img/turn-<scene>-<node>.webp`. A node without one degrades to no picture, which
+    is right at runtime and wrong to ship — the whole point of a picture per turn is
+    that it shows *this* moment, and a gap reads as a broken scene rather than as a
+    scene with nothing to draw.
+
+    The reverse matters too. Rename a node and its old picture is orphaned: 10KB
+    nothing will ever request, and the next person to count them is misled about
+    which turns are covered."""
+    from backend import dialogue
+
+    art = ROOT / "frontend" / "img"
+    wanted = {f"turn-{d['id']}-{nid}.webp"
+              for d in dialogue.all_dialogues() for nid in (d.get("nodes") or {})}
+    present = {p.name for p in art.glob("turn-*.webp")}
+
+    missing = sorted(wanted - present)
+    assert not missing, (
+        f"{len(missing)} turns have no picture — run scripts/generate_scene_images.py "
+        f"--what turns:\n  " + "\n  ".join(missing[:8]))
+
+    orphans = sorted(present - wanted)
+    assert not orphans, (
+        f"{len(orphans)} pictures belong to turns that no longer exist:\n  "
+        + "\n  ".join(orphans[:8]))
+
+    # Small enough that 113 of them are worth committing: the whole set is ~1.2MB,
+    # against 23MB of audio already in here.
+    biggest = max(art.glob("turn-*.webp"), key=lambda p: p.stat().st_size)
+    assert biggest.stat().st_size < 60_000, \
+        f"{biggest.name} is {biggest.stat().st_size / 1024:.0f}KB"
+
+
+def test_every_turn_picture_was_asked_for_something_specific():
+    """The prompts are generated once from the scene's setting and the turn's own
+    English gloss, then committed to `data/turn_prompts.json` — so a re-render
+    reproduces the same set rather than a new interpretation, and a prompt that came
+    out silly can be edited by hand.
+
+    Which makes the file the thing to check: a turn falling back to its scene's
+    setting is a turn whose picture says "you are in a café" four times in a row,
+    which is the picture-per-scene this replaced."""
+    import json
+
+    from backend import dialogue
+
+    mod = load("generate_scene_images")
+    prompts = json.loads(mod.PROMPTS_FILE.read_text(encoding="utf-8"))
+
+    keys = {f"{d['id']}/{nid}"
+            for d in dialogue.all_dialogues() for nid in (d.get("nodes") or {})}
+    assert keys <= set(prompts), f"no prompt for: {sorted(keys - set(prompts))[:8]}"
+
+    settings = set(mod.SCENES.values())
+    generic = sorted(k for k in keys if prompts[k] in settings)
+    assert not generic, f"{len(generic)} turns fell back to the scene: {generic[:6]}"
+
+    # The image model renders lettering as garbage, so the brief forbids it.
+    banned = sorted(k for k in keys
+                    if any(w in prompts[k].lower()
+                           for w in ("speech bubble", "lettering", "written words")))
+    assert not banned, f"prompts that ask for text: {banned[:6]}"

@@ -38,7 +38,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from backend import text as mtext  # noqa: E402
 from backend.config import DATA_DIR  # noqa: E402
 
 OUT = DATA_DIR / "accents"

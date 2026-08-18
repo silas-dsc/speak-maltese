@@ -258,7 +258,7 @@ export function fail(message) {
   note.hidden = false;
 }
 
-export function dismiss() {
+function dismiss() {
   if (!el) return;
   el.classList.add('is-done');
   setTimeout(() => { el?.remove(); el = null; }, 320);

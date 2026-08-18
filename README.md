@@ -18,10 +18,9 @@ are needed for anything** — speech in, speech out and conversation all run loc
 
 ## What it does
 
-**Talk (`Taħdita`)** — Pick one of **35 scenes** (introductions, the café, the
-market, the doctor, the pharmacy, the bus, getting lost, booking a table, getting
-unstuck…) and work through it out loud. Hold the mic or type. Each line comes back as Maltese audio
-plus the written Maltese and a translation you can hide.
+**Talk (`Taħdita`)** — Work through a scene out loud. Hold the mic or type. Each
+line comes back as Maltese audio plus the written Maltese and a translation you can
+hide, with a picture of the moment square beside it — one per turn, not one per scene.
 
 Every reply is authored and pre-voiced, and what you say is matched against a list of
 accepted answers *phonetically* — so `nixtiek kafe jek jogobok` is accepted for
@@ -29,12 +28,25 @@ accepted answers *phonetically* — so `nixtiek kafe jek jogobok` is accepted fo
 or a wrong one shows you the target and asks for it again, and phrases you get right
 are scheduled into the review deck.
 
-Each scene has its own illustration, and finishing one ends with a summary: how many
-you got first try, how many took a retry, seconds per turn, and the phrases that went
-into your review deck. Completed scenes are ticked in the picker.
+**Show me** puts the answer on screen and says it *before* you have to produce it —
+until now the only way to find out was to get it wrong twice and be told. A turn you
+looked at still advances, but is not filed into the review deck as one you produced.
+
+On a phone the conversation shows **one exchange at a time** — the question, your
+answer, and the marking of it — so nothing you need is below the fold; the earlier
+turns are one tap away. Everything that is not the conversation is in the ☰ menu.
+
+Finishing a scene ends with a summary: how many you got first try, how many took a
+retry, how many after a look, seconds per turn, and the phrases that went into your
+review deck.
 
 Nobody gets stuck: a personal answer (your name, your town) is never graded, and after
 two attempts on any line the conversation moves on regardless.
+
+**Scenes (`Xeni`)** — the **35 scenes** (introductions, the café, the market, the
+doctor, the pharmacy, the bus, getting lost, booking a table, getting unstuck…) as a
+path: grouped by level, each with its own illustration, marked with what is finished,
+which one you are in, and what to do next.
 
 Measured end to end, speech in to spoken Maltese reply out: **0.3s**, of which the
 matching is about 10ms.

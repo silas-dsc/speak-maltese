@@ -29,7 +29,7 @@ const ORT_CDN = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dis
 /** Where the model lives. 2.1MB fits in the repository, so unlike the 200MB build this
     is served from our own origin on both the FastAPI app and GitHub Pages — no CDN for
     the weights, and nothing to configure. */
-export const DEFAULT_MODEL_BASE = 'stt/';
+const DEFAULT_MODEL_BASE = 'stt/';
 
 const SR = 16000;
 const N_FFT = 512;
@@ -75,14 +75,37 @@ export function melFilters(nFreqs = N_FFT / 2 + 1, nMels = N_MELS, sampleRate = 
     pts[i] = toHz(lo + ((hi - lo) * i) / (nMels + 1));
   }
   const bank = [];
+  /* Where each triangle is actually nonzero. A mel filter covers 8 of the 257
+     frequency bins on average (2 at the bottom of the range, 23 at the top) and is
+     zero across the rest, so projecting through the whole row multiplied by zero
+     about 249 times per mel, 64 mels a frame, ~300 frames an utterance.
+
+     Summing only the covered bins is bit-identical — tests/test_client_nanostt.py
+     compares the whole feature matrix against NeMo's — and takes a three-second
+     utterance from 10.4ms to 4.2ms. Small against the model run, but it is the part
+     that happens on the main thread while the learner waits.
+
+     Carried beside the bank rather than on the rows, so a row is still a plain
+     Float32Array to anything that indexes or copies it. */
+  bank.from = new Int32Array(nMels);
+  bank.to = new Int32Array(nMels);
+
   for (let m = 0; m < nMels; m += 1) {
     const row = new Float32Array(nFreqs);
     const [a, b, c] = [pts[m], pts[m + 1], pts[m + 2]];
     const enorm = 2 / (pts[m + 2] - pts[m]);
+    let from = nFreqs;
+    let to = 0;
     for (let k = 0; k < nFreqs; k += 1) {
       const f = (k * sampleRate) / 2 / (nFreqs - 1);
       row[k] = Math.max(0, Math.min((f - a) / (b - a), (c - f) / (c - b))) * enorm;
+      if (row[k] > 0) {
+        if (k < from) from = k;
+        to = k + 1;
+      }
     }
+    bank.from[m] = Math.min(from, to);
+    bank.to[m] = to;
     bank.push(row);
   }
   return bank;
@@ -180,8 +203,13 @@ export function features(wave, mel = melFilters(), window = analysisWindow()) {
     for (let k = 0; k <= N_FFT / 2; k += 1) power[k] = re[k] * re[k] + im[k] * im[k];
     for (let m = 0; m < nMels; m += 1) {
       const row = mel[m];
+      // Only the bins the triangle covers — see `melFilters`. The fallback is for a
+      // bank built by something other than that function, where the whole row is
+      // the honest answer.
+      const from = mel.from ? mel.from[m] : 0;
+      const to = mel.to ? mel.to[m] : row.length;
       let acc = 0;
-      for (let k = 0; k < row.length; k += 1) acc += power[k] * row[k];
+      for (let k = from; k < to; k += 1) acc += power[k] * row[k];
       out[m * frames + t] = Math.log(acc + LOG_GUARD);
     }
   }

@@ -40,7 +40,7 @@ MODEL = "x/flux2-klein:latest"
 STYLE = ("flat vector editorial illustration, warm Mediterranean palette of "
          "limestone cream, terracotta and sea blue, soft flat shapes, minimal "
          "detail, no text, no lettering, no people's faces in close-up, "
-         "calm and friendly, wide banner composition")
+         "calm and friendly, centred composition")
 
 SCENES = {
     "greet": "two neighbours greeting each other on a Maltese street with a limestone balcony above",
@@ -92,19 +92,135 @@ def generate(prompt: str, timeout: int = 900) -> bytes:
     return base64.b64decode(b64)
 
 
-def to_webp(png: bytes, width: int = 640) -> bytes:
+def to_webp(png: bytes, width: int = 640, ratio: float = 2.0) -> bytes:
+    """Centre-crop to `ratio` (width ÷ height), downscale, encode.
+
+    Two shapes are wanted. The scenes screen shows a 2:1 banner, which is what a card
+    with a title under it wants. The conversation shows a square, because it sits
+    beside the tutor's line and matches its height — a banner there would either
+    overflow the bubble or be cropped to a letterbox by the browser."""
     from PIL import Image
 
     im = Image.open(io.BytesIO(png)).convert("RGB")
-    # Crop to a 2:1 banner from the centre, then downscale.
     w, h = im.size
-    target_h = min(h, w // 2)
-    top = (h - target_h) // 2
-    im = im.crop((0, top, w, top + target_h))
-    im = im.resize((width, width // 2), Image.LANCZOS)
+    target_h = min(h, int(w / ratio))
+    target_w = min(w, int(target_h * ratio))
+    top, left = (h - target_h) // 2, (w - target_w) // 2
+    im = im.crop((left, top, left + target_w, top + target_h))
+    im = im.resize((width, int(width / ratio)), Image.LANCZOS)
     buf = io.BytesIO()
     im.save(buf, "WEBP", quality=78, method=6)
     return buf.getvalue()
+
+
+# ── One picture per turn ──────────────────────────────────────────────────────
+#
+# A picture per *scene* is a signpost: it says where you are and then says the same
+# thing for the next four questions. A picture per *turn* is a prompt — it can show
+# the thing being asked about, which for a language learner is the half of the
+# question that needs no translating.
+#
+# 113 turns is too many prompts to write by hand and, worse, too many to keep in step
+# with the dialogue: edit a line in `data/dialogues.json` and a hand-written prompt
+# silently describes the old one. So they are derived from the scene's setting and
+# the turn's own English gloss by the local text model — once — and written to
+# `data/turn_prompts.json`, which is committed.
+#
+# Cached rather than derived on the fly on purpose. The file is the record of what
+# each image was asked to be: reviewable in a diff, editable by hand when the model
+# produces something silly, and the reason a re-render produces the same set rather
+# than a new interpretation.
+
+PROMPTS_FILE = ROOT / "data" / "turn_prompts.json"
+TEXT_MODEL = "qwen3.5:latest"
+
+DESCRIBE = """You write one-line prompts for an illustrator.
+
+Setting: {setting}
+In this moment, a Maltese speaker says: "{say_en}"
+The learner has to: {expect_en}
+
+Describe, in one sentence of at most 25 words, what to draw for this moment. Show
+the objects and the situation. Do not mention speech, words, letters, signs, text,
+speech bubbles or writing of any kind. Do not use quotation marks. Reply with the
+sentence only."""
+
+
+def describe(setting: str, say_en: str, expect_en: str, timeout: int = 120) -> str:
+    r = httpx.post(OLLAMA, timeout=timeout, json={
+        "model": TEXT_MODEL,
+        "prompt": DESCRIBE.format(setting=setting, say_en=say_en,
+                                  expect_en=expect_en or "reply"),
+        "stream": False,
+        "think": False,
+        "options": {"temperature": 0.4},
+    })
+    r.raise_for_status()
+    line = (r.json().get("response") or "").strip()
+    # Models like to answer in prose around the answer. Take the first sentence, drop
+    # the quotes they wrap it in, and cap the length — the renderer ignores the tail
+    # of an over-long prompt anyway, and a runaway one is a sign of a bad answer.
+    line = line.split("\n")[0].strip().strip('"').strip()
+    return line[:220]
+
+
+def turn_prompts(force: bool = False) -> dict[str, str]:
+    """`{"cafe/c1": "…"}`, generated once and read from disk after that."""
+    cached = {}
+    if PROMPTS_FILE.exists() and not force:
+        cached = json.loads(PROMPTS_FILE.read_text(encoding="utf-8"))
+
+    wanted = [(d["id"], nid, node)
+              for d in dialogue.all_dialogues()
+              for nid, node in (d.get("nodes") or {}).items()]
+    missing = [(sid, nid, n) for sid, nid, n in wanted if f"{sid}/{nid}" not in cached]
+    if not missing:
+        return cached
+
+    print(f"  writing {len(missing)} turn prompts with {TEXT_MODEL} …")
+    for sid, nid, node in missing:
+        setting = SCENES.get(sid) or ""
+        try:
+            line = describe(setting, node.get("say_en", ""), node.get("expect_en", ""))
+        except Exception as exc:  # noqa: BLE001
+            print(f"    ! {sid}/{nid}: {exc}")
+            continue
+        # A description that comes back empty falls back to the scene's own setting,
+        # which is what the turn would have shown anyway.
+        cached[f"{sid}/{nid}"] = line or setting
+        print(f"    {sid}/{nid}: {cached[f'{sid}/{nid}'][:72]}")
+
+    PROMPTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROMPTS_FILE.write_text(json.dumps(cached, ensure_ascii=False, indent=1) + "\n",
+                            encoding="utf-8")
+    return cached
+
+
+def jobs(kind: str, only: str | None) -> list[tuple[str, Path, str]]:
+    """`(label, destination, subject)` for everything that could be rendered."""
+    out = []
+    if kind in ("scenes", "all"):
+        for d in dialogue.all_dialogues():
+            sid = d["id"]
+            if only and sid != only:
+                continue
+            subject = SCENES.get(sid)
+            if not subject:
+                print(f"  ? no prompt for scene {sid!r} — skipping")
+                continue
+            out.append((sid, OUT_DIR / f"scene-{sid}.webp", subject))
+    if kind in ("turns", "all"):
+        prompts = turn_prompts()
+        for d in dialogue.all_dialogues():
+            sid = d["id"]
+            if only and sid != only:
+                continue
+            for nid in (d.get("nodes") or {}):
+                subject = prompts.get(f"{sid}/{nid}") or SCENES.get(sid)
+                if not subject:
+                    continue
+                out.append((f"{sid}/{nid}", OUT_DIR / f"turn-{sid}-{nid}.webp", subject))
+    return out
 
 
 def main() -> int:
@@ -112,38 +228,46 @@ def main() -> int:
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--only", default=None)
     ap.add_argument("--width", type=int, default=640)
+    ap.add_argument("--what", choices=("scenes", "turns", "all"), default="all",
+                    help="scenes: the 2:1 banners for the scenes screen. "
+                         "turns: the square picture beside each question.")
+    ap.add_argument("--prompts-only", action="store_true",
+                    help="write data/turn_prompts.json and stop — cheap, and worth "
+                         "reading before an hour of rendering")
     args = ap.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    ids = [d["id"] for d in dialogue.all_dialogues()]
-    if args.only:
-        ids = [i for i in ids if i == args.only]
+    if args.prompts_only:
+        got = turn_prompts(force=args.force)
+        print(f"✓ {len(got)} turn prompts in {PROMPTS_FILE.relative_to(ROOT)}")
+        return 0
+
+    todo = jobs(args.what, args.only)
+    # Square beside a question, 2:1 above a scene card. See `to_webp`.
+    ratio = {"scene": 2.0, "turn": 1.0}
 
     made, skipped, failed = [], 0, []
-    for i, sid in enumerate(ids, 1):
-        dest = OUT_DIR / f"scene-{sid}.webp"
+    for i, (label, dest, subject) in enumerate(todo, 1):
         if dest.exists() and not args.force:
             skipped += 1
             continue
-        subject = SCENES.get(sid)
-        if not subject:
-            print(f"  ? no prompt for scene {sid!r} — skipping")
-            continue
+        shape = ratio["turn" if dest.name.startswith("turn-") else "scene"]
+        width = args.width if shape == 2.0 else args.width // 2
         prompt = f"{subject}. {STYLE}"
         t0 = time.time()
-        print(f"  [{i}/{len(ids)}] {sid} …", end="", flush=True)
+        print(f"  [{i}/{len(todo)}] {label} …", end="", flush=True)
         try:
-            webp = to_webp(generate(prompt), args.width)
+            webp = to_webp(generate(prompt), width, shape)
             dest.write_bytes(webp)
-            made.append(sid)
+            made.append(label)
             print(f" {len(webp)/1024:.0f} KB in {time.time()-t0:.0f}s")
         except Exception as exc:  # noqa: BLE001
-            failed.append(sid)
+            failed.append(label)
             print(f" FAILED: {exc}")
 
     total = sum(f.stat().st_size for f in OUT_DIR.glob("*.webp"))
     (OUT_DIR / "CREDITS.md").write_text(
-        "# Scene illustrations\n\n"
+        "# Illustrations\n\n"
         f"Generated locally with `{MODEL}` via Ollama by "
         "`scripts/generate_scene_images.py`. No third-party imagery is used, so there\n"
         "is nothing here copied from the web.\n\n"

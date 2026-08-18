@@ -59,6 +59,19 @@ export function present(did, nid) {
     // "anything goes" asks them to guess the half that is marked.
     frames: n.frames || [],
     options: (n.accept || []).filter((a) => !a.open).map((a) => a.en),
+    // Whether the answer is the learner's own — their name, their town — which
+    // changes "say this" into "say something like this".
+    free: !!n.free,
+    // One model answer, in Maltese, so the app can show and *say* what it is waiting
+    // for before the learner has to produce it. `options` was English only, which
+    // tells somebody what to mean and not what to utter.
+    //
+    // Deliberately a non-open one. Those are the entries `every_line()`
+    // pre-synthesises, so the line offered here is always one the static build has
+    // audio for; an open entry is a frame with a gap in it (`Jisimni …`), which is
+    // neither speakable nor a model of anything.
+    answer: (n.accept || []).filter((a) => !a.open)
+      .map((a) => ({ mt: a.mt, en: a.en || '' }))[0] || null,
   };
 }
 
@@ -243,7 +256,7 @@ function bestFrame(said, accepted) {
   return [best, Math.round(bestScore * 10000) / 10000];
 }
 
-export function bestMatch(said, accepted) {
+function bestMatch(said, accepted) {
   let best = null;
   let bestScore = 0;
   for (const candidate of accepted || []) {

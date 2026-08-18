@@ -311,6 +311,31 @@ def test_app_js_defines_everything_it_calls():
     assert not missing, f"called but never defined in app.js: {sorted(missing)}"
 
 
+def test_seeding_the_deck_never_rewrites_a_schedule():
+    """`seedDeck` runs on every boot, over the store holding the only irreplaceable
+    thing in the app. Two invariants, and both have a plausible wrong version that
+    looks fine in review:
+
+    * it must write a schedule row only where there is none. `put` on every card
+      would reset every card's schedule on every page load — the app would look
+      perfect and quietly never remember anything.
+    * it must ask which rows exist with one `getAllKeys`, not with a `get` per card.
+      That was 470 requests behind the startup screen to answer a question the key
+      index answers in a single read.
+
+    Structural, because the real thing needs IndexedDB. It is worth having anyway:
+    the failure mode is silent, and nothing downstream would notice."""
+    src = (Path(__file__).resolve().parent.parent / "frontend" / "store.js").read_text()
+    body = src.split("export async function seedDeck")[1].split("\nexport ")[0]
+
+    assert "stateStore.getAllKeys()" in body, "one read for the keys, not one per card"
+    assert "stateStore.get(" not in body, "a per-card get is back"
+    # The only `put` into the schedule store sits behind the has-no-row check.
+    guarded = body.split("if (!have.has(c.id))")
+    assert len(guarded) == 2, "the blank-state write is no longer guarded"
+    assert "stateStore.put(" not in guarded[0], "a schedule is written before the check"
+
+
 # ── Offline shell ──────────────────────────────────────────────────────────
 
 def test_a_browser_on_another_origin_may_send_an_utterance(client):

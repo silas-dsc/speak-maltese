@@ -1,4 +1,4 @@
-# Scene illustrations
+# Illustrations
 
 Generated locally with `x/flux2-klein:latest` via Ollama by `scripts/generate_scene_images.py`. No third-party imagery is used, so there
 is nothing here copied from the web.

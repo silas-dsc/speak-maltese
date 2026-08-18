@@ -106,7 +106,13 @@ const asPromise = (req) => new Promise((resolve, reject) => {
     phrase earned in conversation on the next page load: drill cards are written
     by `addCards` and are not in `/api/deck`, so they were wiped while their state
     rows survived as orphans that `buildQueue` then filtered out. Cards the server
-    did not send are now left where they are. */
+    did not send are now left where they are.
+
+    Runs on every boot, behind the startup screen, so what it costs is what the
+    learner waits. It asked the schedule store whether each of the 470 cards had a
+    row — 470 separate `get`s, each a request object with its own callback, to
+    answer a question one `getAllKeys()` answers in a single read. That is the whole
+    reason it is a keyed store. */
 export async function seedDeck(cards) {
   const db = await open();
   return new Promise((resolve, reject) => {
@@ -125,18 +131,21 @@ export async function seedDeck(cards) {
       }
     };
 
-    for (const c of cards) {
-      cardStore.put(c);
-      // Only create a state row if there isn't one; overwriting would reset the
-      // schedule of every card on every boot.
-      const get = stateStore.get(c.id);
-      get.onsuccess = () => {
-        if (!get.result) {
+    // Keys only: which cards already have a schedule. The rows themselves are the
+    // learner's and are not read here, let alone rewritten — overwriting one would
+    // reset that card's schedule on every boot.
+    const scheduled = stateStore.getAllKeys();
+    scheduled.onsuccess = () => {
+      const have = new Set(scheduled.result);
+      for (const c of cards) {
+        cardStore.put(c);
+        if (!have.has(c.id)) {
           stateStore.put({ cardId: c.id, ...blankState() });
           added += 1;
         }
-      };
-    }
+      }
+    };
+
     t.oncomplete = () => resolve({ cards: cards.length, fresh: added });
     t.onerror = () => reject(t.error);
     t.onabort = () => reject(t.error);
@@ -259,72 +268,29 @@ export function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
 
-/* ── Did the tab survive loading the recogniser? ──────────────────────────────
+/* ── Two markers from a model this app no longer ships ─────────────────────
 
-   The on-device recogniser is a ~200MB model instantiated on the GPU, and the
-   startup screen waits for it. On a phone that is the heaviest thing the app ever
-   does, and a browser that runs out of memory there kills the tab and reloads it —
-   into the same load, which kills it again. Reported from an iPhone as a crash
-   followed by a white screen.
+   The recogniser used to be able to take the tab down with it, and both of these
+   remembered that. `sm.sttLoading` was written before a load and cleared after it,
+   so a marker still present at the next boot meant the tab had died mid-load and the
+   load should not be walked into again. `sm.modelTooBig` recorded a device where
+   that had happened, and recognition was refused there for good — a fact about the
+   hardware rather than a preference of the learner's.
 
-   A marker is written before the load and removed when it finishes, whether it
-   worked or threw. So a marker still present at the next boot means the attempt
-   never finished at all: the tab died mid-load. Retrying that identically is how a
-   boot loop is built, so it is not retried — the setting is switched off and the
-   learner is told, which leaves an app that types and reviews rather than one that
-   will not open. */
+   Both were about ~200MB of weights instantiated on the GPU against the 250-350MB
+   WebKit gives a page on an iPhone SE. The recogniser is 2.1MB on the CPU now and
+   has no such ceiling to reach.
 
-const STT_LOAD_KEY = 'sm.sttLoading';
+   So the code is gone and the keys are cleared rather than read. `sm.modelTooBig`
+   because a device still carrying it is carrying a verdict about a model it no
+   longer runs, and nothing left in the app would ever lift it. `sm.sttLoading`
+   because nothing had read it since the model shrank — it was a flag written on
+   every boot that no code consulted, and reconnecting it would have meant switching
+   speech off for anyone whose tab was interrupted for an ordinary reason.
 
-export function beginSttLoad() {
+   A no-op on every device that never had them. */
+for (const stale of ['sm.modelTooBig', 'sm.sttLoading']) {
   try {
-    localStorage.setItem(STT_LOAD_KEY, new Date().toISOString());
-  } catch { /* private mode: no crash detection, and nothing worse than that */ }
-}
-
-export function endSttLoad() {
-  try {
-    localStorage.removeItem(STT_LOAD_KEY);
-  } catch { /* see above */ }
-}
-
-/** True when the last attempt to load the recogniser never finished. */
-export function sttLoadCrashed() {
-  try {
-    return !!localStorage.getItem(STT_LOAD_KEY);
-  } catch {
-    return false;
-  }
-}
-
-/* A fact about this device, not a preference of the learner's: the model was
-   started here and the tab died holding it. Measured limits say why — WebKit gives a
-   page 200-350MB on an iPhone SE and the model is 200MB before any tensors — and no
-   setting changes that.
-
-   Kept apart from `local_stt` on purpose. Switching that off would read as "you
-   asked for speech and we quietly withdrew it", when what is true is narrower:
-   recognition cannot run *here*, and belongs on the server instead. The learner can
-   still turn it back on and try again, which is what clearing this is for. */
-
-const MODEL_TOO_BIG_KEY = 'sm.modelTooBig';
-
-export function markModelTooBig() {
-  try {
-    localStorage.setItem(MODEL_TOO_BIG_KEY, '1');
-  } catch { /* nothing here is worth failing startup over */ }
-}
-
-export function forgetModelTooBig() {
-  try {
-    localStorage.removeItem(MODEL_TOO_BIG_KEY);
-  } catch { /* see above */ }
-}
-
-export function modelTooBig() {
-  try {
-    return !!localStorage.getItem(MODEL_TOO_BIG_KEY);
-  } catch {
-    return false;
-  }
+    localStorage.removeItem(stale);
+  } catch { /* private mode: nothing was stored, so there is nothing to clear */ }
 }

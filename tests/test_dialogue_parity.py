@@ -126,3 +126,54 @@ def test_the_fixture_still_passes_in_the_browser_engine(both):
     replayed = [(c, r) for c, r in zip(data, js) if c not in EDGE]
     correct = sum(1 for _c, r in replayed if r["verdict"] == "correct")
     assert correct / len(replayed) >= 0.99, f"only {correct}/{len(replayed)}"
+
+
+# ── The prompt side ────────────────────────────────────────────────────────────
+
+PRESENT_DRIVER = r"""
+import { readFileSync } from 'node:fs';
+import * as d from '../frontend/dialogue.js';
+d.load(JSON.parse(readFileSync('data/dialogues.json', 'utf8')));
+const out = {};
+for (const dia of d.all()) {
+  for (const nid of Object.keys(dia.nodes || {})) {
+    out[`${dia.id}/${nid}`] = d.present(dia.id, nid);
+  }
+}
+console.log(JSON.stringify(out));
+"""
+
+
+def test_the_prompt_side_is_identical_too():
+    """`evaluate` is the half that grades, and it is what the rest of this file
+    replays. `present` is the half that decides what is on the screen, and it drifted
+    the moment something was added to one copy and not the other — which is what
+    happened when the drill learned to show the answer before asking for it:
+    `answer` and `free` went into the Python and the browser's copy would have gone
+    on rendering a "Show me" button that never had a line to show.
+
+    Every node, both engines, whole object compared."""
+    driver = ROOT / "tests" / "_present_driver.mjs"
+    driver.write_text(PRESENT_DRIVER, encoding="utf-8")
+    try:
+        proc = subprocess.run([node, str(driver)], cwd=ROOT,
+                              capture_output=True, text=True, timeout=60)
+    finally:
+        driver.unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr
+    js = json.loads(proc.stdout)
+
+    py = {f"{d['id']}/{nid}": dialogue.present(d["id"], nid)
+          for d in dialogue.all_dialogues() for nid in (d.get("nodes") or {})}
+
+    assert set(js) == set(py), "the two engines do not agree on which nodes exist"
+    assert py, "no nodes to compare"
+    mismatched = {k: (py[k], js[k]) for k in py if py[k] != js[k]}
+    assert not mismatched, (
+        f"{len(mismatched)} nodes differ, first: "
+        + repr(next(iter(mismatched.items()))))
+
+    # And the field the reveal button depends on is actually populated.
+    with_answer = [k for k, v in py.items() if (v.get("answer") or {}).get("mt")]
+    assert len(with_answer) > len(py) * 0.9, (
+        f"only {len(with_answer)} of {len(py)} nodes offer a model answer")

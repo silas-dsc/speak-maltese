@@ -28,9 +28,10 @@ models/
 data/corpus_phrases.tsv
 data/.corpus_cache/
 
-# Browser copies of the recogniser — hundreds of megabytes, and GitHub refuses
-# single files over 100MB. Rebuild with scripts/export_onnx_web.py, or host them
-# somewhere with a CDN and point localstt.js at it.
+# Browser copies of the 200MB wav2vec2 recogniser — hundreds of megabytes, and
+# GitHub refuses single files over 100MB. The app ships a 2.1MB model in
+# frontend/stt/ instead and no longer loads these; scripts/export_onnx_web.py and
+# scripts/bench_onnx.py remain as the measurement that decided it.
 web/models/
 
 # Build output. `python scripts/build_static.py` regenerates it, and CI builds its

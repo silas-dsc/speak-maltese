@@ -15,6 +15,7 @@ evidence, and treat storage failures as forgetfulness rather than as an error.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -205,3 +206,79 @@ def test_an_upload_is_named_for_what_it_is(result):
     mp4 — a clip called speech.webm is a decode failure waiting to happen."""
     assert result["names"] == ["speech.webm", "speech.mp4", "speech.ogg", "speech.webm"]
     assert result["candidateCount"] >= 3
+
+
+# ── The first press ────────────────────────────────────────────────────────────
+#
+# Reported from an iPhone SE: the microphone fails on the very first try, every
+# time, and works on the second. Two separate faults in `app.js` produce exactly
+# that, and both live in the gesture path rather than in this module — so they are
+# asserted structurally here, next to the reasoning, because the alternative is a
+# browser and a real microphone.
+
+
+def _app_js() -> str:
+    return (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+
+
+def test_the_format_probe_stands_aside_for_a_real_recording():
+    """`prewarmMic` is bound to pointerdown on `window`, so on the first press it
+    runs when the event *bubbles* — after the button's own handler has called
+    `begin()` and found `probing` still null. The guard written to stop two
+    MediaRecorders sharing one stream therefore could not fire on the one press it
+    was needed for, and the 300ms probe recorded over the first utterance.
+
+    It stops happening for a different reason on the second press — by then a format
+    is known and the probe returns immediately — which is why it read as a first-try
+    problem rather than as a race."""
+    src = _app_js()
+    assert "let recordingNow = false;" in src
+    assert "if (recordingNow) return;" in src, "verifyCapture no longer stands aside"
+    # Set before anything is awaited, or the bubbling listener runs first anyway.
+    begin = src.split("async function begin() {")[1].split("async function end()")[0]
+    # Comments first: the one above the guard says "after the await below", and
+    # splitting on the word would cut the body off before any of it.
+    head = re.sub(r"(?m)^\s*//.*$", "", begin).split("await")[0]
+    assert "recordingNow = true;" in head, "the flag is set after an await"
+
+
+def test_letting_go_before_the_microphone_opened_still_sends():
+    """Opening the microphone costs 100-500ms and `end()` returned early on
+    `!active` — precisely the state a press spends that time in. So on a cold page
+    the whole first utterance went into a recorder that had not started yet and a
+    release that nothing acted on; the button then turned red by itself and the
+    *second* press was what sent anything.
+
+    Unlike the probe race, this does not depend on the device having a format on
+    file: it happens on every page load."""
+    src = _app_js()
+    assert "let releasedEarly = false;" in src
+    assert "if (starting) { releasedEarly = true; return; }" in src, \
+        "a release during startup is being dropped again"
+    assert "if (releasedEarly) await end();" in src, "…and never acted on"
+
+
+def test_the_button_says_something_before_the_microphone_is_open():
+    """Half a second of a button that does nothing is what teaches somebody to press
+    it twice — which is how both faults above were being reached in the first
+    place."""
+    src = _app_js()
+    begin = src.split("async function begin() {")[1].split("async function end()")[0]
+    # Comments first: the one above the guard says "after the await below", and
+    # splitting on the word would cut the body off before any of it.
+    head = re.sub(r"(?m)^\s*//.*$", "", begin).split("await")[0]
+    assert "Opening the microphone…" in head
+    assert "button.classList.add('is-recording');" in head
+
+
+def test_the_microphone_is_opened_before_the_first_press_where_it_may_be():
+    """The fixes above cope with the wait; not paying it is better. Where the browser
+    will confirm the microphone is already granted, the stream is opened at startup
+    and the first press has nothing to wait for. Only where it will *say* so — a
+    `getUserMedia` out of nowhere on a page without permission is a prompt the
+    learner did not ask for, and one they are likely to refuse."""
+    src = _app_js()
+    assert "async function prewarmIfAlreadyAllowed()" in src
+    assert "navigator.permissions.query({ name: 'microphone' })" in src
+    assert "if (status.state === 'granted')" in src
+    assert "prewarmIfAlreadyAllowed();" in src, "defined but never called"

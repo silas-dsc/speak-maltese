@@ -55,10 +55,13 @@
               aria-haspopup="dialog">⋯</button>
     </div>
 
+    <!-- Kept for the transcript view, where turns are a plain log and there is no
+         single question for a picture to belong to. In focus mode the picture is the
+         turn's own, and it sits beside the question instead — see `.turn-art`.
+         No loading="lazy": the figure starts hidden until the image resolves, and a
+         lazy image inside a hidden element never enters the viewport, so it would
+         never load at all. These are ~9 KB each. -->
     <figure class="scene-hero" id="sceneHero" hidden>
-      <!-- No loading="lazy": the figure starts hidden until the image resolves,
-           and a lazy image inside a hidden element never enters the viewport, so it
-           would never load at all. These are ~9 KB each. -->
       <img id="sceneImg" alt="" width="640" height="320" decoding="async">
       <figcaption id="sceneCaption"></figcaption>
     </figure>
@@ -71,7 +74,19 @@
     <div class="chat is-focus" id="drillChat" aria-live="polite"></div>
 
     <div class="composer">
-      <p class="drill-expect" id="drillExpect"></p>
+      <div class="cue-row">
+        <p class="drill-expect" id="drillExpect"></p>
+        <!-- Somewhere to look when you have no idea. Without it the only way to find
+             out what to say was to get it wrong twice and be shown. -->
+        <button class="cue-btn" id="drillReveal" hidden>Show me</button>
+      </div>
+      <p class="drill-answer" id="drillAnswer" hidden>
+        <span class="lead" id="drillAnswerLead">Say</span>
+        <b id="drillAnswerMt"></b>
+        <em id="drillAnswerEn"></em>
+        <button class="cue-btn" id="drillAnswerPlay" aria-label="Hear it">🔊 Hear it</button>
+        <button class="cue-btn" id="drillAnswerSlow" aria-label="Hear it slowly">🐢 Slow</button>
+      </p>
       <div class="composer-row">
         <button class="mic" id="drillMic" aria-label="Hold to speak">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11a6 6 0 0 1-12 0M12 17v4M8.5 21h7"/></svg>

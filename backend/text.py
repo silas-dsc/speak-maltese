@@ -103,7 +103,7 @@ def score(said: str, target: str) -> float:
 
 
 def diff_words(said: str, target: str) -> list[dict]:
-    """Word-level diff for the correction card.
+    """Word-level diff of an attempt against its target — the marking under a review card.
 
     Returns a list of {op, said, target} where op is equal|sub|del|ins.
     `del` = the learner said something extra, `ins` = they left something out.
@@ -291,15 +291,6 @@ def looks_english(s: str) -> bool:
     w = _words(s)
     en = len(w & _EN_MARKERS)
     return en >= 2 and en > len(w & maltese_markers())
-
-
-_PARENTHETICAL = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]\s*$")
-
-
-def strip_translation(s: str) -> str:
-    """Drop a trailing parenthetical gloss — models like to append `(Xi trid tgħid?)`
-    to an English sentence, which belongs in reply_en, not reply_mt."""
-    return _PARENTHETICAL.sub("", normalise(s)).strip()
 
 
 PREP_FUSION = {

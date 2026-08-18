@@ -156,7 +156,8 @@ export function score(said, target) {
   return round4(0.45 * similarity(said, target) + 0.55 * wordSimilarity(said, target));
 }
 
-/** Word-level diff for the correction card. `del` = extra, `ins` = omitted. */
+/** Word-level diff of an attempt against its target — the marking under a review
+    card, and what `.attempt-diff` renders. `del` = extra, `ins` = omitted. */
 export function diffWords(said, target) {
   const ua = units(said);
   const ub = units(target);
@@ -218,7 +219,7 @@ const RULES = [
   ['j', 'y'],
 ];
 
-export function phoneticKey(s) {
+function phoneticKey(s) {
   let t = (s || '').trim().toLowerCase().normalize('NFC')
     .replace(/[’`]/g, "'")
     .replace(/[àèìòù]/g, (c) => FOLD[c]);

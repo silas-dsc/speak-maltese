@@ -114,6 +114,3 @@ def similarity(a: str, b: str, soft: bool = False) -> float:
         return 0.0
     return difflib.SequenceMatcher(None, ka, kb).ratio()
 
-
-def sounds_like(a: str, b: str, threshold: float = 0.88) -> bool:
-    return similarity(a, b) >= threshold

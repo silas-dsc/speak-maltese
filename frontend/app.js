@@ -250,6 +250,17 @@ function recordBriefly(stream, mime) {
 
 async function verifyCapture(stream) {
   if (capabilities.verified()) return;            // already known on this device
+  /* Never alongside a real recording. The probe opens a MediaRecorder on the shared
+     stream, and two of those produce one empty clip — the comment in `begin()` says
+     so, and its `if (probing) await probing` was written to prevent exactly this.
+     That guard could not fire on the *first* press: `prewarmMic` is bound to
+     pointerdown on `window`, so it runs when the event bubbles up — after the
+     button's own handler has already called `begin()` and found `probing` still
+     null. The probe and the first utterance therefore recorded over each other
+     every time, and the second press worked because by then a format was known.
+     Which is the shape that was reported: fails on the first try, works on the
+     second. */
+  if (recordingNow) return;
   /* Walk the list itself rather than asking `chosenMime()` each time: the probe does
      not strike a format off until it has seen another one work, so the answer would
      not change between rounds and the loop would ask the same question three times. */
@@ -282,6 +293,11 @@ async function verifyCapture(stream) {
   }
 }
 
+/** True from the moment a mic press is handled until its recording has been sent.
+    Module-level because the two things that must not overlap live in different
+    scopes: the format probe up here and the button's `begin()` down there. */
+let recordingNow = false;
+
 /** Warm the mic on the first interaction so the first recording isn't the slow one,
     and find out what this device can actually record while we are here. */
 function prewarmMic() {
@@ -289,6 +305,24 @@ function prewarmMic() {
     .then((stream) => verifyCapture(stream))
     .catch(() => { /* permission comes later, on first real use */ })
     .finally(() => { probing = null; });
+  return probing;
+}
+
+/* Opening the microphone costs 100-500ms, and until it is open a press records
+   nothing. The gesture handlers below cope with that, but coping is not the same as
+   not paying it — so where the browser will say that permission is already granted,
+   the stream is opened at startup and the first press has nothing to wait for.
+
+   Only where it will *say* so. `getUserMedia` without a gesture on a page that has
+   not been granted the microphone is a prompt out of nowhere, which is both rude and
+   likely to be denied; and `permissions.query` does not accept 'microphone'
+   everywhere, so a browser that will not answer simply keeps the old behaviour of
+   waiting for a first touch. */
+async function prewarmIfAlreadyAllowed() {
+  try {
+    const status = await navigator.permissions.query({ name: 'microphone' });
+    if (status.state === 'granted') await prewarmMic();
+  } catch { /* not supported, or not answerable: the gesture path still warms it */ }
 }
 
 /* Recording, written for Safari on iOS rather than for the spec.
@@ -465,15 +499,32 @@ const RANK_AGAINST = 24;
     per turn, where the static build ships all of it. With no field to rank against the
     acceptance falls back to the floor alone, which is weaker but not wrong; the deployed
     build is the static one. */
+/* Every accepted line in the script, normalised once.
+
+   This was rebuilt on every utterance: 113 nodes walked, 377 strings normalised
+   through the Maltese rules, and the whole array shuffled — to keep 24 of it. That
+   is a few milliseconds of regex immediately before the model runs, on the device
+   least able to spare them, to produce an answer that cannot change: the script is
+   loaded at boot and never edited. */
+let answerPool = null;
+
 function distractorsFor(target) {
-  const pool = dialogueEngine.everyAnswer()
-    .map((line) => mtext.normalise(line).toLowerCase().trim())
-    .filter((line) => line && line !== target);
-  for (let i = pool.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  if (!answerPool) {
+    answerPool = dialogueEngine.everyAnswer()
+      .map((line) => mtext.normalise(line).toLowerCase().trim())
+      .filter(Boolean);
   }
-  return pool.slice(0, RANK_AGAINST);
+  // Partial Fisher–Yates on a copy: draw 24 without replacement and stop, rather
+  // than shuffling all 377 to read the front of it.
+  const pool = answerPool.slice();
+  const out = [];
+  for (let n = pool.length; out.length < RANK_AGAINST && n > 0; n -= 1) {
+    const j = Math.floor(Math.random() * n);
+    const pick = pool[j];
+    pool[j] = pool[n - 1];
+    if (pick !== target) out.push(pick);
+  }
+  return out;
 }
 
 async function transcribe(blob, target) {
@@ -546,9 +597,6 @@ async function setLocalStt(on) {
       : 'Speech recognition is off, and this build has no server to do it.';
     return;
   }
-  /* A device written off while it was holding the 200MB model gets a clean slate:
-     that fact was about a model this app no longer ships. */
-  store.forgetModelTooBig();
   if (!nanostt.supported()) {
     state.settings.local_stt = false;
     persistSettings();
@@ -588,28 +636,53 @@ function bindMic(button, { onResult, onStatus, target }) {
 
   const setBusy = (busy) => button.classList.toggle('is-busy', busy);
 
+  /* The finger let go before the microphone was open. Remembered rather than
+     dropped: `end()` used to return on `!active` and that is the state a press
+     spends its first 100-500ms in, so on a cold page the whole first utterance —
+     press, speak, release — went into a recorder that had not started yet and a
+     release that nothing acted on. The button then quietly turned red on its own,
+     and the *second* press was what sent anything. Reported as "fails the first
+     time, works the second", and it happens on every page load, not once per
+     device. */
+  let releasedEarly = false;
+
   async function begin() {
     // `active` cannot be the only guard: it is set after the await below, so two
     // quick taps both got past it and started a second MediaRecorder over the top
     // of the first, which then ran on unreferenced and unstoppable.
     if (active || starting || button.classList.contains('is-busy')) return;
     starting = true;
+    releasedEarly = false;
+    recordingNow = true;
+    // Feedback before the await, not after it. Half a second of a button that does
+    // nothing is what teaches somebody to press it twice.
+    button.classList.add('is-recording');
+    onStatus?.('Opening the microphone…');
     // A tap can land while the format probe is still recording its 300ms; two
     // MediaRecorders on one stream is how you get a clip with nothing in it.
     if (probing) await probing;
     try {
       await recorder.start();
       active = true;
-      button.classList.add('is-recording');
       onStatus?.('Listening… (release to send)');
     } catch (err) {
+      recordingNow = false;
+      button.classList.remove('is-recording');
+      onStatus?.('');
       toast(err.message);
+      return;
     } finally {
       starting = false;
     }
+    /* Released while we were still opening. Send what there is: the microphone came
+       up partway through the utterance, so the tail of it is real audio and the
+       recogniser is entitled to see it. If it caught nothing at all, `stop()` says
+       so in the words of the failure rather than in silence. */
+    if (releasedEarly) await end();
   }
 
   async function end() {
+    if (starting) { releasedEarly = true; return; }   // begin() will call us
     if (!active) return;
     active = false;
     button.classList.remove('is-recording');
@@ -628,6 +701,12 @@ function bindMic(button, { onResult, onStatus, target }) {
       toast(`Could not transcribe: ${err.message}`);
     } finally {
       setBusy(false);
+      recordingNow = false;
+      /* The probe stood aside for this recording, so if it never got to run — first
+         press on a device nothing is known about — find out now, while nobody is
+         holding the button. A successful recording has already answered the question
+         by verifying its own container, so this is only for the ones that failed. */
+      if (!capabilities.verified()) prewarmMic();
     }
   }
 
@@ -695,16 +774,13 @@ async function boot() {
            were written for. A 2.1MB recogniser on the CPU cannot exhaust a page budget
            the way 200MB of weights on the GPU did, so there is no longer a class of
            phone that has to be refused, and nothing to remember about one that was.
-           `beginSttLoad` stays: any load that kills the tab should still not be retried
-           on sight, whatever its size. */
-        store.beginSttLoad();
-        /* Bounded, and then left to finish on its own. The deck, the conversation and
+
+           Bounded, and then left to finish on its own. The deck, the conversation and
            typing do not need it, and `isReady()` is checked at the moment something is
            said — so a late arrival simply starts working. */
         const loading = nanostt.load({ onProgress })
           .then(() => true)
-          .catch(() => false)       // typing still works; the toggle explains why
-          .finally(() => store.endSttLoad());
+          .catch(() => false);      // typing still works; the toggle explains why
         const waited = await Promise.race([
           loading,
           new Promise((done) => setTimeout(() => done('slow'), MODEL_WAIT_MS)),
@@ -741,10 +817,7 @@ async function boot() {
   // build has a recogniser of its own, so this warms rather than blocking.
   if (!remoteStt() && state.settings.local_stt && nanostt.supported()
       && !nanostt.isReady()) {
-    store.beginSttLoad();
-    nanostt.load()
-      .catch(() => { /* the server path still works */ })
-      .finally(() => store.endSttLoad());
+    nanostt.load().catch(() => { /* the server path still works */ });
   }
 }
 
@@ -812,11 +885,19 @@ function updateCounts(counts) {
    under a millisecond, and its audio is already cached, so the only wait is
    speech recognition. */
 
+/* Per-run tally, so finishing a scene ends with something to look at rather than
+   just stopping. Written once: it was spelled out at three call sites and the
+   `peeked` bucket would have had to be added to all three — which is how the one
+   that restores a saved conversation ends up a field behind the others. */
+function freshRun() {
+  return { first: 0, retried: 0, movedOn: 0, peeked: 0, learned: [], startedAt: Date.now() };
+}
+
 const drill = {
   dialogue: null, node: null, busy: false, attempts: 0, dialogues: [],
-  // Per-run tally, so finishing a scene ends with something to look at rather
-  // than just stopping.
-  run: { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: 0 },
+  // Whether the answer was on screen before it was given. See `toggleAnswer`.
+  peeked: false,
+  run: freshRun(),
   // What the node asked for, kept as the server or the engine gave it, so the
   // conversation can be restored without asking either of them again.
   present: null,
@@ -892,7 +973,7 @@ function restoreDrill(dialogues) {
 
   drill.dialogue = s.dialogue;
   drill.turns = s.turns;
-  drill.run = s.run || { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
+  drill.run = { ...freshRun(), ...(s.run || {}) };
   // The clock counts time spent in the scene, not time the tab spent closed.
   drill.run.startedAt = Date.now() - (s.run?.elapsedMs || 0);
   showSceneImage(s.dialogue);
@@ -1023,7 +1104,7 @@ function goToNextScene() {
 async function startDrill(id) {
   if (!id) return;
   drill.dialogue = id;
-  drill.run = { first: 0, retried: 0, movedOn: 0, learned: [], startedAt: Date.now() };
+  drill.run = freshRun();
   drill.turns = [];
   drill.present = null;
   saved.clear();
@@ -1036,30 +1117,21 @@ async function startDrill(id) {
   presentDrillNode(node);
 }
 
-/* Scene art is decoration: if an image is missing the header simply stays hidden,
-   because a broken-image icon above a conversation is worse than no picture.
+/* The scene banner, for the transcript view. In focus mode there is a picture per
+   turn instead, so this stays out of the way — see `applyFocus`.
 
-   Two places want it. In focus mode it is the backdrop of the exchange — free,
-   vertically, which is the whole reason focus mode can show a picture at all on a
-   phone. With focus off it is the band above the conversation it always was. */
+   Decoration either way: if the image is missing the figure simply stays hidden,
+   because a broken-image icon above a conversation is worse than no picture. */
 function showSceneImage(id) {
   const hero = $('sceneHero');
   const img = $('sceneImg');
   const meta = drill.dialogues?.find((d) => d.id === id);
-  const src = `img/scene-${id}.webp`;
-  img.onerror = () => {
-    hero.hidden = true;
-    $('drillChat').style.removeProperty('--scene-img');
-  };
-  img.onload = () => {
-    hero.hidden = focusMode.on;
-    $('drillChat').style.setProperty('--scene-img', `url("${src}")`);
-  };
+  img.onerror = () => { hero.hidden = true; };
+  img.onload = () => { hero.hidden = focusMode.on; };
   img.alt = meta ? `${meta.name_en}` : '';
   $('sceneCaption').textContent = meta ? `${meta.name} · ${meta.name_en}` : '';
   hero.hidden = true;
-  $('drillChat').style.removeProperty('--scene-img');
-  img.src = src;
+  img.src = `img/scene-${id}.webp`;
 }
 
 /* ── Focus mode ────────────────────────────────────────────────────────────
@@ -1151,20 +1223,69 @@ function installDrillNode(node) {
   if (node.expect_en) parts.push(escapeHtml(node.expect_en));
   if (node.frames?.length) parts.push(node.frames.map((f) => `<b>${escapeHtml(f)}</b>`).join(' / '));
   $('drillExpect').innerHTML = parts.length ? `→ ${parts.join(' · ')}` : '';
+  hideAnswer();
 }
 
-/** Install a node and say its line — a new turn, as opposed to a restored one. */
+/* ── Showing the answer before it is asked for ─────────────────────────────
+   Somewhere to look when you have no idea. Until now the only way to find out what
+   to say was to get it wrong twice and be shown it by the backstop — which teaches
+   the shape of a wrong answer twice before the right one, and on a phone means two
+   rounds of speaking into a microphone hoping.
+
+   A peek is recorded, not punished. The answer still has to be produced, and the
+   turn still advances — but it is not filed into the review deck as a phrase this
+   learner *produced*, because they read it off the screen a moment earlier and FSRS
+   would schedule it as known. That is the same reasoning `moved_on` already uses. */
+function hideAnswer() {
+  drill.peeked = false;
+  $('drillAnswer').hidden = true;
+  $('drillReveal').textContent = 'Show me';
+  // Only offered where there is a line to show. An open question has one; a node
+  // whose accepted answers are all open frames does not.
+  $('drillReveal').hidden = !drill.present?.answer?.mt;
+}
+
+function toggleAnswer() {
+  const answer = drill.present?.answer;
+  if (!answer?.mt) return;
+  const box = $('drillAnswer');
+  if (!box.hidden) {                       // second press: put it away again
+    box.hidden = true;
+    $('drillReveal').textContent = 'Show me';
+    return;
+  }
+  // Their name, their town: there is no single right answer, so the line on screen
+  // is an example of the shape rather than the thing to repeat.
+  $('drillAnswerLead').textContent = drill.present.free ? 'Something like' : 'Say';
+  $('drillAnswerMt').textContent = answer.mt;
+  $('drillAnswerEn').textContent = answer.en || '';
+  box.hidden = false;
+  $('drillReveal').textContent = 'Hide';
+  drill.peeked = true;
+  speak(answer.mt);
+}
+
+/** Install a node and say its line — a new turn, as opposed to a restored one.
+
+    The picture is named after the turn rather than the scene, and stored on the turn
+    rather than looked up when drawing: a conversation restored from storage has to
+    come back with the same pictures beside the same questions, and only the turn
+    knows which node it was. */
 function presentDrillNode(node) {
   installDrillNode(node);
-  drillBubble('tutor', node.say_mt, node.say_en);
-  drill.turns.push({ role: 'tutor', mt: node.say_mt, en: node.say_en });
+  const turn = {
+    role: 'tutor', mt: node.say_mt, en: node.say_en,
+    art: `${drill.dialogue}-${node.node}`,
+  };
+  drillBubble(turn.role, turn.mt, turn.en, turn);
+  drill.turns.push(turn);
   keepDrill();
   if (state.settings.autoplay) speak(node.say_mt);
 }
 
 function showRunSummary() {
-  const { first, retried, movedOn, learned, startedAt } = drill.run;
-  const total = first + retried + movedOn;
+  const { first, retried, movedOn, peeked, learned, startedAt } = drill.run;
+  const total = first + retried + movedOn + peeked;
   const secs = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
   const scene = drill.dialogues.find((d) => d.id === drill.dialogue);
   const phrases = learned.slice(0, 8)
@@ -1183,6 +1304,7 @@ function showRunSummary() {
       <div class="summary-stats">
         <span><b>${first}</b> first try</span>
         <span><b>${retried}</b> on a retry</span>
+        ${peeked ? `<span><b>${peeked}</b> after a look</span>` : ''}
         ${movedOn ? `<span><b>${movedOn}</b> waved through</span>` : ''}
         <span><b>${Math.round(secs / Math.max(1, total))}s</b> a turn</span>
       </div>
@@ -1204,9 +1326,10 @@ function showRunSummary() {
 /** One bubble. `verdict` and `target` are the marking above and the line to repeat
     below it; passing them here rather than bolting them on afterwards is what lets
     a restored conversation come back looking exactly like the one you left. */
-function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = null } = {}) {
+function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = null,
+                                     art = '' } = {}) {
   const el = document.createElement('div');
-  el.className = `turn ${role} ${extraClass}`;
+  el.className = `turn ${role} ${extraClass}${art ? ' has-art' : ''}`;
   /* What part of an exchange this is, which is what focus mode slices on. A tutor
      turn with a verdict is the marking of an answer; one without is a new prompt.
      Recorded here rather than worked out later, so a conversation restored from
@@ -1224,11 +1347,18 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
           <button class="tool" data-play>🔊 Play</button>
           <button class="tool" data-slow>🐢 Slow</button>
         </div>` : ''}
-    </div>`;
+    </div>
+    ${art ? `<img class="turn-art" src="img/turn-${escapeHtml(art)}.webp" alt=""
+                  decoding="async" width="320" height="320">` : ''}`;
   if (role === 'tutor' && mt) {
     el.querySelector('[data-play]').onclick = () => speak(mt);
     el.querySelector('[data-slow]').onclick = () => speak(mt, { rate: 0.7 });
   }
+  /* A question with no picture is a question, not a broken-image icon. The class
+     goes too, so the bubble takes the full width back rather than leaving a gap
+     where the square was. */
+  const img = el.querySelector('.turn-art');
+  if (img) img.onerror = () => { img.remove(); el.classList.remove('has-art'); };
   $('drillChat').append(el);
   // Re-slices the exchange and scrolls; a new turn is the only thing that moves it.
   applyFocus();
@@ -1295,13 +1425,17 @@ async function answerDrill(said) {
     // Tally before advancing: a first-time hit is worth more than a third attempt.
     if (r.verdict === 'correct') {
       if (r.moved_on) drill.run.movedOn += 1;
+      else if (drill.peeked) drill.run.peeked += 1;
       else if (drill.attempts === 0) drill.run.first += 1;
       else drill.run.retried += 1;
-      // Never on a free node. There `matched_mt` is whichever example answer
-      // scored highest against a name or a town — 15% of nothing — and scheduling
-      // it filed a sentence the learner never said into their review deck as one
-      // they had produced correctly.
-      if (r.matched_mt && !r.free && !r.moved_on) {
+      /* Never on a free node. There `matched_mt` is whichever example answer scored
+         highest against a name or a town — 15% of nothing — and scheduling it filed
+         a sentence the learner never said into their review deck as one they had
+         produced correctly.
+         And never after a peek, for the same reason one step removed: the line was
+         on the screen a moment ago, so repeating it is evidence of reading rather
+         than of recall, and FSRS would take it as a card learned. */
+      if (r.matched_mt && !r.free && !r.moved_on && !drill.peeked) {
         drill.run.learned.push({ mt: r.matched_mt, en: r.matched_en });
         // The server used to do this; it has no database to do it in now.
         schedule.registerFromDrill([{ mt: r.matched_mt, en: r.matched_en }], state.settings)
@@ -1317,6 +1451,13 @@ async function answerDrill(said) {
       setTimeout(() => { presentDrillNode(r.next); drill.busy = false; }, 450);
     } else if (r.finished) {
       $('drillExpect').textContent = '';
+      /* And the cue with it. The composer belongs to a node, and there is no node
+         any more: leaving it there ended the scene with a summary on screen and, in
+         the panel below it, the answer to a question that had already been asked and
+         a "Hide" button for it. Dropping `present` is what makes `hideAnswer` take
+         the button away rather than re-offer it. */
+      drill.present = null;
+      hideAnswer();
       doneScenes.mark(drill.dialogue);
       renderScenePath();
       showRunSummary();
@@ -1758,6 +1899,11 @@ $('drillInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') answerDrill($('drillInput').value);
 });
 
+$('drillReveal').addEventListener('click', toggleAnswer);
+$('drillAnswerPlay').addEventListener('click', () => speak(drill.present?.answer?.mt));
+$('drillAnswerSlow').addEventListener('click',
+  () => speak(drill.present?.answer?.mt, { rate: 0.7 }));
+
 bindMic($('drillMic'), {
   onStatus: (s) => { $('drillStatus').textContent = s || 'Hold the mic and answer'; },
   onResult: async (res) => {
@@ -1867,9 +2013,11 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Acquire the mic on the first gesture, so the first recording does not pay the
-// getUserMedia cost mid-utterance.
+// getUserMedia cost mid-utterance — and before any gesture at all where the browser
+// will confirm the microphone is already ours to open.
 window.addEventListener('pointerdown', prewarmMic, { once: true });
 window.addEventListener('keydown', prewarmMic, { once: true });
+prewarmIfAlreadyAllowed();
 
 // Offline support. Registered last so a failure here can never stop the app
 // booting — it is an enhancement, not a dependency.

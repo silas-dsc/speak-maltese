@@ -395,6 +395,68 @@ Which also says where the next gains are, and they are cheap: more lines and mor
 `scripts/import_corpus.py` can widen the text far past the 1,494 lines the deck holds.
 Nothing here suggests a bigger student would help.
 
+### The model had never heard a human
+
+The first student was trained on two synthetic voices and nothing else, and the report
+from a real phone was that it was "very inaccurate". Measuring it properly, on 150
+held-out FLEURS clips of real Maltese speakers, showed that was generous:
+
+| on real human speech | fWER | CER | app score | pass |
+|---|---|---|---|---|
+| wav2vec2-large (teacher) | **19.5%** | **6.8%** | **0.93** | **93%** |
+| first student, 2.1MB | 102.5% | 68.0% | 0.17 | **0%** |
+
+Not a degradation — a total failure. The same student scores 21.5% fWER on synthetic
+speech, and the teacher handling the identical clips rules out the eval being unfair.
+Every number this project had reported until then was measured on the app's own TTS
+voices, which is exactly the kind of blind spot that produces a confident wrong answer.
+
+So the training distribution was rebuilt around what actually reaches the model:
+
+* **Real speakers.** FLEURS `mt_mt` — 3,149 clips, ~15,000 utterance-length chunks.
+  Distillation needs no transcripts (the teacher labels whatever it is given), so any
+  Maltese audio counts. Long Wikipedia sentences are cut to ~3s because the app asks for
+  phrases, not paragraphs.
+* **The codec.** Training audio now goes through the same Opus round-trip
+  `MediaRecorder` produces. Nothing else reproduces what 24kbit Opus does to the
+  fricatives `ħ`, `x` and `għ` live in.
+* **Vocal tracts, rooms, microphones.** Resampling shifts pitch and formants together —
+  crude VTLP, but it turns two voices into many. Plus early reflections, a noise floor,
+  level variation and clipping.
+
+All of that is time-domain, so the teacher is re-run per variant: its posteriors describe
+the audio it was given, frame for frame. That is the step the first round skipped — it
+masked features only, to keep precomputed posteriors aligned, which is precisely why it
+could not fix a domain gap.
+
+**The first attempt at this collapsed, and the failure is worth keeping.** With 60% of the
+data untranscribed, real speech trained on frame-level KD alone — and blank frames
+outnumber character frames by an order of magnitude in any CTC posterior, so matching the
+teacher per frame is satisfied most cheaply by predicting blank everywhere. The student
+went silent on real audio (100% blank across 535 frames) while still reading the synthetic
+clips it had a CTC target for. The fix needed no extra teacher time: the posteriors were
+already on disk, so decoding them gives the sequence the teacher would have transcribed,
+and that becomes a CTC target like any other (`distill_stt.py pseudo`).
+
+| | fWER | CER | app score | pass |
+|---|---|---|---|---|
+| **real speech** | | | | |
+| teacher, 201MB | 19.5% | 6.8% | 0.93 | 93% |
+| **v2, 2.1MB** | **74.6%** | **26.3%** | **0.64** | **19%** |
+| v1, 2.1MB | 102.5% | 68.0% | 0.17 | 0% |
+| **synthetic** | | | | |
+| **v2, 2.1MB** | **16.3%** | 10.2% | 0.94 | **92%** |
+| v1, 2.1MB | 21.5% | 11.6% | 0.95 | 88% |
+
+Better on both, at the same 2.1MB. Under constrained scoring the real-speech gain is
+larger than the transcription numbers suggest: the true line is ranked first 87% of the
+time against v1's 33%, and its confidence rises from 0.622 to 0.973.
+
+**It is still far short of the teacher, and 19% free-decode pass on real speech is not a
+good number.** What it is, is the first version that works on a human being at all. The
+levers left are more real Maltese speech and actual recordings from the people using it —
+not a bigger model, which the flat size curve already ruled out.
+
 ### What the app grades on now
 
 The app used to free-decode and then string-match the transcript against the line it had

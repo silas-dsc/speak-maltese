@@ -402,17 +402,26 @@ class Recorder {
 /* How well the target line has to explain the audio before the app takes the learner's
    word for it, whatever the transcript says.
 
-   Derived, not guessed: `scripts/constrained_ctc.py` reports the cut that turns away
-   95% of near-misses — a dropped word, a lost geminate, a swapped article — and at
-   0.9867 that still accepts 84% of correct answers, against 88% for grading the
-   transcript. It is a ratio against the model's own best path rather than an absolute
-   likelihood, so it does not drift with how good the model is in general.
+   The first value here, 0.9867, was derived entirely from synthetic speech and did not
+   transfer: measured against real human recordings, the *correct* line scored 0.622 on
+   average, so the threshold sat above the thing it was meant to accept and never fired
+   once off the app's own TTS voices. A number calibrated in one acoustic domain is not a
+   number.
 
-   Calibrated on synthetic speech, which is the honest limit of it: this was measured
-   against the app's own TTS voices, not against people. It is used as a floor and never
-   a penalty, so if it is miscalibrated for a real voice the worst case is that it never
-   fires and grading falls back to what it did before. */
-const ACCEPT_CONFIDENCE = 0.9867;
+   Two measurements bracket the case the app actually faces — a short phrase spoken by a
+   person — and neither is exactly it:
+
+     short synthetic phrases   correct 1.026 · near-miss 0.821 · other lines 0.213
+     real human speech         correct 0.973 ·                   other lines 0.344
+
+   0.92 sits above the near-miss band with margin and below where a correct real answer
+   lands. It is still an interpolation between two proxies, and the way to replace it with
+   a measurement is `scripts/compare_stt.py --record 25` — short phrases, real voice, the
+   combination nothing here covers.
+
+   Used as a floor and never a penalty, so being wrong about it costs a missed acceptance
+   rather than a good answer marked bad. */
+const ACCEPT_CONFIDENCE = 0.92;
 
 async function transcribe(blob, target) {
   /* On-device only when there is nowhere better to send it. The model is the

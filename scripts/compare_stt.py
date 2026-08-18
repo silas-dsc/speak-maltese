@@ -49,6 +49,18 @@ CLIPS = DATA_DIR / "eval_clips"
 MANIFEST = CLIPS / "manifest.tsv"
 
 
+def use_clips_dir(path: Path) -> None:
+    """Point the harness at a different evaluation set.
+
+    Every number in this project was measured on the app's own TTS voices, which is the
+    optimistic case and says nothing about a real learner. A directory of real speech
+    with a matching manifest scores through exactly this code instead of a parallel
+    script with its own subtly different metrics."""
+    global CLIPS, MANIFEST
+    CLIPS = path
+    MANIFEST = path / "manifest.tsv"
+
+
 # ── Metrics ────────────────────────────────────────────────────────────────
 
 def _edit(a: list, b: list) -> int:
@@ -450,6 +462,8 @@ def main() -> int:
                     help="ffmpeg avfoundation input for --record, e.g. ':1'")
     ap.add_argument("--list-inputs", action="store_true",
                     help="show the microphones ffmpeg can see, then exit")
+    ap.add_argument("--clips-dir", type=Path, default=None,
+                    help="score a different eval set, e.g. data/fleurs/eval")
     ap.add_argument("--clips", choices=["all", "synth", "voice"], default="all",
                     help="which clips to score: synthetic, recorded, or both")
     ap.add_argument("--voice", default=None)
@@ -458,6 +472,8 @@ def main() -> int:
     ap.add_argument("--worst", type=int, default=5, help="show N worst clips per model")
     args = ap.parse_args()
 
+    if args.clips_dir:
+        use_clips_dir(args.clips_dir)
     if args.synth:
         asyncio.run(synth(args.synth, args.voice))
     if args.record:

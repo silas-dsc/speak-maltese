@@ -315,15 +315,22 @@ def main() -> int:
                                         "carlosdanielhernandezmena/"
                                         "wav2vec2-large-xlsr-53-maltese-64h")
     ap.add_argument("--worst", type=int, default=5)
+    ap.add_argument("--clips-dir", type=Path, default=None,
+                    help="score a different eval set, e.g. data/fleurs/eval")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="cap the clips: the matrix is quadratic in this")
     args = ap.parse_args()
 
+    global CLIPS
+    if args.clips_dir:
+        CLIPS = args.clips_dir
     manifest = CLIPS / "manifest.tsv"
     if not manifest.exists():
         print("No clips. Run compare_stt.py --synth 25 first.", file=sys.stderr)
         return 2
     with manifest.open(encoding="utf-8") as fh:
         rows = [r for r in csv.DictReader(fh, delimiter="\t") if r.get("file")]
-    rows = [r for r in rows if (CLIPS / r["file"]).exists()]
+    rows = [r for r in rows if (CLIPS / r["file"]).exists()][:args.limit]
 
     print(f"Scoring {len(rows)} clips against all {len(rows)} targets "
           f"({len(rows) ** 2} alignments per model)")

@@ -83,7 +83,11 @@ def test_nothing_is_left_of_focus_mode():
     is a conversation with turns that never appear."""
     js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
     for gone in ("applyFocus", "focusMode", "currentExchange", "setFocus",
-                 "dataset.kind", "transcriptToggle", "sheetTranscript",
+                 # The *assignment*. Focus mode tagged every turn with which part of an
+                 # exchange it was and nothing else ever wrote that; `dataset.kind` is
+                 # read elsewhere for an unrelated reason — the games menu's cards — so
+                 # the bare name is the wrong thing to look for.
+                 "el.dataset.kind =", "transcriptToggle", "sheetTranscript",
                  "showSceneImage"):
         assert gone not in js, f"app.js still refers to {gone}"
 

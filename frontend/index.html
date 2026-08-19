@@ -28,6 +28,7 @@
   <nav class="tabs" role="tablist">
     <button class="tab is-active" data-view="drill" role="tab">Taħdita<em>Talk</em></button>
     <button class="tab" data-view="scenes" role="tab">Xeni<em>Scenes</em></button>
+    <button class="tab" data-view="games" role="tab">Logħob<em>Games</em></button>
     <button class="tab" data-view="review" role="tab">Reviżjoni<em>Review</em><span class="badge" id="dueBadge" hidden>0</span></button>
     <button class="tab" data-view="progress" role="tab">Progress<em>Stats</em></button>
     <button class="tab" data-view="reference" role="tab">Gwida<em>Guide</em></button>
@@ -106,6 +107,36 @@
       <p class="path-progress" id="pathProgress"></p>
     </div>
     <div class="path" id="scenePath"></div>
+  </section>
+
+  <!-- ══ GAMES ═════════════════════════════════════════════════════════
+       Four short activities, all of them recognition or assembly rather than
+       production — the half of learning the conversation and the deck skip. -->
+  <section class="view" id="view-games">
+    <div class="game-menu" id="gameMenu">
+      <div class="path-head">
+        <h2>Logħob <em>Games</em></h2>
+        <p class="path-progress" id="gamesProgress"></p>
+      </div>
+      <div class="game-grid" id="gameGrid"></div>
+    </div>
+
+    <div class="game-play" id="gamePlay" hidden>
+      <div class="drill-head">
+        <button class="head-btn head-scene" id="gameBack" aria-label="Back to the games">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="M15 5l-7 7 7 7"/></svg>
+          <span id="gameName">Games</span>
+        </button>
+        <span class="head-step" id="gameStep" hidden></span>
+      </div>
+
+      <div class="game-body" id="gameBody" aria-live="polite"></div>
+
+      <div class="game-foot">
+        <p class="game-verdict" id="gameVerdict"></p>
+        <button class="primary-btn wide" id="gameNext" hidden>Next</button>
+      </div>
+    </div>
   </section>
 
   <!-- ══ REVIEW ════════════════════════════════════════════════════════ -->
@@ -220,6 +251,7 @@
     <nav class="sheet-nav">
       <button class="sheet-item is-active" data-view="drill"><i>💬</i><b>Taħdita</b><em>Talk</em></button>
       <button class="sheet-item" data-view="scenes"><i>🗺</i><b>Xeni</b><em>Scenes</em></button>
+      <button class="sheet-item" data-view="games"><i>🎲</i><b>Logħob</b><em>Games</em></button>
       <button class="sheet-item" data-view="review"><i>🔁</i><b>Reviżjoni</b><em>Review</em><span class="badge" id="sheetBadge" hidden>0</span></button>
       <button class="sheet-item" data-view="progress"><i>📈</i><b>Progress</b><em>Stats</em></button>
       <button class="sheet-item" data-view="reference"><i>📖</i><b>Gwida</b><em>Guide</em></button>

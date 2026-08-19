@@ -14,6 +14,7 @@ import * as srs from './srs.js';
 import * as mtext from './text.js';
 import * as session from './session.js';
 import * as capture from './capture.js';
+import * as games from './games.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1975,6 +1976,362 @@ function renderMarkdown(md) {
   return out.join('\n');
 }
 
+/* ── Mini-games ────────────────────────────────────────────────────────────
+   Four activities the conversation and the deck between them do not cover, all of
+   them recognition or assembly rather than production:
+
+     build      an English sentence, its Maltese one word per tile, in order
+     hearing    one of three near-identical words is played; pick it
+     listening  ten seconds of continuous Maltese, then a question about it
+     grammar    two contrasting correct sentences, then a gap to fill
+
+   The items are derived at build time by `backend/games.py` — from the scripted
+   dialogues and the deck, so their Maltese is sentences somebody already wrote — and
+   `games.js` marks them. Nothing about how they are made lives here. */
+
+const KIND_META = {
+  build: { icon: '🧩', name: 'Ibni sentenza', en: 'Build a sentence',
+           blurb: 'Put the Maltese in order. Some tiles do not belong.' },
+  hearing: { icon: '👂', name: 'Liema smajt?', en: 'Which did you hear?',
+             blurb: 'Three words that sound alike. One of them is played.' },
+  listening: { icon: '🎧', name: 'Podcast qasir', en: 'Mini podcast',
+               blurb: 'Ten seconds of Maltese, then a question about it.' },
+  grammar: { icon: '📐', name: 'Regoli', en: 'Grammar',
+             blurb: 'Two examples, then fill the gap.' },
+};
+
+const play = {
+  payload: null,
+  queue: [],
+  at: 0,
+  kind: null,
+  answered: false,
+  placed: [],            // build: the tiles put down, in order
+  chosen: [],            // listening/words: the words ticked
+  right: 0,
+};
+
+async function loadGames() {
+  if (play.payload) return play.payload;
+  play.payload = STATIC.on
+    ? await api('api/games.json')
+    : await api('/api/games');
+  return play.payload;
+}
+
+async function showGameMenu() {
+  const payload = await loadGames();
+  $('gamePlay').hidden = true;
+  $('gameMenu').hidden = false;
+
+  const counts = games.KINDS ?? Object.keys(KIND_META);
+  $('gameGrid').innerHTML = Object.keys(KIND_META).map((kind) => {
+    const meta = KIND_META[kind];
+    const n = (payload[kind] || []).length;
+    return `<button class="game-card" data-kind="${kind}" ${n ? '' : 'disabled'}>
+        <span class="game-icon" aria-hidden="true">${meta.icon}</span>
+        <span class="game-body-text">
+          <span class="mt">${escapeHtml(meta.name)}</span>
+          <span class="en">${escapeHtml(meta.en)}</span>
+          <span class="blurb">${escapeHtml(meta.blurb)}</span>
+        </span>
+        <span class="game-count">${n}</span>
+      </button>`;
+  }).join('') + `<button class="game-card is-mixed" data-kind="">
+      <span class="game-icon" aria-hidden="true">🎲</span>
+      <span class="game-body-text">
+        <span class="mt">Taħlita</span>
+        <span class="en">A bit of everything</span>
+        <span class="blurb">All four, interleaved — which is how they work best.</span>
+      </span>
+    </button>`;
+
+  for (const card of $('gameGrid').querySelectorAll('.game-card')) {
+    card.onclick = () => startGames(card.dataset.kind || null);
+  }
+  const total = Object.keys(KIND_META).reduce((n, k) => n + (payload[k] || []).length, 0);
+  $('gamesProgress').textContent = `${total} exercises · ${payload.session} to a round`;
+}
+
+async function startGames(kind) {
+  const payload = await loadGames();
+  play.kind = kind;
+  play.queue = games.session(payload, {
+    count: payload.session,
+    kinds: kind ? [kind] : null,
+  });
+  play.at = 0;
+  play.right = 0;
+  if (!play.queue.length) { toast('Nothing to play here yet'); return; }
+
+  $('gameMenu').hidden = true;
+  $('gamePlay').hidden = false;
+  $('gameName').textContent = kind ? KIND_META[kind].en : 'A bit of everything';
+  showGameItem();
+}
+
+function showGameItem() {
+  const item = play.queue[play.at];
+  if (!item) { showGameSummary(); return; }
+
+  play.answered = false;
+  play.placed = [];
+  play.chosen = [];
+  $('gameVerdict').textContent = '';
+  $('gameVerdict').className = 'game-verdict';
+  $('gameNext').hidden = true;
+  $('gameStep').hidden = false;
+  $('gameStep').textContent = `${play.at + 1}/${play.queue.length}`;
+
+  const draw = {
+    build: drawBuild, hearing: drawHearing,
+    listening: drawListening, grammar: drawGrammar,
+  }[item.kind];
+  $('gameBody').innerHTML = '';
+  draw(item);
+}
+
+/* Each `draw*` writes the body and wires its own controls. They all end the same way:
+   `settle()` marks the answer, says what was wrong where that is useful, and files
+   anything the answer is evidence of. */
+
+function settle(item, answer) {
+  if (play.answered) return;
+  play.answered = true;
+  const correct = games.mark(item, answer);
+  if (correct) play.right += 1;
+
+  const verdict = $('gameVerdict');
+  verdict.className = `game-verdict ${correct ? 'ok' : 'bad'}`;
+  let say = correct ? 'Sewwa!' : (games.critique(item, answer) || 'Not quite.');
+  if (!correct && item.kind === 'grammar') say = item.why || 'Not quite.';
+  /* The explanations quote Maltese in backticks, the way the rest of this repo's prose
+     does. Rendered rather than printed: a learner reading "`dar` is feminine" is
+     reading punctuation, and the quoted part is the one word they need to look at. */
+  verdict.innerHTML = escapeHtml(say)
+    .replace(/`([^`]+)`/g, (_, mt) => `<b class="mt-inline">${mt}</b>`);
+  $('gameBody').classList.add('is-answered');
+  $('gameNext').hidden = false;
+  $('gameNext').textContent = play.at + 1 >= play.queue.length ? 'Finish' : 'Next';
+
+  // Only where the answer is evidence of producing something — see games.js.
+  const learned = games.earned(item, correct);
+  if (learned.length) {
+    schedule.registerFromDrill(learned, state.settings, 'games')
+      .catch(() => { /* bookkeeping must never break a turn */ });
+  }
+  if (correct) speak(games.audioFor(item));
+}
+
+function playButton(item, label = '🔊 Play') {
+  const line = games.audioFor(item);
+  if (!line) return '';
+  return `<div class="game-audio">
+      <button class="cue-btn" data-say>${label}</button>
+      <button class="cue-btn" data-slow>🐢 Slow</button>
+    </div>`;
+}
+
+function wirePlay(item) {
+  const line = games.audioFor(item);
+  const say = $('gameBody').querySelector('[data-say]');
+  const slow = $('gameBody').querySelector('[data-slow]');
+  if (say) say.onclick = () => speak(line);
+  if (slow) slow.onclick = () => speak(line, { rate: 0.7 });
+}
+
+/* 1. Build the sentence ─────────────────────────────────────────────────── */
+
+function drawBuild(item) {
+  $('gameBody').innerHTML = `
+    <p class="game-ask">${escapeHtml(item.prompt_en)}</p>
+    <div class="tile-answer" id="tileAnswer" aria-label="Your sentence"></div>
+    <div class="tile-pool" id="tilePool"></div>
+    <div class="game-actions">
+      <button class="ghost-btn" data-clear>Clear</button>
+      <button class="primary-btn" data-check>Check</button>
+    </div>`;
+
+  const pool = $('gameBody').querySelector('#tilePool');
+  const answer = $('gameBody').querySelector('#tileAnswer');
+
+  const render = () => {
+    answer.innerHTML = play.placed.map((w, i) =>
+      `<button class="tile" data-take="${i}">${escapeHtml(w)}</button>`).join('');
+    // A tile that has been placed leaves a gap rather than vanishing, so the pool does
+    // not reflow under the finger mid-sentence.
+    pool.innerHTML = item.tiles.map((w, i) =>
+      `<button class="tile ${play.used?.has(i) ? 'is-spent' : ''}" data-put="${i}"
+        ${play.used?.has(i) ? 'disabled' : ''}>${escapeHtml(w)}</button>`).join('');
+
+    for (const b of pool.querySelectorAll('[data-put]')) {
+      b.onclick = () => {
+        const i = Number(b.dataset.put);
+        play.used.add(i);
+        play.placed.push(item.tiles[i]);
+        render();
+      };
+    }
+    for (const b of answer.querySelectorAll('[data-take]')) {
+      b.onclick = () => {
+        const at = Number(b.dataset.take);
+        const word = play.placed[at];
+        play.placed.splice(at, 1);
+        // Put back the *first* spent tile with that word, which is the one the learner
+        // will expect to light up again.
+        for (const i of [...play.used]) {
+          if (item.tiles[i] === word) { play.used.delete(i); break; }
+        }
+        render();
+      };
+    }
+  };
+
+  play.used = new Set();
+  render();
+  $('gameBody').querySelector('[data-clear]').onclick = () => {
+    play.placed = []; play.used = new Set(); render();
+  };
+  $('gameBody').querySelector('[data-check]').onclick = () => {
+    settle(item, play.placed);
+    // Show the sentence as it should have read, which is the correction.
+    const shown = document.createElement('p');
+    shown.className = 'game-shown';
+    shown.textContent = item.mt;
+    $('gameBody').append(shown);
+  };
+}
+
+/* 2. Which did you hear ─────────────────────────────────────────────────── */
+
+function drawHearing(item) {
+  $('gameBody').innerHTML = `
+    <p class="game-ask">Which word was that?</p>
+    ${playButton(item, '🔊 Play it again')}
+    <div class="game-options">
+      ${item.options.map((o, i) => `<button class="game-option" data-pick="${i}">
+          <b>${escapeHtml(o.mt)}</b><em>${escapeHtml(o.en)}</em>
+        </button>`).join('')}
+    </div>`;
+  wirePlay(item);
+  wireOptions(item);
+  speak(games.audioFor(item));
+}
+
+/* 3. Mini podcast ───────────────────────────────────────────────────────── */
+
+function drawListening(item) {
+  if (item.ask === 'which') {
+    $('gameBody').innerHTML = `
+      <p class="game-ask">${escapeHtml(item.question_en)}</p>
+      <p class="game-source">${escapeHtml(item.name_en)}</p>
+      ${playButton(item, '🔊 Play the clip')}
+      <div class="game-options">
+        ${item.options.map((o, i) => `<button class="game-option wide" data-pick="${i}">
+            <b>${escapeHtml(o.en)}</b>
+          </button>`).join('')}
+      </div>`;
+    wirePlay(item);
+    wireOptions(item);
+    return;
+  }
+
+  $('gameBody').innerHTML = `
+    <p class="game-ask">${escapeHtml(item.question_en)}</p>
+    <p class="game-source">${escapeHtml(item.name_en)}</p>
+    ${playButton(item, '🔊 Play the clip')}
+    <div class="word-pool" id="wordPool">
+      ${item.pool.map((w) => `<button class="tile" data-word="${escapeHtml(w)}">${escapeHtml(w)}</button>`).join('')}
+    </div>
+    <div class="game-actions">
+      <button class="primary-btn" data-check disabled>Check</button>
+    </div>`;
+  wirePlay(item);
+
+  const check = $('gameBody').querySelector('[data-check]');
+  for (const b of $('gameBody').querySelectorAll('[data-word]')) {
+    b.onclick = () => {
+      const word = b.dataset.word;
+      const at = play.chosen.indexOf(word);
+      if (at >= 0) play.chosen.splice(at, 1);
+      else if (play.chosen.length < 3) play.chosen.push(word);
+      b.classList.toggle('is-picked', play.chosen.includes(word));
+      check.disabled = play.chosen.length !== 3;
+    };
+  }
+  check.onclick = () => {
+    settle(item, play.chosen);
+    for (const b of $('gameBody').querySelectorAll('[data-word]')) {
+      if (item.answer.includes(b.dataset.word)) b.classList.add('is-right');
+    }
+  };
+}
+
+/* 4. Grammar ────────────────────────────────────────────────────────────── */
+
+function drawGrammar(item) {
+  $('gameBody').innerHTML = `
+    <p class="game-rule">${escapeHtml(item.rule)}</p>
+    <div class="grammar-shown">
+      ${item.show.map((ex) => `<p class="grammar-ex">
+          <b>${escapeHtml(ex.mt)}</b><em>${escapeHtml(ex.en)}</em>
+        </p>`).join('')}
+    </div>
+    <p class="game-ask gap">${escapeHtml(item.ask_mt).replace('___',
+      '<span class="gap-slot" id="gapSlot">?</span>')}</p>
+    <p class="game-source">${escapeHtml(item.ask_en)}</p>
+    <div class="game-options">
+      ${item.options.map((o, i) => `<button class="game-option" data-pick="${i}">
+          <b>${escapeHtml(o)}</b>
+        </button>`).join('')}
+    </div>`;
+  wireOptions(item, (i) => {
+    const slot = $('gameBody').querySelector('#gapSlot');
+    if (slot) slot.textContent = item.options[i];
+  });
+}
+
+/* Shared: a row of options, one press, then the marking is shown on the buttons. */
+
+function wireOptions(item, onPick) {
+  for (const b of $('gameBody').querySelectorAll('[data-pick]')) {
+    b.onclick = () => {
+      if (play.answered) return;
+      const picked = Number(b.dataset.pick);
+      onPick?.(picked);
+      settle(item, picked);
+      for (const other of $('gameBody').querySelectorAll('[data-pick]')) {
+        const at = Number(other.dataset.pick);
+        if (at === item.answer) other.classList.add('is-right');
+        else if (at === picked) other.classList.add('is-wrong');
+      }
+    };
+  }
+}
+
+function showGameSummary() {
+  const total = play.queue.length;
+  $('gameStep').hidden = true;
+  $('gameVerdict').textContent = '';
+  $('gameNext').hidden = true;
+  $('gameBody').classList.remove('is-answered');
+  $('gameBody').innerHTML = `
+    <div class="game-summary">
+      <p class="mt">Spiċċajna!</p>
+      <p class="score"><b>${play.right}</b> of ${total}</p>
+      <div class="summary-actions">
+        <button class="ghost-btn" data-again>Again</button>
+        <button class="primary-btn" data-menu>Other games</button>
+      </div>
+    </div>`;
+  $('gameBody').querySelector('[data-again]').onclick = () => startGames(play.kind);
+  $('gameBody').querySelector('[data-menu]').onclick = () => showGameMenu();
+  refreshCounts().catch(() => {});
+}
+
+$('gameBack').addEventListener('click', () => showGameMenu().catch((e) => toast(e.message)));
+$('gameNext').addEventListener('click', () => { play.at += 1; showGameItem(); });
+
 /* ── Wiring ────────────────────────────────────────────────────────────── */
 
 function switchView(name) {
@@ -1991,6 +2348,9 @@ function switchView(name) {
   }
   if (name === 'reference' && !$('vocabList').children.length) {
     initVocab().catch((e) => toast(e.message));
+  }
+  if (name === 'games' && !$('gameGrid').children.length) {
+    showGameMenu().catch((e) => toast(e.message));
   }
   // The chat has no height to scroll while it is display:none, so it is put at the
   // bottom once it has one again.

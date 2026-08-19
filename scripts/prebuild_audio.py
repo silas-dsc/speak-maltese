@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend import curriculum, dialogue, tts  # noqa: E402
+from backend import curriculum, dialogue, games, tts  # noqa: E402
 from backend.config import AUDIO_CACHE, CFG  # noqa: E402
 
 
@@ -36,6 +36,12 @@ def lines_for(what: str) -> list[str]:
     out: list[str] = []
     if what in ("all", "drills"):
         out += dialogue.every_line()
+    if what in ("all", "games"):
+        # The listening fragments are whole scenes read as one take, which is a render
+        # of their own — four clips played in a row is not connected speech. The grammar
+        # drills' sentences are here too: a rule you can read and not hear is half an
+        # explanation.
+        out += games.every_line()
     if what in ("all", "deck"):
         vocab = curriculum._read_tsv(curriculum.VOCAB_TSV)
         phrases = curriculum._read_tsv(curriculum.PHRASES_TSV)
@@ -56,7 +62,7 @@ def lines_for(what: str) -> list[str]:
 
 async def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--what", choices=["all", "drills", "deck"], default="all")
+    ap.add_argument("--what", choices=["all", "drills", "deck", "games"], default="all")
     ap.add_argument("--voice", default=None)
     ap.add_argument("--rate", type=float, default=0.95)
     ap.add_argument("--concurrency", type=int, default=4)

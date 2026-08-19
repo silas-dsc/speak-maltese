@@ -38,14 +38,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from backend import curriculum, dialogue  # noqa: E402
+from backend import curriculum, dialogue, games  # noqa: E402
 from backend.config import AUDIO_CACHE, CFG, FRONTEND_DIR  # noqa: E402
 
 DIST = ROOT / "dist"
 
 # Everything the client loads by name. Anything missing here is a blank page.
 SHELL = ("index.html", "style.css", "app.js", "srs.js", "store.js", "schedule.js",
-         "splash.js", "nanostt.js", "text.js", "dialogue.js", "session.js", "capture.js", "sw.js",
+         "splash.js", "nanostt.js", "text.js", "dialogue.js", "session.js", "capture.js",
+         "games.js", "sw.js",
          "manifest.webmanifest")
 
 # The on-device recogniser. 2.1MB, which is why it can live in the repository and be
@@ -89,6 +90,11 @@ def write_api(stt_base: str) -> dict:
         json.dumps({"markdown": curriculum.grammar_notes()}, ensure_ascii=False),
         encoding="utf-8")
 
+    # The mini-games, derived at build time. The client presents and marks them and has
+    # no copy of the derivation, so there is nothing here to keep in step with a port.
+    (api / "games.json").write_text(
+        json.dumps(games.all_games(), ensure_ascii=False), encoding="utf-8")
+
     (api / "bootstrap.json").write_text(json.dumps({
         "capabilities": {
             # No server of its own: synthesis is pre-rendered, and recognition happens
@@ -110,12 +116,15 @@ def write_api(stt_base: str) -> dict:
             "target_retention": CFG.target_retention,
         },
     }, ensure_ascii=False), encoding="utf-8")
-    return {"cards": len(cards), "scenes": len(dialogue.all_dialogues())}
+    return {"cards": len(cards), "scenes": len(dialogue.all_dialogues()),
+        "games": sum(
+            len(v) for k, v in games.all_games().items() if isinstance(v, list)),
+    }
 
 
 def wanted_lines() -> list[str]:
     """Every Maltese line the app can utter, exactly as prebuild_audio.py sees it."""
-    out = list(dialogue.every_line())
+    out = list(dialogue.every_line()) + list(games.every_line())
     vocab = curriculum._read_tsv(curriculum.VOCAB_TSV)
     phrases = curriculum._read_tsv(curriculum.PHRASES_TSV)
     out += [r["mt"] for r in vocab + phrases]
@@ -210,7 +219,8 @@ def main() -> int:
     build = stamp_shell_version()
 
     print(f"{DIST.relative_to(ROOT) if DIST.is_relative_to(ROOT) else DIST}")
-    print(f"  {counts['cards']} cards · {counts['scenes']} scenes")
+    print(f"  {counts['cards']} cards · {counts['scenes']} scenes"
+          f" · {counts['games']} games")
     print(f"  shell cache: {build or 'unstamped'}")
     print(f"  {audio['files']} audio files · {audio['bytes'] / 1e6:.0f} MB")
     if audio["missing"]:

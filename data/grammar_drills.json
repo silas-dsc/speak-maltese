@@ -1,0 +1,264 @@
+{
+  "_note": [
+    "Two correct sentences that differ by one rule, then a gap to fill.",
+    "",
+    "Every Maltese form used here is attested: it appears in data/grammar_notes.md, in",
+    "the deck TSVs, or in data/dialogues.json. tests/test_games.py checks that, word by",
+    "word, and it is the reason this file can be trusted — recombining forms that were",
+    "already written and checked cannot invent Maltese, and inventing Maltese is the one",
+    "failure this app must not have. A mis-scored answer costs a retry; a wrong rule",
+    "taught confidently costs the learner the rule.",
+    "",
+    "`rule` is the heading it belongs to in the reference, so the two stay in step.",
+    "`show` is the contrast, and it does the teaching. `ask_mt` carries ___ for the gap."
+  ],
+  "drills": [
+    {
+      "id": "gr-verb-person",
+      "rule": "Verbs: the prefix says who",
+      "show": [
+        { "mt": "Jien nikteb ittra.", "en": "I write a letter." },
+        { "mt": "Hu jikteb ittra.", "en": "He writes a letter." }
+      ],
+      "ask_mt": "Huma ___ ittra.",
+      "ask_en": "They write a letter.",
+      "options": ["jiktbu", "jikteb"],
+      "answer": "jiktbu",
+      "why": "`j-` is the third person and `-u` makes it plural: nikteb, tikteb, jikteb, jiktbu."
+    },
+    {
+      "id": "gr-verb-we",
+      "rule": "Verbs: the prefix says who",
+      "show": [
+        { "mt": "Jien nifhem.", "en": "I understand." },
+        { "mt": "Hu jifhem.", "en": "He understands." }
+      ],
+      "ask_mt": "Aħna ___.",
+      "ask_en": "We understand.",
+      "options": ["nifhmu", "nifhem"],
+      "answer": "nifhmu",
+      "why": "`we` keeps the `n-` of `I` and adds `-u`: nifhem → nifhmu."
+    },
+    {
+      "id": "gr-sun-letters",
+      "rule": "The definite article: assimilation",
+      "show": [
+        { "mt": "Il-ktieb fuq il-mejda.", "en": "The book is on the table." },
+        { "mt": "It-triq hija twila.", "en": "The road is long." }
+      ],
+      "ask_mt": "___ dar hija kbira.",
+      "ask_en": "The house is big.",
+      "options": ["Id-", "Il-"],
+      "answer": "Id-",
+      "why": "Before ċ d n r s t x z ż the `l` of `il-` copies the letter: id-dar, ir-raġel, ix-xemx."
+    },
+    {
+      "id": "gr-article-vowel",
+      "rule": "The definite article: elision",
+      "show": [
+        { "mt": "Il-ħobż frisk.", "en": "The bread is fresh." },
+        { "mt": "L-ilma frisk.", "en": "The water is fresh." }
+      ],
+      "ask_mt": "___ omm tiegħi.",
+      "ask_en": "My mother.",
+      "options": ["L-", "Il-"],
+      "answer": "L-",
+      "why": "Before a vowel the `i` drops: l-ikel, l-omm, l-ilma, l-għodwa."
+    },
+    {
+      "id": "gr-prep-fusion-fi",
+      "rule": "Prepositions fuse with the article",
+      "show": [
+        { "mt": "Noqgħod fil-Belt.", "en": "I live in Valletta." },
+        { "mt": "Nitkellem bil-Malti.", "en": "I speak in Maltese." }
+      ],
+      "ask_mt": "Jien ___ Awstralja.",
+      "ask_en": "I'm from Australia.",
+      "options": ["mill-", "minn il-"],
+      "answer": "mill-",
+      "why": "`minn` + `il-` is one word, `mill-`. Never written apart: fil-, bil-, tal-, mill-, mal-."
+    },
+    {
+      "id": "gr-prep-fusion-tal",
+      "rule": "Prepositions fuse with the article",
+      "show": [
+        { "mt": "Il-ktieb tal-iskola.", "en": "The school book." },
+        { "mt": "Immur sal-pjazza.", "en": "I go as far as the square." }
+      ],
+      "ask_mt": "Nixtieq kafè ___ ħbieb.",
+      "ask_en": "I'd like a coffee with the friends.",
+      "options": ["mal-", "ma' il-"],
+      "answer": "mal-",
+      "why": "`ma'` + `il-` → `mal-`, the same fusion as fil-, bil-, tal-, mill-."
+    },
+    {
+      "id": "gr-negation",
+      "rule": "Negation wraps the verb",
+      "show": [
+        { "mt": "Jien nifhem.", "en": "I understand." },
+        { "mt": "Jien ma nifhimx.", "en": "I don't understand." }
+      ],
+      "ask_mt": "Jien ma ___ laħam.",
+      "ask_en": "I don't eat meat.",
+      "options": ["niekolx", "niekol"],
+      "answer": "niekolx",
+      "why": "A negated verb takes `ma` in front *and* `-x` on the end. Both halves, every time."
+    },
+    {
+      "id": "gr-negation-ghandi",
+      "rule": "Negation wraps the verb",
+      "show": [
+        { "mt": "Għandi ħu u oħt.", "en": "I have a brother and a sister." },
+        { "mt": "M'għandix aħwa.", "en": "I don't have any siblings." }
+      ],
+      "ask_mt": "Jien ma ___.",
+      "ask_en": "I don't know.",
+      "options": ["nafx", "naf"],
+      "answer": "nafx",
+      "why": "`naf` → `ma nafx`. Before a vowel `ma` shortens to `m'`: m'għandix."
+    },
+    {
+      "id": "gr-mhux",
+      "rule": "Negation: mhux for non-verbs",
+      "show": [
+        { "mt": "Ma nifhimx.", "en": "I don't understand." },
+        { "mt": "Mhux tajjeb.", "en": "Not good." }
+      ],
+      "ask_mt": "___ jien.",
+      "ask_en": "Not me.",
+      "options": ["Mhux", "Ma"],
+      "answer": "Mhux",
+      "why": "`ma … -x` is for verbs. There is no verb here, so it is `mhux`."
+    },
+    {
+      "id": "gr-no-to-be",
+      "rule": "There is no present-tense \"to be\"",
+      "show": [
+        { "mt": "Jien Malti.", "en": "I am Maltese." },
+        { "mt": "Il-ktieb fuq il-mejda.", "en": "The book is on the table." }
+      ],
+      "ask_mt": "Jien ___.",
+      "ask_en": "I'm a student.",
+      "options": ["student", "hu student"],
+      "answer": "student",
+      "why": "Maltese puts the two halves side by side. Nothing stands where English has \"am\"."
+    },
+    {
+      "id": "gr-ghand-have",
+      "rule": "\"To have\" is għand + a pronoun ending",
+      "show": [
+        { "mt": "Għandi tletin sena.", "en": "I'm thirty years old." },
+        { "mt": "Għandek iben jew bint?", "en": "Do you have a son or a daughter?" }
+      ],
+      "ask_mt": "___ ħames kmamar.",
+      "ask_en": "We have five rooms.",
+      "options": ["Għandna", "Għandi"],
+      "answer": "Għandna",
+      "why": "The ending is the person: għandi, għandek, għandu, għandha, għandna, għandhom."
+    },
+    {
+      "id": "gr-possessive",
+      "rule": "Possessives: a suffix, or ta' + pronoun",
+      "show": [
+        { "mt": "Ommi tgħix hawn.", "en": "My mother lives here." },
+        { "mt": "Il-ktieb tiegħi.", "en": "My book." }
+      ],
+      "ask_mt": "Id-dar ___.",
+      "ask_en": "Her house.",
+      "options": ["tagħha", "tiegħi"],
+      "answer": "tagħha",
+      "why": "tiegħi (mine), tiegħek (yours), tiegħu (his), tagħha (hers), tagħna (ours)."
+    },
+    {
+      "id": "gr-adjective-agreement",
+      "rule": "Adjectives agree, and follow the noun",
+      "show": [
+        { "mt": "raġel twil", "en": "a tall man" },
+        { "mt": "mara twila", "en": "a tall woman" }
+      ],
+      "ask_mt": "dar ___",
+      "ask_en": "a big house",
+      "options": ["kbira", "kbir"],
+      "answer": "kbira",
+      "why": "`dar` is feminine, so the adjective takes `-a` — and it goes after the noun, not before."
+    },
+    {
+      "id": "gr-adjective-order",
+      "rule": "Adjectives agree, and follow the noun",
+      "show": [
+        { "mt": "ħobż frisk", "en": "fresh bread" },
+        { "mt": "dar kbira", "en": "a big house" }
+      ],
+      "ask_mt": "___",
+      "ask_en": "a long road",
+      "options": ["triq twila", "twila triq"],
+      "answer": "triq twila",
+      "why": "The adjective comes second, always. English is the language that puts it first."
+    },
+    {
+      "id": "gr-broken-plural",
+      "rule": "Plurals: sound and broken",
+      "show": [
+        { "mt": "ktieb — kotba", "en": "book — books" },
+        { "mt": "dar — djar", "en": "house — houses" }
+      ],
+      "ask_mt": "triq — ___",
+      "ask_en": "road — roads",
+      "options": ["toroq", "triqijiet"],
+      "answer": "toroq",
+      "why": "A broken plural re-shapes the word from inside: ktieb→kotba, dar→djar, triq→toroq."
+    },
+    {
+      "id": "gr-numbers-short",
+      "rule": "Numbers 2–10 take a short form before a noun",
+      "show": [
+        { "mt": "tliet kotba", "en": "three books" },
+        { "mt": "ħames ewro", "en": "five euro" }
+      ],
+      "ask_mt": "___ kmamar",
+      "ask_en": "six rooms",
+      "options": ["sitt", "sitta"],
+      "answer": "sitt",
+      "why": "`sitta` is the number by itself; `sitt` is the form that goes in front of a noun."
+    },
+    {
+      "id": "gr-numbers-above-ten",
+      "rule": "Above ten the noun goes singular",
+      "show": [
+        { "mt": "erba' snin", "en": "four years" },
+        { "mt": "ħdax-il sena", "en": "eleven years" }
+      ],
+      "ask_mt": "għoxrin ___",
+      "ask_en": "twenty years",
+      "options": ["sena", "snin"],
+      "answer": "sena",
+      "why": "Over ten, Maltese counts with the singular: ħdax-il sena, għoxrin sena."
+    },
+    {
+      "id": "gr-progressive",
+      "rule": "Progressive: qed for what is happening now",
+      "show": [
+        { "mt": "Naqra ktieb.", "en": "I read a book." },
+        { "mt": "Qed naqra ktieb.", "en": "I am reading a book." }
+      ],
+      "ask_mt": "___ nistenna.",
+      "ask_en": "I am waiting.",
+      "options": ["Qed", "Ħa"],
+      "answer": "Qed",
+      "why": "`qed` in front of the present makes it right now. `ħa` would make it about to happen."
+    },
+    {
+      "id": "gr-future",
+      "rule": "Near future: ħa for what is about to happen",
+      "show": [
+        { "mt": "Immur id-dar.", "en": "I go home." },
+        { "mt": "Ħa mmur id-dar.", "en": "I'm going to go home." }
+      ],
+      "ask_mt": "___ nixtri ħobż.",
+      "ask_en": "I'm going to buy bread.",
+      "options": ["Ħa", "Qed"],
+      "answer": "Ħa",
+      "why": "`ħa` (or `se`) marks the near future; `qed` would mean you are buying it now."
+    }
+  ]
+}

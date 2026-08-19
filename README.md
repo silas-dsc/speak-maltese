@@ -50,6 +50,35 @@ which one you are in, and what to do next.
 Measured end to end, speech in to spoken Maltese reply out: **0.3s**, of which the
 matching is about 10ms.
 
+**Games (`Logħob`)** — four short activities, because the conversation and the deck
+are both *production* tasks and that leaves half of learning uncovered.
+
+| game | what it asks | why |
+|---|---|---|
+| `Ibni sentenza` | put the Maltese in order, one word per tile | word order with the recall removed — and Maltese puts the adjective after the noun, fuses prepositions onto the article and wraps verbs in `ma … -x` |
+| `Liema smajt?` | three words that sound alike; one is played | `nixtieq`/`nixtri`, `xita`/`xitwa`, `niġi`/`niġri` — an English ear does not separate these until something asks it to |
+| `Podcast qasir` | ten seconds of continuous Maltese, then a question | every other line the app plays is one sentence with a pause after it; connected speech is a different task |
+| `Regoli` | two contrasting correct sentences, then a gap | show the contrast, let the rule be noticed, *then* ask — Babbel's shape rather than Duolingo's |
+
+Some tile puzzles carry words that do not belong and have to be left alone; not all of
+them, because "use every tile" is a different exercise and worth practising too. A
+mixed round interleaves the four rather than shuffling a pool — a shuffle gives runs,
+and the second of a run is answered by momentum.
+
+**Almost none of this content is authored.** Tile puzzles, listening fragments and
+minimal pairs are *derived* from the scripted dialogues and the deck: sentences that
+were already written, already checked and already rendered to speech. That is the
+safety property rather than a shortcut — the one thing worse than no grammar exercise
+is a grammar exercise in wrong Maltese, and recombining attested sentences cannot
+produce any. The grammar drills are the exception, so `tests/test_games.py` holds every
+Maltese word in them to appearing in the reference, the deck or the dialogues; a drill
+that invents a conjugation fails the suite rather than teaching it.
+
+Only building a sentence feeds the review deck. Choosing one word out of three is
+recognition, and FSRS is only as good as what it is told — a card filed as known
+because it was picked from three options comes back at the interval of something
+produced from memory.
+
 **Review (`Reviżjoni`)** — FSRS-5 spaced repetition over the whole deck, in three
 retrieval directions that rotate per card:
 

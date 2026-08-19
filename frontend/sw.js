@@ -35,6 +35,7 @@ const SHELL_ASSETS = [
   // app, it would fail to boot at all.
   './app.js', './srs.js', './store.js', './schedule.js', './splash.js',
   './nanostt.js', './text.js', './dialogue.js', './session.js', './capture.js',
+  './games.js',
   /* The recogniser itself. 2.1MB, and precaching it is the difference between an app
      that listens on a plane and one that only reads there — the 200MB model it
      replaces could never have been in here. */
@@ -46,7 +47,7 @@ const SHELL_ASSETS = [
      to boot it with, because the per-build cache is empty of everything it did not
      precache. */
   './api/bootstrap.json', './api/deck.json', './api/dialogues.json',
-  './api/grammar.json', './audio/index.json',
+  './api/grammar.json', './api/games.json', './audio/index.json',
 ];
 
 self.addEventListener('install', (event) => {

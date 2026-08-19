@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import CFG, FRONTEND_DIR
-from . import curriculum, dialogue, phonetics, srs, stt, text, tts
+from . import curriculum, dialogue, games, phonetics, srs, stt, text, tts
 
 logging.basicConfig(
     level=logging.DEBUG if CFG.debug else logging.INFO,
@@ -127,6 +127,15 @@ def deck() -> dict:
 @app.get("/api/grammar")
 def grammar() -> dict:
     return {"markdown": curriculum.grammar_notes()}
+
+
+# ── Mini-games ─────────────────────────────────────────────────────────────
+
+@app.get("/api/games")
+def games_payload() -> dict:
+    """The mini-games. Derived here rather than in the browser for the same reason the
+    static build derives them: one implementation, and the client only marks."""
+    return games.all_games()
 
 
 # ── Scripted conversation (no model in the loop) ───────────────────────────

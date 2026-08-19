@@ -303,7 +303,7 @@ def test_app_js_defines_everything_it_calls():
         "Array", "Object", "JSON", "Math", "console", "document", "window",
         "navigator", "performance", "encodeURIComponent", "parseInt", "parseFloat",
         "isNaN", "KeyboardEvent", "PointerEvent", "Event", "Set", "Map", "Date",
-        "RegExp", "structuredClone", "queueMicrotask", "alert",
+        "RegExp", "structuredClone", "queueMicrotask", "alert", "confirm",
     }
     missing = {c for c in called - defined - keywords - globals_ if c[0].islower()}
     # `obj.method(` and `x?.fn(` are properties, not free identifiers.
@@ -334,6 +334,42 @@ def test_seeding_the_deck_never_rewrites_a_schedule():
     guarded = body.split("if (!have.has(c.id))")
     assert len(guarded) == 2, "the blank-state write is no longer guarded"
     assert "stateStore.put(" not in guarded[0], "a schedule is written before the check"
+
+
+def test_the_games_are_served_whole(client):
+    """The mini-games are derived at build time and shipped as data — the client marks
+    them and has no copy of how they are made. Which means this endpoint and
+    `api/games.json` in the static build are the same payload, and the client needs
+    neither to know which it is talking to."""
+    payload = client.get("/api/games").json()
+    for kind in ("build", "hearing", "listening", "grammar"):
+        assert payload[kind], f"no {kind} items"
+    assert payload["session"] >= 5
+
+
+def test_the_static_build_ships_the_games_and_their_audio(tmp_path):
+    """A listening fragment is a whole scene read as one take, which is a render of its
+    own — four clips played in a row is not connected speech. So the fragments have to be
+    in `wanted_lines()`, or the build ships a game with nothing to play."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "bs_games", ROOT / "scripts" / "build_static.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    from backend import games
+    wanted = set(mod.wanted_lines())
+    missing = [line for line in games.every_line() if line not in wanted]
+    assert not missing, (
+        f"{len(missing)} game lines are not in wanted_lines(), so the build will not "
+        f"copy their audio:\n  " + "\n  ".join(missing[:5]))
+
+    # And the client module is in the shell, or the view fails to import.
+    assert "games.js" in mod.SHELL
+    sw = (ROOT / "frontend" / "sw.js").read_text(encoding="utf-8")
+    assert "'./games.js'" in sw, "games.js is not precached, so the games break offline"
+    assert "'./api/games.json'" in sw, "the payload is not precached"
 
 
 # ── Offline shell ──────────────────────────────────────────────────────────

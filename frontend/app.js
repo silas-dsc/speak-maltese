@@ -265,9 +265,17 @@ async function verifyCapture(stream) {
      not strike a format off until it has seen another one work, so the answer would
      not change between rounds and the loop would ask the same question three times. */
   const blocked = capabilities.blocked();
+  const usable = capture.CANDIDATES.filter(
+    (m) => supportsMime(m) && !blocked.includes(m));
+  /* Nothing to choose between. The probe exists to find out which of several
+     containers this device really writes into; with one candidate left there is no
+     alternative to move to, so the 300ms would buy nothing — and it is 300ms the
+     first press waits for, because `begin()` holds the recording until the probe is
+     done. The real recording verifies it or `diagnose` explains it. */
+  if (usable.length < 2) return;
+
   const empty = [];
-  for (const mime of capture.CANDIDATES) {
-    if (!supportsMime(mime) || blocked.includes(mime)) continue;
+  for (const mime of usable) {
     let bytes = 0;
     try {
       bytes = await recordBriefly(stream, mime);
@@ -1896,11 +1904,17 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Acquire the mic on the first gesture, so the first recording does not pay the
-// getUserMedia cost mid-utterance — and before any gesture at all where the browser
-// will confirm the microphone is already ours to open.
-window.addEventListener('pointerdown', prewarmMic, { once: true });
-window.addEventListener('keydown', prewarmMic, { once: true });
+/* Acquire the mic on the first gesture, so the first recording does not pay the
+   getUserMedia cost mid-utterance — and before any gesture at all where the browser
+   will confirm the microphone is already ours to open.
+
+   `capture: true` matters. These were bubble-phase, so when the first gesture *was*
+   the mic button they ran after the button's own handler had already started
+   recording — which is the whole reason `begin()`'s `if (probing) await probing` could
+   never fire on the press that needed it. In the capture phase they run first, which
+   is what makes that await mean something. */
+window.addEventListener('pointerdown', prewarmMic, { once: true, capture: true });
+window.addEventListener('keydown', prewarmMic, { once: true, capture: true });
 prewarmIfAlreadyAllowed();
 
 // Offline support. Registered last so a failure here can never stop the app

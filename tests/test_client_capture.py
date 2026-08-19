@@ -50,18 +50,21 @@ out.appleOnly = pickMime({ supported: (m) => m === 'audio/mp4' });
 out.nothingSupported = pickMime({ supported: () => false });
 
 // ── a container that produced nothing is not asked for again ───────────────
-out.afterBlockingOpus = pickMime({ supported: all, blocked: ['audio/webm;codecs=opus'] });
-out.afterBlockingWebm = pickMime({
-  supported: all, blocked: ['audio/webm;codecs=opus', 'audio/webm'],
+out.afterBlockingMp4 = pickMime({ supported: all, blocked: ['audio/mp4'] });
+out.afterBlockingMp4AndOpus = pickMime({
+  supported: all, blocked: ['audio/mp4', 'audio/webm;codecs=opus'],
 });
+// The case an iPhone actually produces: mp4 works, and it is asked for first, so
+// nothing has to come back empty before it is reached.
+out.appleFirst = pickMime({ supported: (m) => m !== 'audio/webm' });
 
 // ── what worked is preferred, unless it has since been struck off ──────────
-out.verifiedWins = pickMime({ supported: all, verified: 'audio/mp4' });
+out.verifiedWins = pickMime({ supported: all, verified: 'audio/webm' });
 out.verifiedButBlocked = pickMime({
-  supported: all, verified: 'audio/mp4', blocked: ['audio/mp4'],
+  supported: all, verified: 'audio/webm', blocked: ['audio/webm'],
 });
 out.verifiedButUnsupported = pickMime({
-  supported: (m) => m !== 'audio/mp4', verified: 'audio/mp4',
+  supported: (m) => m !== 'audio/webm', verified: 'audio/webm',
 });
 
 // ── the memory of the device ───────────────────────────────────────────────
@@ -69,18 +72,18 @@ const s = fake();
 const mem = store(s);
 out.blankVerified = mem.verified();
 out.blankBlocked = mem.blocked();
-mem.block('audio/webm;codecs=opus');
+mem.block('audio/mp4');
 mem.block('audio/webm');
 mem.block('audio/webm');                      // twice is once
 out.remembered = mem.blocked();
-out.picksMp4Now = pickMime({ supported: all, verified: mem.verified(), blocked: mem.blocked() });
-mem.verify('audio/mp4');
+out.picksOpusNow = pickMime({ supported: all, verified: mem.verified(), blocked: mem.blocked() });
+mem.verify('audio/webm;codecs=opus');
 out.verifiedStuck = mem.verified();
 // A format that starts working again is no longer blocked, and one that stops
 // working loses its verification.
-mem.verify('audio/webm');
-out.unblockedOnVerify = mem.blocked().includes('audio/webm');
-mem.block('audio/webm');
+mem.verify('audio/mp4');
+out.unblockedOnVerify = mem.blocked().includes('audio/mp4');
+mem.block('audio/mp4');
 out.verificationDropped = mem.verified();
 
 // ── storage that refuses to write is forgetfulness, not an error ───────────
@@ -103,6 +106,7 @@ out.loud = diagnose({ ...empty, peak: 0.8 });
 out.names = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', '']
   .map(fileNameFor);
 out.candidateCount = CANDIDATES.length;
+out.order = CANDIDATES;
 
 console.log(JSON.stringify(out));
 """
@@ -123,30 +127,33 @@ def result():
 
 
 def test_opus_is_preferred_where_it_works(result):
-    assert result["first"] == "audio/webm;codecs=opus"
+    assert result["first"] == "audio/mp4"
     assert result["appleOnly"] == "audio/mp4"
+    assert result["appleFirst"] == "audio/mp4", (
+        "an iPhone must reach mp4 without a container failing first — a struck-off "
+        "format costs the utterance that struck it off")
     assert result["nothingSupported"] == "", "must fall back to letting the browser choose"
 
 
 def test_a_format_that_produced_nothing_is_never_asked_for_again(result):
     """The iPhone bug, and the whole point: the second attempt has to ask for
     something else, or it fails exactly as the first one did."""
-    assert result["afterBlockingOpus"] == "audio/webm"
-    assert result["afterBlockingWebm"] == "audio/mp4"
+    assert result["afterBlockingMp4"] == "audio/webm;codecs=opus"
+    assert result["afterBlockingMp4AndOpus"] == "audio/webm"
 
 
 def test_what_worked_is_what_gets_used(result):
-    assert result["verifiedWins"] == "audio/mp4"
-    assert result["verifiedButBlocked"] == "audio/webm;codecs=opus"
-    assert result["verifiedButUnsupported"] == "audio/webm;codecs=opus"
+    assert result["verifiedWins"] == "audio/webm"
+    assert result["verifiedButBlocked"] == "audio/mp4"
+    assert result["verifiedButUnsupported"] == "audio/mp4"
 
 
 def test_the_device_remembers_across_sessions(result):
     assert result["blankVerified"] == ""
     assert result["blankBlocked"] == []
-    assert result["remembered"] == ["audio/webm;codecs=opus", "audio/webm"]
-    assert result["picksMp4Now"] == "audio/mp4"
-    assert result["verifiedStuck"] == "audio/mp4"
+    assert result["remembered"] == ["audio/mp4", "audio/webm"]
+    assert result["picksOpusNow"] == "audio/webm;codecs=opus"
+    assert result["verifiedStuck"] == "audio/webm;codecs=opus"
     assert result["unblockedOnVerify"] is False, "a format seen working is not still blocked"
     assert result["verificationDropped"] == "", "a format seen failing is not still trusted"
 
@@ -205,6 +212,9 @@ def test_an_upload_is_named_for_what_it_is(result):
     """The server picks a decoder by content type and extension, and iOS records
     mp4 — a clip called speech.webm is a decode failure waiting to happen."""
     assert result["names"] == ["speech.webm", "speech.mp4", "speech.ogg", "speech.webm"]
+    assert result["order"][0] == "audio/mp4", (
+        "mp4 is asked for first: it is what Apple hardware records, and the local "
+        "recogniser decodes any container through decodeAudioData")
     assert result["candidateCount"] >= 3
 
 
@@ -282,3 +292,36 @@ def test_the_microphone_is_opened_before_the_first_press_where_it_may_be():
     assert "navigator.permissions.query({ name: 'microphone' })" in src
     assert "if (status.state === 'granted')" in src
     assert "prewarmIfAlreadyAllowed();" in src, "defined but never called"
+
+
+def test_the_probe_runs_before_the_press_it_has_to_inform():
+    """`begin()` holds the recording until `probing` settles, which only means
+    anything if `probing` has been *set* by then. Bound in the bubble phase, the
+    warm-up ran after the button's own handler on the very press that needed it — so
+    the guard was dead code and the first utterance went into whatever container
+    `isTypeSupported` had claimed. In the capture phase the window listener runs
+    first, which is what makes the await load-bearing.
+
+    Reported twice from an iPhone SE: first as a mic that failed on the first press
+    and worked on the second, then — once the release-during-startup fault was fixed
+    and the utterance survived — as `2444ms recorded but only 5 bytes captured
+    (1 chunk, audio/webm;codecs=opus)`."""
+    src = _app_js()
+    for line in ("window.addEventListener('pointerdown', prewarmMic, "
+                 "{ once: true, capture: true });",
+                 "window.addEventListener('keydown', prewarmMic, "
+                 "{ once: true, capture: true });"):
+        assert line in src, f"not in the capture phase: {line}"
+    assert "if (probing) await probing;" in src, "…and nothing waits for it"
+
+
+def test_a_lone_container_is_not_probed():
+    """The probe answers "which of these does this device really write into". With
+    one candidate left there is nothing to choose between, and the 300ms is 300ms the
+    first press waits for — `begin()` will not record until the probe is done. The
+    real recording verifies it, and `diagnose` explains it if it comes back empty."""
+    src = _app_js()
+    verify = src.split("async function verifyCapture(stream) {")[1].split("\n}")[0]
+    assert "if (usable.length < 2) return;" in verify
+    # …and the list it counts is the supported, not-yet-blocked one.
+    assert "supportsMime(m) && !blocked.includes(m)" in verify

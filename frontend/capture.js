@@ -19,11 +19,24 @@
 const KEY = 'sm.capture';
 const VERSION = 1;
 
-/* Opus in WebM first: it is the smallest, every recogniser in the chain reads it,
-   and on the platforms where it works it works well. `audio/mp4` (AAC) last, which
-   in practice means first on Apple hardware, since the two above it get struck off
-   the moment they come back empty. */
-export const CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+/* `audio/mp4` first. It used to be last, on the reasoning that Opus in WebM is
+   smaller and universally readable, and that Apple hardware would reach mp4 anyway
+   "since the two above it get struck off the moment they come back empty".
+
+   That reasoning had two holes. Getting struck off costs a *turn*: an iPhone SE
+   answers yes to `audio/webm;codecs=opus`, records 2444ms into it and hands back
+   five bytes, and the utterance is gone — no reordering afterwards brings it back.
+   And the size argument expired when recognition moved onto the device: the 2.1MB
+   model decodes through `decodeAudioData`, which reads AAC natively and cares
+   nothing for the container, and the only deployment that still uploads audio is one
+   that names a remote host.
+
+   So the order is now "what the platform actually implements first". Every browser
+   that records mp4 does so correctly; the ones that do not — Chrome, Firefox — say
+   so through `isTypeSupported` and fall through to Opus, which they implement
+   correctly. Neither has to be recognised by name, which is the point: a list of
+   user-agent strings to maintain is how the same bug arrives on the next browser. */
+export const CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 
 /** The best container to ask for: what is known to work here, else the first the
     browser admits to that has not already failed. `''` means "let the browser

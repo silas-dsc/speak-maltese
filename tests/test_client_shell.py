@@ -166,6 +166,29 @@ def test_the_line_to_say_can_be_heard_on_its_own():
     assert "speak(target.mt, { rate: 0.7 })" in js
 
 
+def test_a_bubble_has_one_pair_of_controls_under_the_line_they_speak():
+    """Position is the only thing that says which Play belongs to which line, so there
+    cannot be two pairs. Giving the target its own left both stacked at the bottom of a
+    correction with the *reply's* underneath — so the buttons directly below
+    `Nitkellem ftit Malti.` played `Kważi. Għid: Nitkellem ftit Malti.` instead.
+
+    The reply's pair is the one to drop, because a correction reads `Kważi. Għid:` and
+    then the target: everything in it worth hearing again is in the target, and the reply
+    has just been read aloud by autoplay."""
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    bubble = js.split("function drillBubble(")[1].split("\nasync function ")[0]
+
+    # The reply's controls exist only when there is no target to own them.
+    assert "role === 'tutor' && mt && !target ? `<div class=\"bubble-tools\">" in bubble
+    assert "if (role === 'tutor' && mt && !target) {" in bubble, \
+        "the reply's handlers are wired for a bubble that has no such buttons"
+
+    # The target's controls live inside the line itself, which is what makes their
+    # position mean something.
+    target_block = bubble.split('<p class="drill-target">')[1].split("</p>")[0]
+    assert "data-target-play" in target_block and "data-target-slow" in target_block
+
+
 def test_a_spoken_line_is_awaited_until_it_has_finished():
     """`speak()` resolved on `play()`, which returns as soon as playback *begins* — 10ms
     for a 2.59-second line, measured. So `await speak(reply)` in a drill turn waited for

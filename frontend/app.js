@@ -1496,14 +1496,25 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
              <button class="tool" data-target-play>🔊 Play</button>
              <button class="tool" data-target-slow>🐢 Slow</button>
            </span></p>` : ''}
-      ${role === 'tutor' && mt ? `<div class="bubble-tools">
+      ${/* One pair of controls per bubble, under the line it speaks.
+
+            Giving the target line its own Play left two pairs stacked at the bottom of
+            a correction, and the lower one was the *reply's* — so the buttons directly
+            beneath `Nitkellem ftit Malti.` played `Kważi. Għid: Nitkellem ftit Malti.`
+            instead. Position is the only thing saying which control belongs to which
+            line, and it was saying the wrong thing.
+
+            The reply's pair is the one to drop. A correction reads `Kważi. Għid:` and
+            then the target, so the target contains everything in it worth hearing
+            again — and the reply has just been read aloud by autoplay. */
+        role === 'tutor' && mt && !target ? `<div class="bubble-tools">
           <button class="tool" data-play>🔊 Play</button>
           <button class="tool" data-slow>🐢 Slow</button>
         </div>` : ''}
     </div>
     ${art ? `<img class="turn-art" src="img/turn-${escapeHtml(art)}.webp" alt=""
                   decoding="async" width="320" height="320">` : ''}`;
-  if (role === 'tutor' && mt) {
+  if (role === 'tutor' && mt && !target) {
     el.querySelector('[data-play]').onclick = () => speak(mt);
     el.querySelector('[data-slow]').onclick = () => speak(mt, { rate: 0.7 });
   }

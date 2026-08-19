@@ -40,7 +40,17 @@ export const CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 
 /** The best container to ask for: what is known to work here, else the first the
     browser admits to that has not already failed. `''` means "let the browser
-    choose", which is all that is left when nothing is supported. */
+    choose", which is what is left when nothing is supported — or when everything
+    supported has been struck off, and is the escape hatch that makes striking the
+    last one off safe rather than final.
+
+    Note the order of the two clauses, because it is why reordering `CANDIDATES`
+    alone did not fix the iPhone: a container that has *ever* produced audio here
+    outranks the list. On a phone where `audio/webm;codecs=opus` sometimes writes
+    properly and sometimes returns a five-byte stub, that verification is real, it
+    persists, and it beats mp4 on every subsequent first press. What breaks the loop
+    is `store.block` clearing the verification when the same container is later caught
+    writing nothing. */
 export function pickMime({ supported = () => false, verified = '', blocked = [] } = {}) {
   if (verified && supported(verified) && !blocked.includes(verified)) return verified;
   return CANDIDATES.find((m) => !blocked.includes(m) && supported(m)) || '';
@@ -54,6 +64,34 @@ export const MIN_BYTES = 600;
    phone mic sits well above this; a capture session that has been taken away reads
    as exactly zero. */
 export const SILENT_PEAK = 0.005;
+
+/* Below this, no container was written at all — and that is a fact about the
+   *encoder*, not about the microphone, which is what makes it worth its own number.
+
+   The reasoning that said the two faults are indistinguishable without a level meter
+   is not quite right, and the difference has cost three attempts at this bug. A mic
+   that has been muted still produces a *valid* container full of silence: WebM's EBML
+   header, Segment and Tracks elements alone run to several hundred bytes before a
+   frame of audio, and fragmented MP4 is no smaller. Whereas an iPhone that has
+   accepted `audio/webm;codecs=opus` and implemented none of it returns five bytes for
+   two and a half seconds of speech — a header stub, and nothing a decoder could open.
+
+   Measured rather than assumed, over a synthetic stream of true digital silence
+   through a gain node at zero:
+
+       container                 300ms      2800ms
+       audio/webm;codecs=opus    520 B       982 B
+       audio/mp4;codecs=opus     997 B      1541 B
+
+   Half a kilobyte is the floor for a *working* encoder given nothing at all to
+   encode, so 64 separates "wrote no container" from "wrote a container with silence
+   in it" by an order of magnitude in both directions. Five bytes needs no meter to
+   interpret: nothing was encoded, whatever reached the microphone, and the container
+   can be struck off on that evidence alone.
+
+   The meter still decides the narrow band above this — a container written but holding
+   almost nothing, which is either a quiet room or a stolen capture session. */
+export const EMPTY_BYTES = 64;
 
 /** Why a recording came back with nothing in it, and what to do about it.
 
@@ -70,10 +108,10 @@ export const SILENT_PEAK = 0.005;
       accepted and never written into. That one is the format's fault and it gets
       struck off.
 
-    Without a level meter the two are indistinguishable, so an unmetered failure
-    concludes nothing: it re-acquires the stream, which is the cheaper and more
-    likely fix, and asks for metering on the next attempt rather than condemning a
-    format that may well have been working a minute ago. */
+    A *nearly* empty container is where the meter earns its keep; an empty one is
+    not — see `EMPTY_BYTES`. Nothing was written, so the container is at fault
+    whatever the microphone did, and waiting for a meter before saying so is what
+    made this failure repeat on every first press. */
 export function diagnose({ ms = 0, bytes = 0, chunks = 0, mime = '', peak = null } = {}) {
   if (ms < MIN_MS) {
     return { ok: false, blame: 'short', block: false, stale: false, meter: false,
@@ -83,6 +121,16 @@ export function diagnose({ ms = 0, bytes = 0, chunks = 0, mime = '', peak = null
 
   const measured = `${ms}ms recorded but only ${bytes} bytes captured `
     + `(${chunks} chunk${chunks === 1 ? '' : 's'}, ${mime || 'no mime'})`;
+
+  /* No container at all. A muted microphone would still have produced its headers,
+     so this is the encoder and nothing else, and it is struck off without waiting to
+     be told twice. */
+  if (bytes < EMPTY_BYTES) {
+    return { ok: false, blame: 'encoder', block: true, stale: true, meter: false,
+             reason: `${measured} — nothing was encoded at all, so `
+                     + `${mime || 'that format'} is struck off and the next attempt `
+                     + 'uses another' };
+  }
 
   if (peak === null) {
     return { ok: false, blame: 'unknown', block: false, stale: true, meter: true,

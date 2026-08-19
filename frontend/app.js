@@ -267,14 +267,7 @@ async function verifyCapture(stream) {
   const blocked = capabilities.blocked();
   const usable = capture.CANDIDATES.filter(
     (m) => supportsMime(m) && !blocked.includes(m));
-  /* Nothing to choose between. The probe exists to find out which of several
-     containers this device really writes into; with one candidate left there is no
-     alternative to move to, so the 300ms would buy nothing — and it is 300ms the
-     first press waits for, because `begin()` holds the recording until the probe is
-     done. The real recording verifies it or `diagnose` explains it. */
-  if (usable.length < 2) return;
 
-  const empty = [];
   for (const mime of usable) {
     let bytes = 0;
     try {
@@ -284,21 +277,27 @@ async function verifyCapture(stream) {
       continue;
     }
     if (bytes >= PROBE_BYTES) {
-      /* This one records. The ones before it were asked the same question in the
-         same second and produced nothing, so the difference is them. */
-      capabilities.verify(mime);
-      for (const m of empty) capabilities.block(m);
+      capabilities.verify(mime);                  // this one records; stop guessing
       return;
     }
-    empty.push(mime);
+    /* And this one does not. Struck off here rather than only once something else has
+       been seen to work, which is the change that finally fixed the first press.
+
+       The old rule was "condemn nothing unless an alternative proved itself", on the
+       reasoning that a muted microphone makes every container look broken. But it
+       does not: a muted mic still gets its headers written, which is hundreds of
+       bytes before a frame of audio, so anything under `EMPTY_BYTES` is an encoder
+       that wrote nothing at all. And there is always an alternative — striking the
+       last one off leaves `pickMime` returning '', which is `new MediaRecorder(stream)`
+       with no container named, which is the browser recording in whatever it actually
+       implements. On the phone this bug came from, that is the answer. */
+    if (bytes < capture.EMPTY_BYTES) capabilities.block(mime);
   }
-  /* Every format produced nothing, which is not three broken encoders — it is a
-     microphone that is not giving us anything, so no format is condemned for it.
-     Let go of the capture session and measure the next real recording instead. */
-  if (empty.length) {
-    markStreamStale();
-    meterWanted = true;
-  }
+  /* Nothing verified. Either every container was struck off — in which case the next
+     recording asks the browser to choose, and will verify whatever it picks — or one
+     is sitting in the ambiguous band and the meter can settle it. */
+  markStreamStale();
+  meterWanted = true;
 }
 
 /** True from the moment a mic press is handled until its recording has been sent.
@@ -378,6 +377,25 @@ const chosenMime = () => capture.pickMime({
   verified: capabilities.verified(),
   blocked: capabilities.blocked(),
 });
+
+/** What this device claims and what has been learned about it, appended to a failure.
+
+    Written because this bug has now been diagnosed wrongly twice from a screenshot.
+    "5 bytes of audio/webm;codecs=opus" says which container failed and nothing about
+    why that container was the one asked for — whether `audio/mp4` was offered and
+    passed over, whether a previous attempt had already struck something off, whether
+    the probe ever ran. All of that decides which fix is the right one, and all of it
+    is one line on the screen. */
+function captureState() {
+  const claims = capture.CANDIDATES
+    .map((m) => `${m.replace('audio/', '').replace(';codecs=opus', '/opus')}${
+      supportsMime(m) ? '' : '✗'}`)
+    .join(' ');
+  const blocked = capabilities.blocked().map((m) => m.replace('audio/', '')).join(',');
+  return ` · offers ${claims}`
+    + `${blocked ? ` · struck off ${blocked}` : ''}`
+    + `${capabilities.verified() ? ` · known good ${capabilities.verified().replace('audio/', '')}` : ''}`;
+}
 
 class Recorder {
   constructor() { this.chunks = []; this.rec = null; }
@@ -700,7 +718,7 @@ function bindMic(button, { onResult, onStatus, target }) {
       const { blob, reason } = await recorder.stop();
       // Say what actually went wrong. "Too short" was a guess the code made about
       // the learner, and twice it was wrong about itself instead.
-      if (!blob) { onStatus?.(`Nothing recorded — ${reason}`); return; }
+      if (!blob) { onStatus?.(`Nothing recorded — ${reason}${captureState()}`); return; }
       const result = await transcribe(blob, typeof target === 'function' ? target() : target);
       onStatus?.('');
       await onResult(result);

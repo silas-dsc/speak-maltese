@@ -30,7 +30,8 @@ node = shutil.which("node")
 pytestmark = pytest.mark.skipif(node is None, reason="node is not installed")
 
 DRIVER = r"""
-import { CANDIDATES, pickMime, fileNameFor, store, diagnose } from '../frontend/capture.js';
+import { CANDIDATES, pickMime, fileNameFor, store, diagnose, EMPTY_BYTES }
+  from '../frontend/capture.js';
 
 function fake(initial = {}, mode = 'ok') {
   const map = new Map(Object.entries(initial));
@@ -94,13 +95,22 @@ out.fullSurvives = full.verified() === '' && full.blocked().length === 0;
 out.corruptSurvives = store(fake({ 'sm.capture': 'not json' })).verified() === '';
 
 // ── why a recording came back empty, and what to do about it ───────────────
-const empty = { ms: 4455, bytes: 5, chunks: 1, mime: 'audio/webm;codecs=opus' };
-out.tooShort = diagnose({ ...empty, ms: 100, bytes: 5000 });
+out.emptyBytes = EMPTY_BYTES;
+out.tooShort = diagnose({ ms: 100, bytes: 5000, chunks: 1, mime: 'audio/mp4' });
 out.fine = diagnose({ ms: 3000, bytes: 40000, mime: 'audio/mp4' });
-out.unmetered = diagnose(empty);                       // first failure: no meter yet
-out.silent = diagnose({ ...empty, peak: 0 });          // the mic gave nothing
-out.roomTone = diagnose({ ...empty, peak: 0.04 });     // sound was there
-out.loud = diagnose({ ...empty, peak: 0.8 });
+
+// No container written at all — the iPhone SE, verbatim from the screenshot.
+const noContainer = { ms: 2782, bytes: 5, chunks: 1, mime: 'audio/webm;codecs=opus' };
+out.noContainer = diagnose(noContainer);
+out.noContainerMetered = diagnose({ ...noContainer, peak: 0.04 });
+
+// A container that *was* written and holds almost nothing. This is the band the
+// meter decides, and now the only one.
+const thin = { ms: 400, bytes: 300, chunks: 1, mime: 'audio/webm;codecs=opus' };
+out.unmetered = diagnose(thin);                        // first failure: no meter yet
+out.silent = diagnose({ ...thin, peak: 0 });           // the mic gave nothing
+out.roomTone = diagnose({ ...thin, peak: 0.04 });      // sound was there
+out.loud = diagnose({ ...thin, peak: 0.8 });
 
 // ── an upload says what it is ──────────────────────────────────────────────
 out.names = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', '']
@@ -175,11 +185,31 @@ def test_a_clip_too_short_to_grade_blames_nothing(result):
     assert result["tooShort"]["block"] is False and result["tooShort"]["stale"] is False
 
 
-def test_the_first_empty_recording_concludes_nothing(result):
-    """Recognition on the phone this was reported from worked *sometimes*, which
-    rules out a format that never encodes. With no level meter yet the two possible
-    causes are indistinguishable, so the cheap and likely fix is taken — reopen the
-    microphone — and the format is left alone rather than condemned on one failure."""
+def test_a_container_that_was_never_written_is_struck_off_at_once(result):
+    """Five bytes for 2782ms, which is what an iPhone SE returns for a container it
+    advertises and does not implement. No meter is needed to read that: a muted
+    microphone would still have got its headers written — half a kilobyte of them,
+    measured — so nothing under `EMPTY_BYTES` can be the microphone's doing.
+
+    Waiting for a meter before saying so is what made this failure repeat on the first
+    press of every session, through three attempts at fixing it."""
+    assert result["emptyBytes"] < 600, "the bar has to sit under MIN_BYTES to mean anything"
+    for case in ("noContainer", "noContainerMetered"):
+        d = result[case]
+        assert d["blame"] == "encoder", case
+        assert d["block"] is True, f"{case}: the container has to be struck off"
+        assert d["stale"] is True
+        assert "nothing was encoded" in d["reason"]
+    # Unmetered or metered, the verdict is the same — that is the whole point.
+    assert result["noContainer"]["meter"] is False, \
+        "no meter is needed to read an empty container"
+
+
+def test_the_first_almost_empty_recording_concludes_nothing(result):
+    """A container that *was* written and holds almost nothing is genuinely
+    ambiguous — that is the band the meter is for, and now the only one. With no
+    meter yet the cheap and likely fix is taken (reopen the microphone) and the
+    format is left alone rather than condemned on one failure."""
     d = result["unmetered"]
     assert d["blame"] == "unknown"
     assert d["block"] is False, "must not strike off a format on a guess"
@@ -200,8 +230,8 @@ def test_silence_blames_the_microphone_not_the_format(result):
 
 @pytest.mark.parametrize("case", ["roomTone", "loud"])
 def test_sound_that_was_dropped_blames_the_format(result, case):
-    """Audio reached the encoder and nothing came out of it. That is the one case
-    where striking the container off is the right answer."""
+    """Audio reached the encoder and almost nothing came out of it. With the meter
+    saying there was signal, striking the container off is the right answer."""
     d = result[case]
     assert d["blame"] == "encoder"
     assert d["block"] is True
@@ -315,13 +345,38 @@ def test_the_probe_runs_before_the_press_it_has_to_inform():
     assert "if (probing) await probing;" in src, "…and nothing waits for it"
 
 
-def test_a_lone_container_is_not_probed():
-    """The probe answers "which of these does this device really write into". With
-    one candidate left there is nothing to choose between, and the 300ms is 300ms the
-    first press waits for — `begin()` will not record until the probe is done. The
-    real recording verifies it, and `diagnose` explains it if it comes back empty."""
+def test_the_probe_strikes_off_a_container_without_waiting_for_a_rival():
+    """The probe used to condemn nothing unless some *other* container had proved
+    itself first, on the reasoning that a muted microphone makes them all look broken.
+    It does not — see `EMPTY_BYTES` — and that caution was load-bearing in the wrong
+    direction: on a phone whose only advertised container is a broken one, nothing was
+    ever struck off and every first press went into it.
+
+    Striking off the last one is not a dead end. `pickMime` then returns the empty
+    string, which is `new MediaRecorder(stream)` with no container named — the browser
+    recording in whatever it actually implements, which is the answer on that phone."""
     src = _app_js()
-    verify = src.split("async function verifyCapture(stream) {")[1].split("\n}")[0]
-    assert "if (usable.length < 2) return;" in verify
-    # …and the list it counts is the supported, not-yet-blocked one.
+    verify = src.split("async function verifyCapture(stream) {")[1].split("\nfunction ")[0]
+    assert "if (bytes < capture.EMPTY_BYTES) capabilities.block(mime);" in verify
+    assert "usable.length < 2" not in verify, \
+        "the short-circuit is back, and it skips the striking-off that fixes this"
     assert "supportsMime(m) && !blocked.includes(m)" in verify
+
+    # And the fallback it opens up has to survive in pickMime.
+    cap = (ROOT / "frontend" / "capture.js").read_text(encoding="utf-8")
+    assert "|| ''" in cap.split("export function pickMime")[1].split("\n}")[0], \
+        "nothing falls back to letting the browser choose"
+
+
+def test_a_failure_says_what_the_device_offered():
+    """This bug was diagnosed wrongly twice from a screenshot, because "5 bytes of
+    audio/webm;codecs=opus" says which container failed and nothing about why that one
+    was asked for — whether mp4 was offered and passed over, whether something had
+    already been struck off, whether the probe ran at all. That decides which fix is
+    right, and it fits on one line."""
+    src = _app_js()
+    assert "function captureState()" in src
+    assert "${reason}${captureState()}" in src, "the state is computed and not shown"
+    state = src.split("function captureState() {")[1].split("\n}")[0]
+    assert "capture.CANDIDATES" in state and "supportsMime(m)" in state
+    assert "capabilities.blocked()" in state and "capabilities.verified()" in state

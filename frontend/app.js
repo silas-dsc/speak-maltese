@@ -976,7 +976,6 @@ function restoreDrill(dialogues) {
   drill.run = { ...freshRun(), ...(s.run || {}) };
   // The clock counts time spent in the scene, not time the tab spent closed.
   drill.run.startedAt = Date.now() - (s.run?.elapsedMs || 0);
-  showSceneImage(s.dialogue);
   $('drillChat').innerHTML = '';
   for (const t of s.turns) drillBubble(t.role, t.mt, t.en, t);
   // Silently: the tutor is not going to read the whole conversation back, and the
@@ -1109,102 +1108,11 @@ async function startDrill(id) {
   drill.present = null;
   saved.clear();
   $('drillChat').innerHTML = '';
-  showSceneImage(id);
   markCurrentScene();
   const node = STATIC.on
     ? dialogueEngine.start(id)
     : await post('/api/drill/start', { dialogue: id });
   presentDrillNode(node);
-}
-
-/* The scene banner, for the transcript view. In focus mode there is a picture per
-   turn instead, so this stays out of the way — see `applyFocus`.
-
-   Decoration either way: if the image is missing the figure simply stays hidden,
-   because a broken-image icon above a conversation is worse than no picture. */
-function showSceneImage(id) {
-  const hero = $('sceneHero');
-  const img = $('sceneImg');
-  const meta = drill.dialogues?.find((d) => d.id === id);
-  img.onerror = () => { hero.hidden = true; };
-  img.onload = () => { hero.hidden = focusMode.on; };
-  img.alt = meta ? `${meta.name_en}` : '';
-  $('sceneCaption').textContent = meta ? `${meta.name} · ${meta.name_en}` : '';
-  hero.hidden = true;
-  img.src = `img/scene-${id}.webp`;
-}
-
-/* ── Focus mode ────────────────────────────────────────────────────────────
-   One exchange on screen: the tutor's line, the answer, and the marking of it.
-
-   The complaint this answers is scrolling. On an iPhone SE a conversation had
-   about 280px to live in, a turn is 60–90px of it, and by the third turn the
-   prompt you were answering had gone off the top — so reading the question meant
-   scrolling up, and reading the marking meant scrolling back down. Every drill app
-   that works on a phone solves this the same way: during a lesson there is one
-   prompt on screen and no navigation around it.
-
-   A conversation is not a quiz, though, and the earlier turns are the context that
-   makes a dialogue a dialogue — so they are one tap away rather than discarded.
-   Off by default on a screen with the room for the whole transcript. */
-const ROOM_FOR_TRANSCRIPT = window.matchMedia('(max-width: 640px), (max-height: 560px)');
-const focusMode = { on: ROOM_FOR_TRANSCRIPT.matches };
-
-/** Which turns belong to the exchange in progress, walking back from the end.
-
-    The shape of an exchange is prompt → answer → reply, and the reply is a tutor
-    turn carrying a verdict while a prompt is a tutor turn without one. So: take
-    turns from the end until a tutor turn with no verdict, and take that too. That
-    is the prompt, what was said to it, and how it was marked — and on a fresh
-    prompt, before anything has been said, it is just the prompt.
-
-    Pure and named so it can be tested without a DOM; the alternative was a rule
-    like "keep the last three", which is right until a scene has two replies to one
-    prompt and then silently hides the question. */
-function currentExchange(kinds) {
-  const keep = [];
-  for (let i = kinds.length - 1; i >= 0; i -= 1) {
-    keep.unshift(i);
-    if (kinds[i] === 'prompt') break;
-  }
-  return keep;
-}
-
-/** Mark the current exchange in the DOM, and say what is being hidden. */
-function applyFocus() {
-  const chat = $('drillChat');
-  chat.classList.toggle('is-focus', focusMode.on);
-  // The picture is the exchange's backdrop in focus mode and a band without it, so
-  // it never costs height twice. Only touched once it has actually loaded — the
-  // figure starts hidden and `showSceneImage` is what reveals it.
-  if ($('sceneImg').complete && $('sceneImg').naturalWidth) {
-    $('sceneHero').hidden = focusMode.on;
-  }
-
-  const turns = [...chat.querySelectorAll('.turn')];
-  const kinds = turns.map((el) => el.dataset.kind || 'prompt');
-  const keep = new Set(currentExchange(kinds));
-  turns.forEach((el, i) => el.classList.toggle('is-current', keep.has(i)));
-
-  /* The way back to the rest of the conversation, and the way back to one exchange.
-     Hidden while there is no history either way round, because a control that
-     switches between two identical screens reads as broken. */
-  const earlier = turns.length - keep.size;
-  const toggle = $('transcriptToggle');
-  toggle.hidden = earlier === 0;
-  toggle.textContent = focusMode.on
-    ? `▾ ${earlier} earlier ${earlier === 1 ? 'turn' : 'turns'}`
-    : '▴ Just this exchange';
-
-  $('sheetTranscript').textContent = focusMode.on
-    ? 'Show every turn' : 'Show one exchange at a time';
-
-  chat.scrollTop = chat.scrollHeight;
-}
-
-function setFocus(on) {
-  focusMode.on = on;
-  applyFocus();
 }
 
 /** Point the composer at a node without saying anything: the prompt line, the
@@ -1294,9 +1202,6 @@ function showRunSummary() {
 
   const el = document.createElement('div');
   el.className = 'turn tutor run-summary';
-  // A prompt, as far as focus mode is concerned: the end of a scene is a screen of
-  // its own, not something to read underneath the last answer.
-  el.dataset.kind = 'prompt';
   el.innerHTML = `
     <div class="bubble">
       <p class="mt">Spiċċajna. Prosit!</p>
@@ -1316,7 +1221,7 @@ function showRunSummary() {
       </div>
     </div>`;
   $('drillChat').append(el);
-  applyFocus();
+  $('drillChat').scrollTop = $('drillChat').scrollHeight;
   speak(scene ? 'Prosit! Spiċċajna.' : 'Prosit!');
 
   el.querySelector('[data-again]').onclick = () => startDrill(drill.dialogue);
@@ -1330,11 +1235,6 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
                                      art = '' } = {}) {
   const el = document.createElement('div');
   el.className = `turn ${role} ${extraClass}${art ? ' has-art' : ''}`;
-  /* What part of an exchange this is, which is what focus mode slices on. A tutor
-     turn with a verdict is the marking of an answer; one without is a new prompt.
-     Recorded here rather than worked out later, so a conversation restored from
-     storage slices exactly like the one it was. */
-  el.dataset.kind = role === 'user' ? 'answer' : (verdict ? 'reply' : 'prompt');
   el.innerHTML = `
     <div class="bubble">
       ${verdict ? `<p class="drill-verdict ${escapeHtml(verdict.tone || '')}">${
@@ -1359,9 +1259,9 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
      where the square was. */
   const img = el.querySelector('.turn-art');
   if (img) img.onerror = () => { img.remove(); el.classList.remove('has-art'); };
-  $('drillChat').append(el);
-  // Re-slices the exchange and scrolls; a new turn is the only thing that moves it.
-  applyFocus();
+  const chat = $('drillChat');
+  chat.append(el);
+  chat.scrollTop = chat.scrollHeight;
   return el;
 }
 
@@ -1820,9 +1720,12 @@ function switchView(name) {
   if (name === 'reference' && !$('vocabList').children.length) {
     initVocab().catch((e) => toast(e.message));
   }
-  // Focus mode re-measures on a view change: nothing else re-runs it, and the chat
-  // has no height to scroll while it is display:none.
-  if (name === 'drill') applyFocus();
+  // The chat has no height to scroll while it is display:none, so it is put at the
+  // bottom once it has one again.
+  if (name === 'drill') {
+    const chat = $('drillChat');
+    chat.scrollTop = chat.scrollHeight;
+  }
 }
 
 document.querySelectorAll('.tab').forEach((t) => {
@@ -1836,7 +1739,6 @@ document.querySelectorAll('.tab').forEach((t) => {
 
 function openSheet() {
   $('sheetConversation').hidden = !$('view-drill').classList.contains('is-active');
-  applyFocus();                      // so the transcript button says the right thing
   $('navBtn').setAttribute('aria-expanded', 'true');
   $('navSheet').showModal();
 }
@@ -1871,28 +1773,10 @@ $('sheetRestart').addEventListener('click', () => {
   startDrill(drill.dialogue);
 });
 $('sheetNext').addEventListener('click', () => { closeSheet(); goToNextScene(); });
-$('sheetTranscript').addEventListener('click', () => {
-  closeSheet();
-  focusTouched = true;
-  setFocus(!focusMode.on);
-});
-
 /* The conversation's own header. `‹ scene name` is the way back to the path — the
    same gesture as any list-then-detail screen — and `⋯` is the actions. */
 $('drillScene').addEventListener('click', () => switchView('scenes'));
 $('drillMore').addEventListener('click', openSheet);
-
-/* A phone rotated into landscape, or a window dragged narrow, changes whether there
-   is room for the whole transcript. Only the automatic default moves — a learner who
-   has said which they want keeps it. */
-let focusTouched = false;
-$('transcriptToggle').addEventListener('click', () => {
-  focusTouched = true;
-  setFocus(!focusMode.on);
-});
-ROOM_FOR_TRANSCRIPT.addEventListener('change', (e) => {
-  if (!focusTouched) setFocus(e.matches);
-});
 
 $('drillSend').addEventListener('click', () => answerDrill($('drillInput').value));
 $('drillInput').addEventListener('keydown', (e) => {

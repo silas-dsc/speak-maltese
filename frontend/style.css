@@ -183,15 +183,6 @@ main { flex: 1; overflow: hidden; display: flex; }
   padding: 3px 8px; border-radius: 999px;
 }
 
-/* Only shown when focus mode is actually hiding something. */
-.transcript-toggle {
-  align-self: center; font: inherit; font-size: .72rem; cursor: pointer;
-  background: transparent; color: var(--text-dim);
-  border: 1px dashed var(--border); border-radius: 999px;
-  padding: 3px 12px; margin: 0 auto 2px;
-}
-.transcript-toggle:hover { color: var(--text); border-style: solid; }
-
 select, input[type="text"] {
   font: inherit; color: var(--text);
   background: var(--surface); border: 1px solid var(--border);
@@ -223,22 +214,6 @@ select:focus-visible, input:focus-visible, button:focus-visible {
   max-width: 820px; width: 100%; margin: 0 auto;
   display: flex; flex-direction: column; gap: 14px;
 }
-
-/* ── Focus mode ────────────────────────────────────────────────────────────
-   One exchange on screen at a time — the tutor's line, the answer, and the
-   marking — which is the unit of work and, on a phone, the only way it fits
-   without scrolling. Every drill app that works this way does the same thing:
-   during a lesson there is one prompt and nothing else.
-
-   A conversation is not a quiz, though, so the history is a tap away rather than
-   thrown out: the toggle drops `.is-focus` and the whole transcript is back. */
-.chat.is-focus { justify-content: flex-end; }
-.chat.is-focus .turn:not(.is-current) { display: none; }
-
-/* There was a scene picture washed in behind the conversation here, as a way of
-   giving the exchange a picture without spending any height on one. Every turn has
-   its own square now (see `.turn-art`), which is the same idea done properly — so
-   the backdrop is gone rather than competing with it. */
 
 .turn { display: flex; flex-direction: column; gap: 5px; max-width: 82%; }
 .turn.user { align-self: flex-end; align-items: flex-end; }
@@ -762,26 +737,6 @@ dialog.sheet {
   display: block; font-style: normal; font-family: var(--font);
   font-size: .8rem; color: var(--text-dim); margin-top: 2px;
 }
-
-/* ── Scene art ───────────────────────────────────────────────────────── */
-
-.scene-hero {
-  margin: 0 auto 4px; padding: 0 20px;
-  max-width: 820px; width: 100%;
-}
-.scene-hero img {
-  display: block; width: 100%;
-  /* Capped: the conversation is the content and the picture is a signpost, so it
-     takes a slim band rather than half the screen. */
-  height: clamp(84px, 14vh, 132px); object-fit: cover; object-position: center 58%;
-  border-radius: var(--radius); border: 1px solid var(--border);
-}
-.scene-hero figcaption {
-  margin-top: 5px; margin-bottom: 2px;
-  font-size: .72rem; color: var(--text-dim); letter-spacing: .03em;
-}
-@media (max-width: 720px) { .scene-hero { padding: 0 12px; } }
-
 /* ── End-of-scene summary ────────────────────────────────────────────── */
 
 .run-summary .bubble { border-color: var(--green); }
@@ -953,13 +908,7 @@ dialog.sheet {
    a scrolled-away input is wrong on a laptop too. */
 #view-drill { overflow: hidden; }
 #view-drill .chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-#view-drill .composer { flex: 0 0 auto; }
-#view-drill .drill-head, #view-drill .transcript-toggle { flex: 0 0 auto; }
-
-/* Focus mode moves the picture behind the conversation, so the band above it is
-   redundant — and it was the single biggest piece of furniture left. The hero is
-   hidden from `applyFocus()` rather than with `:has()`, which the older iOS the
-   SE runs does not have. */
+#view-drill .composer, #view-drill .drill-head { flex: 0 0 auto; }
 
 @media (max-width: 480px) {
   /* Real viewport height: iOS counts its own toolbars in `vh`, so 100vh is taller
@@ -973,12 +922,6 @@ dialog.sheet {
 
   .drill-head { padding: 5px 10px; }
   .head-scene { font-size: .84rem; }
-
-  /* Only reachable with focus mode off, where the picture is a band again. Slim:
-     the conversation is the content and this is a signpost. */
-  .scene-hero { padding: 0 12px; flex: 0 0 auto; }
-  .scene-hero img { height: 56px; object-fit: cover; width: 100%; }
-  .scene-hero figcaption { display: none; }
 
   .chat { padding: 8px 12px 12px; gap: 10px; }
   .bubble { padding: 10px 12px; }
@@ -1000,10 +943,9 @@ dialog.sheet {
   .card-prompt { font-size: 1.5rem; }
 }
 
-/* Landscape on a phone: almost no height, so the picture goes entirely and the
-   scene line loses its padding. */
+/* Landscape on a phone: almost no height, so the scene line loses its padding and
+   the pictures give some of theirs back to the words. */
 @media (max-height: 480px) and (max-width: 900px) {
-  .scene-hero { display: none; }
   .drill-head { padding: 3px 12px; }
-  .chat.is-focus::before { opacity: .09; }
+  .turn-art { width: clamp(72px, 26%, 110px); }
 }

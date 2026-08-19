@@ -32,9 +32,8 @@ are scheduled into the review deck.
 until now the only way to find out was to get it wrong twice and be told. A turn you
 looked at still advances, but is not filed into the review deck as one you produced.
 
-On a phone the conversation shows **one exchange at a time** — the question, your
-answer, and the marking of it — so nothing you need is below the fold; the earlier
-turns are one tap away. Everything that is not the conversation is in the ☰ menu.
+Everything that is not the conversation is in the ☰ menu, so what is on screen is
+the exchange, the composer, and one 34px line saying which scene you are in.
 
 Finishing a scene ends with a summary: how many you got first try, how many took a
 retry, how many after a look, seconds per turn, and the phrases that went into your

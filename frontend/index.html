@@ -55,23 +55,11 @@
               aria-haspopup="dialog">⋯</button>
     </div>
 
-    <!-- Kept for the transcript view, where turns are a plain log and there is no
-         single question for a picture to belong to. In focus mode the picture is the
-         turn's own, and it sits beside the question instead — see `.turn-art`.
-         No loading="lazy": the figure starts hidden until the image resolves, and a
-         lazy image inside a hidden element never enters the viewport, so it would
-         never load at all. These are ~9 KB each. -->
-    <figure class="scene-hero" id="sceneHero" hidden>
-      <img id="sceneImg" alt="" width="640" height="320" decoding="async">
-      <figcaption id="sceneCaption"></figcaption>
-    </figure>
-
-    <!-- Focus mode hides everything but the exchange being worked on, so the answer
-         and its marking are never below the fold. The earlier turns are one tap
-         away rather than gone. -->
-    <button class="transcript-toggle" id="transcriptToggle" hidden></button>
-
-    <div class="chat is-focus" id="drillChat" aria-live="polite"></div>
+    <!-- Every turn, in order, each with its own picture beside it. There was a
+         scene banner above this and a toggle between showing one exchange and
+         showing all of them; the banner said the same thing as the pictures and the
+         toggle chose between two views of a screen that only needs one. -->
+    <div class="chat" id="drillChat" aria-live="polite"></div>
 
     <div class="composer">
       <div class="cue-row">
@@ -234,7 +222,6 @@
 
     <div class="sheet-group" id="sheetConversation">
       <h3>This conversation</h3>
-      <button class="ghost-btn" id="sheetTranscript">Show every turn</button>
       <!-- The conversation is kept across a reload, so this is also the way to be
            rid of one on purpose: it clears what is on screen and says the scene's
            first line again. -->

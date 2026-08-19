@@ -127,3 +127,59 @@ def test_the_answer_can_be_seen_and_heard_before_it_is_given():
     # Cleared on every new node, or one peek would taint the rest of the scene.
     assert "function hideAnswer() {\n  drill.peeked = false;" in js
     assert "  hideAnswer();\n}" in js, "installDrillNode no longer resets the cue"
+
+
+def test_an_open_question_shows_the_patterns_not_a_gendered_looking_example():
+    """The examples carry a name, and a learner who sees `Jisimni Silas` for one pattern
+    and `Jien Sally` for another can reasonably conclude that `Jien` is the women's
+    form. Maltese has plenty of masculine and feminine pairs, so it is a sensible
+    inference — it is simply wrong here: `Jien …` and `Jisimni …` are interchangeable
+    and the only thing that varies with the speaker is the name in the gap.
+
+    So on an open question the patterns go first, together, equally weighted, and the
+    example below is marked as an example."""
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    assert 'id="drillAnswerFrames"' in html
+
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    # Only on a question whose answer is the learner's own.
+    assert "const frames = drill.present.free ? (drill.present.frames || []) : [];" in js
+    assert "'Either pattern — your own answer in the gap'" in js
+    assert "'This pattern — your own answer in the gap'" in js
+    # The example is labelled as one, so it is not read as the answer to repeat.
+    assert "`e.g. ${answer.mt}`" in js
+
+    css = (ROOT / "frontend" / "style.css").read_text(encoding="utf-8")
+    frames = css.split(".drill-answer .frames {")[1].split("}")[0]
+    assert "flex-basis: 100%" in frames, "the patterns share a line with the example"
+
+
+def test_the_line_to_say_can_be_heard_on_its_own():
+    """A near miss shows the line to say back. The bubble's own Play speaks the *reply*
+    — `Kważi. Għid: …` — which buries the target inside a sentence and behind a word of
+    Maltese the learner has just been told they got wrong. It was the one set response
+    with no way to hear it by itself, which is what "some audio seems to be missing"
+    was pointing at."""
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert "data-target-play" in js and "data-target-slow" in js
+    assert "el.querySelector('[data-target-play]').onclick = () => speak(target.mt);" in js
+    assert "speak(target.mt, { rate: 0.7 })" in js
+
+
+def test_a_spoken_line_is_awaited_until_it_has_finished():
+    """`speak()` resolved on `play()`, which returns as soon as playback *begins* — 10ms
+    for a 2.59-second line, measured. So `await speak(reply)` in a drill turn waited for
+    nothing, and 450ms later the next prompt called `speak()` again, which pauses
+    whatever is playing. Every tutor reply longer than half a second was cut off
+    mid-sentence, every turn, and that was most of "audio seems cut off".
+
+    It has to settle on failure too, or a line with no file would hang the turn — and it
+    has to settle when *superseded*, or the promise of the audio just paused is never
+    resolved at all."""
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    speak = js.split("function speak(text, { rate } = {}) {")[1].split("\n}")[0]
+    assert "addEventListener('ended', settle, { once: true })" in speak
+    assert "addEventListener('error', settle, { once: true })" in speak
+    assert "if (currentDone) { currentDone(); currentDone = null; }" in speak, \
+        "superseding audio leaves its promise hanging"
+    assert ".catch((err) => {" in speak and "settle();" in speak

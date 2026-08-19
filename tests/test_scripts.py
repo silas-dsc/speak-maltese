@@ -318,3 +318,106 @@ def test_every_turn_picture_was_asked_for_something_specific():
                     if any(w in prompts[k].lower()
                            for w in ("speech bubble", "lettering", "written words")))
     assert not banned, f"prompts that ask for text: {banned[:6]}"
+
+
+def test_the_line_to_say_back_always_has_audio():
+    """A near miss shows a line to say back, and that line now has its own Play button —
+    so it has to be one that was rendered. It is always `_best_match`'s pick, and that
+    skips open entries, which is what makes the guarantee hold: open entries are frames
+    with a gap in them (`Jisimni …`) and are deliberately never synthesised.
+
+    Checked rather than asserted from the code, because the two facts live in different
+    files and neither mentions the other."""
+    from backend import dialogue
+    from backend.config import AUDIO_CACHE, CFG
+
+    mod = load("build_static")
+    silent = []
+    for d in dialogue.all_dialogues():
+        for nid, n in (d.get("nodes") or {}).items():
+            for a in n.get("accept", []):
+                if a.get("open"):
+                    continue
+                key = mod.cache_key(a["mt"], CFG.azure_voice, 0.95)
+                if not (AUDIO_CACHE / f"{key}.mp3").exists():
+                    silent.append(f"{d['id']}/{nid}: {a['mt']}")
+
+    assert not silent, ("accepted answers with nothing to play — run "
+                       "scripts/prebuild_audio.py --what all:\n  "
+                       + "\n  ".join(silent[:8]))
+
+    # And the matcher really does skip the open ones, which is the half of the
+    # guarantee that lives in the engine.
+    src = (ROOT / "backend" / "dialogue.py").read_text(encoding="utf-8")
+    best = src.split("def _best_match(")[1].split("\ndef ")[0]
+    assert 'if candidate.get("open"):' in best and "continue" in best
+
+
+def test_no_rendered_line_was_cut_short():
+    """"Some audio seems cut off" had two possible causes and only one was in the
+    player. The other would be a truncated MP3, so: every line the app speaks, against
+    how long a line of that length takes.
+
+    Fitted rather than guessed, because a flat characters-per-second rule flags a third
+    of the corpus — a one-word vocabulary card and a fourteen-word sentence do not read
+    at the same rate. Over the 820 spoken lines:
+
+        seconds ≈ 0.435 + 0.0368 × characters
+        observed / predicted:  min 0.65 · median 0.97 · max 1.70
+
+    and the distribution is continuous, with no gap at either end. The slowest are
+    sentences of short exclamations with pauses between them (`Perfett. Grazzi ħafna!
+    Ċaw!`, 1.70×) and the fastest are long flowing ones (0.65×). Nothing is truncated —
+    a half-written file would sit at 0.2× and stand well clear of that floor, which is
+    where the bar goes."""
+    from backend import dialogue, tts
+    from backend.config import AUDIO_CACHE, CFG
+
+    BITRATES = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
+    SAMPLE_RATES = {0: 44100, 1: 48000, 2: 32000}
+
+    def seconds(path):
+        """Sum the frame durations of an MPEG audio file — what a decoder would play,
+        rather than what a header claims."""
+        data = path.read_bytes()
+        i, total = 0, 0.0
+        if data[:3] == b"ID3":
+            i = 10 + int.from_bytes(data[6:10], "big")
+        while i + 4 <= len(data):
+            if data[i] != 0xFF or (data[i + 1] & 0xE0) != 0xE0:
+                i += 1
+                continue
+            bitrate = BITRATES[(data[i + 2] >> 4) & 0xF]
+            rate = SAMPLE_RATES.get((data[i + 2] >> 2) & 0x3)
+            if not bitrate or not rate:
+                i += 1
+                continue
+            total += 1152 / rate
+            i += max(144000 * bitrate // rate + ((data[i + 2] >> 1) & 1), 1)
+        return total
+
+    rows = []
+    for line in set(dialogue.every_line()):
+        path = AUDIO_CACHE / f"{tts._cache_key(line, CFG.azure_voice, 0.95, 'edge')}.mp3"
+        if path.exists():
+            rows.append((len(line), seconds(path), line))
+
+    assert len(rows) > 500, f"only {len(rows)} lines measured"
+
+    # Least squares over the corpus itself, so the expectation moves with the content.
+    n = len(rows)
+    sx = sum(r[0] for r in rows)
+    sy = sum(r[1] for r in rows)
+    sxx = sum(r[0] * r[0] for r in rows)
+    sxy = sum(r[0] * r[1] for r in rows)
+    slope = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+    intercept = (sy - slope * sx) / n
+
+    short = [(secs / (intercept + slope * chars), secs, chars, line)
+             for chars, secs, line in rows
+             if secs < 0.45 * (intercept + slope * chars) or secs < 0.2]
+    assert not short, (
+        "lines with less audio than their length can account for — re-render with "
+        "scripts/prebuild_audio.py --what all:\n  "
+        + "\n  ".join(f"{r[0]:.2f}× ({r[1]:.2f}s for {r[2]} chars) {r[3]!r}"
+                      for r in sorted(short)[:8]))

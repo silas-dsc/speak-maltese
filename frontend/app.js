@@ -92,6 +92,9 @@ function escapeHtml(s = '') {
 /* ── Audio ─────────────────────────────────────────────────────────────── */
 
 let currentAudio = null;
+/** Resolver for the line currently being spoken, so superseding it settles its
+    promise rather than leaving an `await speak(...)` hanging on stopped audio. */
+let currentDone = null;
 
 function speak(text, { rate } = {}) {
   if (!text) return Promise.resolve();
@@ -103,15 +106,40 @@ function speak(text, { rate } = {}) {
     ? staticAudioUrl(text)
     : `/api/tts?text=${encodeURIComponent(text)}&rate=${r}&voice=${encodeURIComponent(state.settings.voice)}`;
   if (STATIC.on && !url) return Promise.resolve();
+  // Whatever was playing is superseded — and its promise has to be settled, or an
+  // `await speak(...)` upstream of it waits for a sound that has already stopped.
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if (currentDone) { currentDone(); currentDone = null; }
+
   const audio = new Audio(url);
   if (STATIC.on && rate && rate !== state.settings.rate) {
     audio.playbackRate = Math.max(0.5, Math.min(1.5, rate / state.settings.rate));
   }
   currentAudio = audio;
-  return audio.play().catch((err) => {
-    // Autoplay policies block the first sound until the user interacts.
-    if (err.name !== 'NotAllowedError') toast('Audio unavailable — check TTS setup');
+
+  /* Resolves when the line has been *said*, not when it started being said.
+
+     This used to resolve on `play()`, which returns as soon as playback begins — so
+     `await speak(reply)` in a drill turn waited for nothing, and 450ms later the next
+     prompt called `speak()` again, which pauses whatever is playing. Every tutor reply
+     longer than half a second was therefore cut off mid-sentence, every turn. Reported
+     as audio that "seems missing or cut off", and it was the second half of nearly all
+     of it. */
+  return new Promise((resolve) => {
+    const settle = () => {
+      if (currentAudio === audio) currentAudio = null;
+      if (currentDone === resolve) currentDone = null;
+      resolve();
+    };
+    currentDone = resolve;
+    audio.addEventListener('ended', settle, { once: true });
+    // A line with no file, or a decode failure: the turn must not wait on it forever.
+    audio.addEventListener('error', settle, { once: true });
+    audio.play().catch((err) => {
+      // Autoplay policies block the first sound until the user interacts.
+      if (err.name !== 'NotAllowedError') toast('Audio unavailable — check TTS setup');
+      settle();
+    });
   });
 }
 
@@ -1365,10 +1393,28 @@ function toggleAnswer() {
     $('drillReveal').textContent = 'Show me';
     return;
   }
-  // Their name, their town: there is no single right answer, so the line on screen
-  // is an example of the shape rather than the thing to repeat.
-  $('drillAnswerLead').textContent = drill.present.free ? 'Something like' : 'Say';
-  $('drillAnswerMt').textContent = answer.mt;
+  /* Their name, their town, their age: there is no single right answer, so what is on
+     screen is a pattern and an example of filling it in — not a line to repeat.
+
+     Saying that clearly matters more than it looks. The examples carry a name, and a
+     learner who sees `Jisimni Silas` for one pattern and `Jien Sally` for another can
+     reasonably conclude that `Jien` is the women's form. Maltese has plenty of
+     masculine and feminine pairs, so the inference is a sensible one — it is simply
+     wrong here: `Jien …` and `Jisimni …` are interchangeable, and the only thing that
+     changes with the speaker is the name in the gap.
+
+     So the patterns go on their own line, together, unlabelled and in the order the
+     scene lists them, and the example below is marked as one. */
+  const frames = drill.present.free ? (drill.present.frames || []) : [];
+  const framesEl = $('drillAnswerFrames');
+  framesEl.hidden = !frames.length;
+  framesEl.textContent = frames.join('   ·   ');
+
+  $('drillAnswerLead').textContent = !drill.present.free ? 'Say'
+    : frames.length > 1 ? 'Either pattern — your own answer in the gap'
+      : frames.length ? 'This pattern — your own answer in the gap'
+        : 'Something like';
+  $('drillAnswerMt').textContent = frames.length ? `e.g. ${answer.mt}` : answer.mt;
   $('drillAnswerEn').textContent = answer.en || '';
   box.hidden = false;
   $('drillReveal').textContent = 'Hide';
@@ -1445,7 +1491,11 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
       <p class="mt">${escapeHtml(mt || '')}</p>
       ${en ? `<p class="en" ${state.settings.show_english ? '' : 'hidden'}>${escapeHtml(en)}</p>` : ''}
       ${target ? `<p class="drill-target">${escapeHtml(target.mt)}
-           <em>${escapeHtml(target.en || '')}</em></p>` : ''}
+           <em>${escapeHtml(target.en || '')}</em>
+           <span class="target-tools">
+             <button class="tool" data-target-play>🔊 Play</button>
+             <button class="tool" data-target-slow>🐢 Slow</button>
+           </span></p>` : ''}
       ${role === 'tutor' && mt ? `<div class="bubble-tools">
           <button class="tool" data-play>🔊 Play</button>
           <button class="tool" data-slow>🐢 Slow</button>
@@ -1456,6 +1506,14 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
   if (role === 'tutor' && mt) {
     el.querySelector('[data-play]').onclick = () => speak(mt);
     el.querySelector('[data-slow]').onclick = () => speak(mt, { rate: 0.7 });
+  }
+  /* The line the learner is being asked to say, on its own. The bubble's own Play
+     speaks the *reply* — `Kważi. Għid: …` — which buries the target inside a sentence
+     and after a word of Maltese the learner has just been told they got wrong. It was
+     the one set response with no way to hear it by itself. */
+  if (target?.mt) {
+    el.querySelector('[data-target-play]').onclick = () => speak(target.mt);
+    el.querySelector('[data-target-slow]').onclick = () => speak(target.mt, { rate: 0.7 });
   }
   /* A question with no picture is a question, not a broken-image icon. The class
      goes too, so the bubble takes the full width back rather than leaving a gap

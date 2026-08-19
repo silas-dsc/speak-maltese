@@ -332,6 +332,13 @@ select:focus-visible, input:focus-visible, button:focus-visible {
   color: var(--sea); flex-basis: 100%;
 }
 .drill-answer b { font-family: var(--font-mt); font-size: 1.06rem; font-weight: 600; }
+/* The patterns, above the example. Side by side and equal-weighted, because the
+   whole point is that neither of them belongs to a particular speaker. */
+.drill-answer .frames {
+  flex-basis: 100%;
+  font-family: var(--font-mt); font-size: 1.02rem; font-weight: 600;
+  color: var(--text);
+}
 .drill-answer em { font-style: normal; font-size: .82rem; color: var(--text-dim); }
 .drill-answer .cue-btn { margin-left: auto; background: var(--surface); }
 
@@ -737,6 +744,9 @@ dialog.sheet {
   display: block; font-style: normal; font-family: var(--font);
   font-size: .8rem; color: var(--text-dim); margin-top: 2px;
 }
+/* Hearing the line on its own. The bubble's own Play speaks the reply that contains
+   it, which is not the same thing. */
+.target-tools { display: flex; gap: 4px; margin-top: 5px; }
 /* ── End-of-scene summary ────────────────────────────────────────────── */
 
 .run-summary .bubble { border-color: var(--green); }

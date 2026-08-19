@@ -654,10 +654,10 @@ FLEURS prose as well as deck lines.
 | 30 epochs, same data | accept rate | near-miss rejected |
 |---|---|---|
 | control | **95%** | 40% |
-| margin 0.3 | 91% | **60%** |
+| margin 0.3 | 91% | **56%** |
 
-Near-miss discrimination goes 12% (no prior, no margin) → 44% (prior) → **60%**, five times
-the baseline. It costs four points of accept rate, and **the app does not rank against
+Near-miss discrimination goes 12% (no prior, no margin) → 44% (prior) → **56%**, four and a
+half times the baseline. It costs four points of accept rate, and **the app does not rank against
 near-misses** — its field is other lines the script accepts. So it buys an honesty the app
 is not currently spending, at the price of the thing the learner actually feels. Left off
 by default, and it is the lever to pull the day the app grades pronunciation rather than

@@ -506,10 +506,10 @@ def stage_pseudo(shard: str) -> int:
 #
 #                            accept rate   near-miss rejected
 #   no margin (control)          95%              40%
-#   margin 0.3                   91%              60%
+#   margin 0.3                   91%              56%
 #
-# Near-miss discrimination goes from 12% (no prior, no margin) through 44% (prior) to 60%,
-# five times the baseline. It costs six points of accept rate — and the app does not rank
+# Near-miss discrimination goes from 12% (no prior, no margin) through 44% (prior) to 56%,
+# four and a half times the baseline. It costs six points of accept rate — and the app does not rank
 # against near-misses. Its field is other lines the script accepts, so this buys honesty
 # the app is not currently spending, at the price of the thing the learner feels. Left off
 # by default. It is the lever to pull the day the app grades pronunciation rather than

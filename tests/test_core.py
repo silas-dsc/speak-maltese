@@ -508,6 +508,91 @@ def test_open_question_does_not_anchor_on_a_two_letter_lookalike():
     assert dialogue.evaluate("people", "o2", "Huwa għalliem")["score"] == 1.0
 
 
+def test_a_sound_heard_as_its_neighbour_costs_less_than_a_different_sound():
+    """The recogniser's substitutions are almost all between neighbours — r for l, t for
+    d, ċ for k — and `difflib` charges the same for those as for a letter picked at
+    random. `sound_similarity` does not, which is the whole reason it exists."""
+    from backend import phonetics
+
+    # `qadima` came back as `adima` in the transcripts, and d↔t was one of the swaps
+    # seen most. Both of these are one substitution over five characters; only the cost
+    # differs — 0.35 for the neighbour, full price for the stranger.
+    near = phonetics.sound_similarity("qadima", "qatima")
+    far = phonetics.sound_similarity("qadima", "qabima")
+    assert near == 0.93, near
+    assert far == 0.80, far
+
+    # …and every ratio here is a ratio: a short word cannot hide an error in its length.
+    assert round(phonetics.sound_similarity("dar", "bar"), 4) == 0.6667
+
+
+def test_a_confusable_pair_earns_its_place_by_having_been_made():
+    """`_NEAR_PAIRS` holds only pairs seen in the 334 transcripts, and the phonetically
+    obvious additions were tried and rejected on measurement. ċ against ġ is the one
+    that showed why: they differ only in voicing, so it is a plausible pair, and adding
+    it made `Jien bil-għatx` (thirsty) heard as `jien bilaċ` come back credited to
+    `Jien bil-ġuħ` (hungry) — a discount on the one letter that told them apart."""
+    from backend import phonetics
+
+    assert ("c", "j") not in phonetics._NEAR_PAIRS
+    thirsty = phonetics.sound_similarity("jien bilaċ", "Jien bil-għatx.")
+    hungry = phonetics.sound_similarity("jien bilaċ", "Jien bil-ġuħ.")
+    assert thirsty > hungry, f"thirsty {thirsty} must stay ahead of hungry {hungry}"
+
+
+def test_an_answer_can_be_right_by_being_the_nearest():
+    """Below `CORRECT` and accepted anyway, because what was said is nearer to this
+    answer than to anything else the whole script accepts. `yien bilats` is
+    `Jien bil-għatx` at 0.82 — under the bar, and not remotely any other line."""
+    from backend import dialogue
+
+    r = dialogue.evaluate("keys", "r2", "yien bilats")
+    assert r["verdict"] == "correct"
+    assert r["on_lead"] is True
+    assert r["score"] < dialogue.CORRECT
+    assert r["matched_mt"] == "Jien bil-għatx."
+    # Waved through, but not silently: the line is shown so the learner can hear the
+    # difference between what they were credited with and what came back.
+    assert r["say_this_mt"] == "Jien bil-għatx."
+    assert r["diff"]
+
+
+def test_the_lead_is_not_a_licence():
+    """A lead means *clearly* nearest. `ma nfix` sits at 0.833 against `Ma nafx.` — I
+    don't know — and at 0.800 against `Ma nifhimx.` — I don't understand. Which of the
+    two was said is exactly what the app cannot tell, so it does not pretend to: 0.033
+    is not daylight, and the turn comes back as close rather than correct."""
+    from backend import dialogue
+
+    r = dialogue.evaluate("stuck", "s2", "ma nfix")
+    assert r["verdict"] == "close"
+    assert r["on_lead"] is False
+    assert r["score"] >= dialogue.NEAREST, "the point is that the floor was cleared"
+
+
+def test_a_rival_is_a_line_this_node_does_not_accept():
+    """Ranked against the field, not against a node's own answers. Several nodes accept
+    the same sentence and many accept near-variants of each other — `Grazzi ħafna.`
+    beside `Le, grazzi ħafna.` — and a rival that is the words we asked for is not a
+    rival at all."""
+    from backend import dialogue
+
+    n = dialogue.node("cafe", "c1")
+    ours = [a["mt"] for a in n["accept"] if not a.get("open")]
+    said = ours[0]
+    assert dialogue._nearest_rival(said, n["accept"]) < 1.0, (
+        "saying exactly what was asked for cannot have a rival at 1.0")
+
+
+def test_the_rival_field_is_every_answer_in_the_script():
+    from backend import dialogue
+
+    keys = [k for k, _ in dialogue._rivals()]
+    assert len(keys) == len(set(keys)), "keyed once, deduplicated"
+    assert keys == sorted(keys), "ordered, so the scan is deterministic"
+    assert len(keys) > 200
+
+
 def test_open_question_without_a_frame_still_says_nothing_rather_than_a_number():
     """Four open questions have no slot to frame — is your family big, who lives with
     you. Junk there must stay under the bar the UI prints from, or the app is back to

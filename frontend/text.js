@@ -149,8 +149,12 @@ export function wordSimilarity(a, b) {
    it disagrees with Python: multiplying by 10000 rounds first, so a value just
    below 0.66875 becomes exactly 6687.5 and then rounds up, where Python — working
    from the exact double — correctly gives 0.6687. The parity test caught it on
-   `qagħad id-dar`. `toFixed` rounds the exact value, as Python's round() does. */
-const round4 = (x) => Number(x.toFixed(4));
+   `qagħad id-dar`. `toFixed` rounds the exact value, as Python's round() does.
+
+   Exported because dialogue.js was still doing it the obvious way, and got away with
+   it until the weighted sound distance started landing on halves — being built from
+   multiples of 0.05, it does so often. 0.9188 against 0.9187 on `faċja għalija`. */
+export const round4 = (x) => Number(x.toFixed(4));
 
 export function score(said, target) {
   return round4(0.45 * similarity(said, target) + 0.55 * wordSimilarity(said, target));
@@ -237,6 +241,68 @@ export const keyNospace = (s) => phoneticKey(s).replaceAll(' ', '');
     whatever consonant follows — never as a consonant of its own. */
 export const softKey = (s) => keyNospace(s).replaceAll('q', '');
 
+/* ── How wrong is wrong? ─────────────────────────────────────────────────── */
+// Port of backend `key_sound_similarity`. `ratio` charges the same for every
+// character it has to change; a recogniser does not go wrong that evenly. Aligning the
+// soft keys of all 334 real transcripts against the line they were meant to be gives
+// 21 substitutions, and 14 of them are consonant for consonant — eleven of those
+// fourteen between neighbours: r↔l, t↔d, c↔k, c↔t, n↔m, y↔h. So a substitution costs
+// what kind of substitution it is.
+const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
+
+// The key alphabet is post-RULES: `c` is ċ, `j` is ġ or g, `s` is x or s, `z` is
+// ż/z/ts, `y` is the glide j, and q/għ are already gone.
+// Every pair here was *observed* in the 334 transcripts. Short on purpose: the
+// phonetically obvious additions — ċ against ġ, s against ż, p against b — were tried
+// and one cost a real distinction, `bil-għatx` (thirsty) credited to `bil-ġuħ` (hungry).
+// `j` is absent because it keys ġ *and* g, so any pair with it merges two sounds.
+const NEAR = new Set([
+  'dt',                      // a stop for the same stop voiced
+  'ck', 'ct',                // the affricate ċ against its stops
+  'lr', 'mn',                // liquids, nasals
+  'hy',                      // both nearly nothing, and what għ leaves behind
+  'uw', 'iy',                // a glide for the vowel it is made of
+]);
+
+const NEAR_COST = 0.35, VOWEL_COST = 0.30;
+
+const swapCost = (x, y) => {
+  if (x === y) return 0;
+  if (VOWELS.has(x) && VOWELS.has(y)) return VOWEL_COST;
+  return NEAR.has(x < y ? x + y : y + x) ? NEAR_COST : 1;
+};
+
+/** 0..1 over two keys already made, charging a substitution by kind.
+
+    A character appearing or vanishing costs full price. Discounting vowel indels was
+    the obvious thing to try, and it let `hello` score 0.58 against `Aħna erbgħa`;
+    making the discount affine changed nothing, because the alignment scatters gaps as
+    single vowels between matches. Nothing is lost: where a vowel really has slipped,
+    `nħobb` for `inħobb`, the plain ratio already scores it higher and `pairScore`
+    takes the larger. */
+export function keySoundSimilarity(ka, kb) {
+  if (!ka && !kb) return 1.0;
+  if (!ka || !kb) return 0.0;
+  let prev = new Array(kb.length + 1);
+  for (let j = 0; j <= kb.length; j += 1) prev[j] = j;
+  for (let i = 1; i <= ka.length; i += 1) {
+    const cur = new Array(kb.length + 1).fill(0);
+    cur[0] = i;
+    for (let j = 1; j <= kb.length; j += 1) {
+      cur[j] = Math.min(
+        prev[j - 1] + swapCost(ka[i - 1], kb[j - 1]),
+        prev[j] + 1,
+        cur[j - 1] + 1,
+      );
+    }
+    prev = cur;
+  }
+  return Math.max(0, 1 - prev[kb.length] / Math.max(ka.length, kb.length));
+}
+
+/** 0..1 similarity between two Maltese utterances, by how they sound. */
+export const soundSimilarity = (a, b) => keySoundSimilarity(softKey(a), softKey(b));
+
 export function phoneticSimilarity(a, b, soft = false) {
   const ka = soft ? softKey(a) : keyNospace(a);
   const kb = soft ? softKey(b) : keyNospace(b);
@@ -249,11 +315,14 @@ export function phoneticSimilarity(a, b, soft = false) {
 
 export const AGAIN = 1, HARD = 2, GOOD = 3, EASY = 4;
 
-/** Mirrors backend `_assess`: a phonetic floor under the orthographic score, so
-    the recogniser's word boundaries do not cost the learner marks. */
+/** Mirrors backend `_assess`: three readings of the same attempt, the most
+    generous winning. `ratio` counts characters shared in order but cannot say a
+    change was a small one; `soundSimilarity` charges each edit by kind and can;
+    the word-aligned score is the only one that notices a word out of place. */
 export function assess(said, target) {
   const phon = phoneticSimilarity(said, target, true);
-  const s = round4(Math.max(phon, 0.6 * phon + 0.4 * score(said, target)));
+  const s = round4(Math.max(phon, soundSimilarity(said, target),
+                            0.6 * phon + 0.4 * score(said, target)));
   return {
     said: normalise(said),
     target: normalise(target),

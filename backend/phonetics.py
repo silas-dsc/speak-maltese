@@ -90,6 +90,101 @@ def soft_key(s: str) -> str:
     return key_nospace(s).replace("q", "")
 
 
+# ── How wrong is wrong? ────────────────────────────────────────────────────────
+#
+# `difflib` charges the same for every character it has to change, and that is not
+# how a recogniser goes wrong. Aligning the soft keys of all 334 real transcripts
+# against the line they were meant to be gives 71 character edits over 4,793
+# characters — 21 substitutions, 29 deletions, 21 insertions — and the substitutions
+# are the interesting third. Fourteen of the 21 are consonant for consonant, and
+# eleven of those fourteen are between *neighbours*: r↔l twice, t↔d twice, d↔t, c↔k,
+# c↔t, t↔c, n↔m, y↔h, h↔y. Liquids for liquids, nasals for nasals, a stop for the
+# same stop voiced. Almost nothing is a randomly wrong letter.
+#
+# So a substitution costs what kind of substitution it is: a vowel for another vowel,
+# or a consonant for its articulatory neighbour, is about a third of a character, and
+# anything else is full price. This is tolerance about *how* a sound was heard and not
+# about which sounds were there — the cheap swaps are exactly the ones no available
+# Maltese recogniser resolves in a learner's speech.
+_VOWEL_SET = frozenset("aeiou")
+
+# Pairs a sound is genuinely mistaken for. The key alphabet is post-`_RULES`, so:
+# `c` is ċ (tʃ), `j` is ġ *or* g, `s` is x (ʃ) or s, `z` is ż/z/ts, `y` is j (the
+# glide), and `q`/`għ` are already gone.
+# Every pair here was *observed* in the 334 transcripts. The list is short on purpose:
+# the phonetically obvious additions — ċ against ġ, s against ż, p against b — were
+# tried and one of them cost a real distinction. `Jien bil-għatx` (thirsty) heard as
+# `jien bilaċ` was credited to `Jien bil-ġuħ` (hungry), because ċ↔ġ at a third of a
+# character plus a vowel appearing beat the true line. So a pair earns its place by
+# having been made, not by being plausible; `tests/test_q4_recogniser.py` is what
+# catches the difference.
+#
+# `j` is deliberately absent. It is the key for ġ *and* g, so any pair involving it
+# drags two sounds along, and that is the one merge that broke a minimal pair.
+_NEAR_PAIRS = frozenset({
+    ("d", "t"),                 # a stop for the same stop voiced — three times
+    ("c", "k"), ("c", "t"),     # ċ for k, ċ for t — the affricate against its stops
+    ("l", "r"),                 # liquids, twice
+    ("m", "n"),                 # nasals
+    ("h", "y"),                 # both nearly nothing, and both what għ leaves behind
+    ("u", "w"), ("i", "y"),     # a glide for the vowel it is made of
+})
+
+_NEAR_COST = 0.35     # heard as its neighbour
+_VOWEL_COST = 0.30    # heard as another vowel
+
+
+def _swap_cost(x: str, y: str) -> float:
+    if x == y:
+        return 0.0
+    if x in _VOWEL_SET and y in _VOWEL_SET:
+        return _VOWEL_COST
+    return _NEAR_COST if (min(x, y), max(x, y)) in _NEAR_PAIRS else 1.0
+
+
+def key_sound_similarity(ka: str, kb: str) -> float:
+    """0..1 over two keys already made, charging a substitution by kind.
+
+    Edit distance rather than `difflib`'s longest-common-subsequence ratio, because
+    the ratio has no way to say that a change was a small one. A weighted alignment
+    does, and that is the whole point.
+
+    A character *appearing or vanishing* costs full price, though the observed
+    insertions and deletions were mostly vowels and a discount was the obvious thing
+    to try. Two ways of trying it were measured and both were worse. Charging a
+    vowel indel a third of a character let `hello` score 0.58 against `Aħna erbgħa`
+    — nothing in common but the discount, four times over, on a node where the app
+    has to be able to say that nothing was said. Making the discount affine, so only
+    the first character of a run is cheap, changed not one number: the alignment
+    simply scatters the gaps as single vowels between matches, and every one of them
+    opens its own run.
+
+    Nothing is lost by charging full price. Where a vowel really has slipped —
+    `nħobb` for `inħobb` — the plain ratio scores it 0.889 and `pair_score` takes
+    the larger of the two anyway. The value here is all in the substitutions.
+    """
+    if not ka and not kb:
+        return 1.0
+    if not ka or not kb:
+        return 0.0
+    prev = list(range(len(kb) + 1))
+    for i in range(1, len(ka) + 1):
+        cur = [float(i)] + [0.0] * len(kb)
+        for j in range(1, len(kb) + 1):
+            cur[j] = min(
+                prev[j - 1] + _swap_cost(ka[i - 1], kb[j - 1]),
+                prev[j] + 1.0,
+                cur[j - 1] + 1.0,
+            )
+        prev = cur
+    return max(0.0, 1.0 - prev[len(kb)] / max(len(ka), len(kb)))
+
+
+def sound_similarity(a: str, b: str) -> float:
+    """0..1 similarity between two Maltese utterances, by how they sound."""
+    return key_sound_similarity(soft_key(a), soft_key(b))
+
+
 def key_similarity(a: str, b: str) -> float:
     """0..1 similarity between two keys that have already been made.
 

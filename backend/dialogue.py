@@ -30,6 +30,47 @@ DIALOGUES = DATA_DIR / "dialogues.json"
 CORRECT = 0.86
 CLOSE = 0.62
 
+# …and the other way of being right.
+#
+# One absolute threshold has to do two jobs that pull against each other: high
+# enough that a different sentence is turned down, low enough that a garbled correct
+# one is not. It cannot do both, and 0.86 resolves that by siding with strictness —
+# which is why an answer said right comes back rejected when the recogniser drops a
+# word. `Naħseb li iva` heard as `naħseb iva` scores 0.900. One more slip and it is
+# out, on a sentence the learner said perfectly well.
+#
+# Rank does what a threshold cannot. If what was said is nearer to what this node
+# accepts than to anything the app accepts anywhere else, and clearly nearer, then
+# it is that answer — garbled — and not some other sentence. The question stops
+# being "is this close enough" and becomes "close to *what*", which is the question
+# with an answer. The app already believes this at the acoustic level: `MIN_CONFIDENCE`
+# in app.js accepts the target outright when the *audio* ranks it clear of a field of
+# other lines. This asks the same question of the transcript, for the turns where the
+# audio could not answer it — which are exactly the turns where the transcript is
+# worst, and where demanding 0.86 of it is least reasonable.
+#
+# Measured by degrading all 334 real transcripts with the recogniser's own observed
+# error types, at 3x, 5x and 8x the rate observed on clean synthesised speech — a
+# learner's accented voice against a Maltese model is somewhere in there — and asking
+# each node to reject the nearest line it does *not* accept:
+#
+#                             said right, accepted     said wrong, accepted
+#                              3x     5x     8x         3x     5x     8x
+#   threshold 0.86 (before)   98.2%  91.3%  75.7%      3.6%   2.4%   1.5%
+#   threshold 0.78            99.4%  99.4%  94.6%     14.1%  12.3%   9.9%   ← too lenient
+#   0.86 with sound distance  99.1%  93.7%  79.0%      3.6%   2.4%   1.5%
+#   …and accepted on a lead  100.0% 100.0%  97.9%      3.6%   2.4%   1.5%   ← this
+#
+# The last row turns nothing away that the old threshold accepted, and turns nothing
+# *in* either: the wrong-answer column is identical at all three levels. Dropping the
+# threshold to 0.78 instead buys less and costs five times as many wrong answers.
+#
+# Cost: the rival scan is 377 comparisons, ~20ms in a browser, and it only runs for a
+# score in [0.66, 0.86) — the band where the app was about to turn the learner down
+# anyway, and where it can afford to think about it.
+NEAREST = 0.66   # below this, nearest to the target or not, nothing was said
+LEAD = 0.06      # how far clear of every rival the target has to be
+
 
 @lru_cache(maxsize=1)
 def load() -> dict:
@@ -305,21 +346,63 @@ def _best_frame(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
     return best, round(best_score, 4)
 
 
+def pair_score(said: str, want: str) -> float:
+    """How close what was said is to one particular line.
+
+    Three readings, and the most generous wins, because each is blind to something
+    the others see. `phonetics.similarity` counts characters shared in order and
+    cannot say whether a change was a small one. `sound_similarity` can — it charges
+    a substitution by kind, so `qadima` heard as `qatima` costs a third of a
+    character rather than a whole one. And `text.score` is word-aligned, which is the
+    only one of the three that notices a word is in the wrong place.
+    """
+    phon = phonetics.similarity(said, want, soft=True)
+    return max(
+        phon,
+        phonetics.sound_similarity(said, want),
+        0.6 * phon + 0.4 * text.score(said, want),
+    )
+
+
 def _best_match(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
     best, best_score = None, 0.0
     for candidate in accepted:
         if candidate.get("open"):
             continue
-        # Phonetic similarity carries the decision; the orthographic score is
-        # blended in so a spelling-perfect answer is never dragged down by a
-        # phonetic near-miss.
-        phon = phonetics.similarity(said, candidate["mt"], soft=True)
-        score = max(phon, 0.6 * phon + 0.4 * text.score(said, candidate["mt"]))
+        score = pair_score(said, candidate["mt"])
         if _QUOTED.search(candidate["mt"]):
             score = max(score, _frame_score(said, candidate["mt"]))
         if score > best_score:
             best, best_score = candidate, score
     return best, round(best_score, 4)
+
+
+@lru_cache(maxsize=1)
+def _rivals() -> tuple[tuple[str, str], ...]:
+    """Every line the app accepts anywhere, each with its phonetic key.
+
+    The competition. A node's own answers are excluded per call by key rather than
+    by identity, because the same sentence is accepted at several nodes and a rival
+    that is *the same words* is not a rival.
+    """
+    seen: dict[str, str] = {}
+    for d in all_dialogues():
+        for n in d.get("nodes", {}).values():
+            for a in n.get("accept", []):
+                if not a.get("open"):
+                    seen.setdefault(phonetics.soft_key(a["mt"]), a["mt"])
+    return tuple(sorted(seen.items()))
+
+
+def _nearest_rival(said: str, accepted: list[dict]) -> float:
+    """The best score reached by any line this node does *not* accept.
+
+    Scored with `pair_score`, the same function the match itself goes through. A
+    rival measured more meanly than the target would make the lead free.
+    """
+    ours = {phonetics.soft_key(a["mt"]) for a in accepted if not a.get("open")}
+    return round(max((pair_score(said, mt) for k, mt in _rivals() if k not in ours),
+                     default=0.0), 4)
 
 
 MAX_ATTEMPTS = 2
@@ -335,6 +418,7 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
     match, score = _best_match(said, n.get("accept", []))
 
     frame_scored = False
+    on_lead = False
     if n.get("free"):
         # A name, a place, a number: never marked wrong, because the app cannot
         # know it. But the frame around the slot is ordinary Maltese, so that part
@@ -369,6 +453,10 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
         verdict = "correct" if len(text.fold(said)) >= 2 else "wrong"
     elif score >= CORRECT:
         verdict = "correct"
+    elif score >= NEAREST and score - _nearest_rival(said, n.get("accept", [])) >= LEAD:
+        # Nearer to this answer than to anything else the app knows, by a clear
+        # margin. Right, then, and heard badly.
+        verdict, on_lead = "correct", True
     elif score >= CLOSE:
         verdict = "close"
     else:
@@ -396,6 +484,10 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
         # against a listed answer. The client says so out loud, because "100%" means
         # two different things: the frame was right, or the whole sentence was.
         "frame_scored": frame_scored,
+        # Accepted because it was the clear nearest, not because it scored well. The
+        # client says so and still shows the line: waving through a mangled answer
+        # without showing what it should have sounded like teaches the mangling.
+        "on_lead": on_lead,
         "moved_on": moved_on,
         "score": score,
         "said": said,
@@ -408,8 +500,9 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
         "node": node_id,
     }
 
-    # On anything short of correct, show the target so they can say it back.
-    if verdict != "correct" and match:
+    # On anything short of correct — and on anything accepted only on its lead —
+    # show the target so they can say it back.
+    if (verdict != "correct" or on_lead) and match:
         out["say_this_mt"] = match["mt"]
         out["say_this_en"] = match["en"]
         out["diff"] = text.diff_words(said, match["mt"])

@@ -12,6 +12,42 @@ import * as text from './text.js';
 
 export const CORRECT = 0.86;
 export const CLOSE = 0.62;
+
+/* …and the other way of being right.
+
+   One absolute threshold has to do two jobs that pull against each other: high enough
+   that a different sentence is turned down, low enough that a garbled correct one is
+   not. It cannot do both, and 0.86 resolves that by siding with strictness — which is
+   why an answer said right comes back rejected when the recogniser drops a word.
+   `Naħseb li iva` heard as `naħseb iva` scores 0.900. One more slip and it is out, on a
+   sentence the learner said perfectly well.
+
+   Rank does what a threshold cannot, and the app already knows this: `MIN_CONFIDENCE`
+   in app.js accepts the target when the *audio* ranks it clear of a field of other
+   lines. This is the same question asked of the transcript, for the turns where the
+   audio could not answer it — which are exactly the turns where the transcript is
+   worst, and where demanding 0.86 of it is least reasonable.
+
+   Measured by degrading all 334 real transcripts with the recogniser's own observed
+   error types, at 3x, 5x and 8x the rate observed on clean synthesised speech — a
+   learner's accented voice against a Maltese model is somewhere in there — and asking
+   each node to reject the nearest line it does *not* accept:
+
+                               said right, accepted     said wrong, accepted
+                                3x     5x     8x         3x     5x     8x
+     threshold 0.86 (before)   98.2%  91.3%  75.7%      3.6%   2.4%   1.5%
+     threshold 0.78            99.4%  99.4%  94.6%     14.1%  12.3%   9.9%   ← too lenient
+     0.86 with sound distance  99.1%  93.7%  79.0%      3.6%   2.4%   1.5%
+     …and accepted on a lead  100.0% 100.0%  97.9%      3.6%   2.4%   1.5%   ← this
+
+   The last row turns nothing away that the old threshold accepted, and turns nothing
+   *in* either: the wrong-answer column is identical at all three levels. Dropping the
+   threshold to 0.78 instead buys less and costs five times as many wrong answers.
+
+   Cost: the rival scan is 377 comparisons, ~20ms here, and it only runs for a score in
+   [0.66, 0.86) — the band where the app was about to turn the learner down anyway. */
+export const NEAREST = 0.66;   // below this, nearest or not, nothing was said
+export const LEAD = 0.06;      // how far clear of every rival the target has to be
 export const MAX_ATTEMPTS = 2;
 
 let doc = { dialogues: [] };
@@ -209,7 +245,7 @@ function anchorScore(said, frame) {
 
 function bestAnchor(said, frames) {
   const best = (frames || []).reduce((b, f) => Math.max(b, anchorScore(said, f)), 0);
-  return Math.round(best * 10000) / 10000;
+  return text.round4(best);
 }
 
 /** Is this listed answer a deliberate step outside the frame?
@@ -253,7 +289,21 @@ function bestFrame(said, accepted) {
     const s = frameRecall(said, candidate.mt);
     if (s > bestScore) { best = candidate; bestScore = s; }
   }
-  return [best, Math.round(bestScore * 10000) / 10000];
+  return [best, text.round4(bestScore)];
+}
+
+/** How close what was said is to one particular line.
+
+    Three readings, and the most generous wins, because each is blind to something the
+    others see. `phoneticSimilarity` counts characters shared in order and cannot say
+    whether a change was a small one. `soundSimilarity` can — it charges a substitution
+    by kind, so `qadima` heard as `qatima` costs a third of a character rather than a
+    whole one. And the word-aligned score is the only one of the three that notices a
+    word is in the wrong place. */
+export function pairScore(said, want) {
+  const phon = text.phoneticSimilarity(said, want, true);
+  return Math.max(phon, text.soundSimilarity(said, want),
+                  0.6 * phon + 0.4 * text.score(said, want));
 }
 
 function bestMatch(said, accepted) {
@@ -261,12 +311,44 @@ function bestMatch(said, accepted) {
   let bestScore = 0;
   for (const candidate of accepted || []) {
     if (candidate.open) continue;
-    const phon = text.phoneticSimilarity(said, candidate.mt, true);
-    let s = Math.max(phon, 0.6 * phon + 0.4 * text.score(said, candidate.mt));
+    let s = pairScore(said, candidate.mt);
     if (QUOTED.test(candidate.mt)) s = Math.max(s, frameScore(said, candidate.mt));
     if (s > bestScore) { best = candidate; bestScore = s; }
   }
-  return [best, Math.round(bestScore * 10000) / 10000];
+  return [best, text.round4(bestScore)];
+}
+
+/* Every accepted line in the script with its phonetic key, built once. `everyAnswer`
+   walks 113 nodes and this keys 377 strings through the Maltese rules; the script is
+   loaded at boot and never edited, so doing it per utterance would be pure waste. */
+let rivalCache = null;
+export function rivals() {
+  if (!rivalCache) {
+    const seen = new Map();
+    for (const mt of everyAnswer()) {
+      const k = text.softKey(mt);
+      if (!seen.has(k)) seen.set(k, mt);
+    }
+    rivalCache = [...seen.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  }
+  return rivalCache;
+}
+
+/** The best score reached by any line this node does *not* accept.
+
+    Scored with `pairScore`, the same function the match itself goes through: a rival
+    measured more meanly than the target would make the lead free. Excluded by key
+    rather than by identity, because the same sentence is accepted at several nodes and
+    a rival that is the same words is not a rival. */
+function nearestRival(said, accepted) {
+  const ours = new Set((accepted || []).filter((a) => !a.open).map((a) => text.softKey(a.mt)));
+  let best = 0;
+  for (const [k, mt] of rivals()) {
+    if (ours.has(k)) continue;
+    const s = pairScore(said, mt);
+    if (s > best) best = s;
+  }
+  return text.round4(best);
 }
 
 export function evaluate(did, nid, said, attempts = 0) {
@@ -278,6 +360,7 @@ export function evaluate(did, nid, said, attempts = 0) {
 
   let verdict;
   let frameScored = false;
+  let onLead = false;
   let [match, score] = [match0, score0];
   if (n.free) {
     // A name, a place, a number: never marked wrong, because the app cannot know
@@ -313,7 +396,12 @@ export function evaluate(did, nid, said, attempts = 0) {
     }
     verdict = text.fold(said).length >= 2 ? 'correct' : 'wrong';
   } else if (score >= CORRECT) verdict = 'correct';
-  else if (score >= CLOSE) verdict = 'close';
+  else if (score >= NEAREST && score - nearestRival(said, n.accept) >= LEAD) {
+    // Nearer to this answer than to anything else the app knows, by a clear margin.
+    // Right, then, and heard badly.
+    verdict = 'correct';
+    onLead = true;
+  } else if (score >= CLOSE) verdict = 'close';
   else verdict = 'wrong';
 
   // Never let someone loop on one line: after a couple of tries the target has
@@ -333,6 +421,10 @@ export function evaluate(did, nid, said, attempts = 0) {
     // against a listed answer. The UI says so out loud, because "100%" means two
     // different things: the frame was right, or the whole sentence was.
     frame_scored: frameScored,
+    // Accepted because it was the clear nearest, not because it scored well. The UI
+    // says so and still shows the line: waving through a mangled answer without
+    // showing what it should have sounded like teaches the mangling.
+    on_lead: onLead,
     moved_on: movedOn,
     score,
     said,
@@ -345,7 +437,9 @@ export function evaluate(did, nid, said, attempts = 0) {
     node: nid,
   };
 
-  if (verdict !== 'correct' && match) {
+  // On anything short of correct — and on anything accepted only on its lead — show
+  // the target so they can say it back.
+  if ((verdict !== 'correct' || onLead) && match) {
     out.say_this_mt = match.mt;
     out.say_this_en = match.en;
     out.diff = text.diffWords(said, match.mt);

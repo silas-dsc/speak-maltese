@@ -226,15 +226,24 @@ def _assess(said: str, target: str) -> dict:
     split wrecks it, while the phonetic key ignores spacing entirely — which is why
     the scripted-dialogue matcher has always blended the two and this did not.
 
-    Same blend as `dialogue._best_match`, so the two halves of the app now agree
+    Same blend as `dialogue.pair_score`, so the two halves of the app now agree
     about what counts as saying it right. Measured over 334 real transcripts from
     the 4-bit recogniser: answers graded Good or better go from 96.1% to 100%, and
     the highest score an unrelated sentence reaches actually falls, from 0.879 to
     0.824.
+
+    The third reading is `sound_similarity`, which charges an edit by what kind of
+    edit it is rather than counting characters. It is here and not only in the
+    scenes because the recogniser's habits are the same on both screens: a vowel
+    slipping, `nixtieq` coming back as `nixtiek`. What the drill does *not* get is
+    the scenes' lead test — there is no set of other things the learner might have
+    been saying, because the drill asks for one sentence and nothing else. Nothing
+    is turned away here either; the score picks an FSRS grade.
     """
     phon = phonetics.similarity(said, target, soft=True)
-    s = max(phon, 0.6 * phon + 0.4 * text.score(said, target))
-    s = round(s, 4)
+    s = round(max(phon,
+                  phonetics.sound_similarity(said, target),
+                  0.6 * phon + 0.4 * text.score(said, target)), 4)
     return {
         "said": text.normalise(said),
         "target": text.normalise(target),

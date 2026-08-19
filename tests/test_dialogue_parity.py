@@ -59,6 +59,18 @@ EDGE = [
     ("stuck", "s3", "kif tgħidx xi s bil-malti", 0),
     ("stuck", "s3", "xi xi xi", 0),
     ("cafe", "c1", "nixtieq kafè, jekk jogħġbok.", 0),
+    # Accepted on a lead rather than on a score: under 0.86, and nearer to the line the
+    # node wanted than to any of the 377 the script accepts anywhere. The weighted sound
+    # distance and the rival scan are both new, both in two languages, and both land on
+    # a boundary — so they are replayed here rather than trusted.
+    ("keys", "r2", "yien bilats", 0),
+    ("keys", "r1", "ninsa olilo illum", 0),
+    ("doctor", "h1", "għandi uġigiħ tia' toniku", 0),
+    ("outing", "m1", "ix-xemix qeigħa tiddii", 0),
+    ("restaurant", "r3", "nieħu l-iħuit jiekk joigħġoik", 0),
+    # …and one that clears the floor and is still turned away, because `Ma nafx` and
+    # `Ma nifhimx` are 0.03 apart on it and that is not daylight.
+    ("stuck", "s2", "ma nfix", 0),
 ]
 
 DRIVER = r"""
@@ -70,6 +82,7 @@ console.log(JSON.stringify(cases.map(([did, nid, said, attempts]) => {
   const r = d.evaluate(did, nid, said, attempts);
   return { verdict: r.verdict, score: r.score, matched: r.matched_mt,
            advance: r.advance, moved_on: r.moved_on, frame_scored: r.frame_scored,
+           on_lead: r.on_lead,
            say_this: r.say_this_mt || null,
            next: r.next ? r.next.node : null, finished: !!r.finished };
 })));
@@ -106,6 +119,7 @@ def both():
         py.append({"verdict": r["verdict"], "score": r["score"],
                    "matched": r["matched_mt"], "advance": r["advance"],
                    "moved_on": r["moved_on"], "frame_scored": r["frame_scored"],
+                   "on_lead": r["on_lead"],
                    "say_this": r.get("say_this_mt"),
                    "next": (r.get("next") or {}).get("node") if r.get("next") else None,
                    "finished": bool(r.get("finished"))})
@@ -117,6 +131,15 @@ def test_every_turn_grades_identically(both):
     bad = [(data[i], js[i], py[i]) for i in range(len(data)) if js[i] != py[i]]
     detail = "\n".join(f"  {c}\n    js {a}\n    py {b}" for c, a, b in bad[:5])
     assert not bad, f"{len(bad)} of {len(data)} turns differ:\n{detail}"
+
+
+def test_the_lead_path_is_actually_reached_on_both_sides(both):
+    """A field compared for equality is only compared where it varies. Both engines must
+    have accepted something on a lead here, or `on_lead` is being checked as False
+    against False and the new branch is untested in the browser."""
+    _data, js, py = both
+    assert sum(1 for r in js if r["on_lead"]) >= 4, "the browser engine never led"
+    assert sum(1 for r in py if r["on_lead"]) >= 4, "the server engine never led"
 
 
 def test_the_fixture_still_passes_in_the_browser_engine(both):

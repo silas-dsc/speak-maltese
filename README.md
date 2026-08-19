@@ -543,6 +543,58 @@ a *different* line is still rejected. For somebody learning, being able to progr
 phonetic precision that no available Maltese model can actually judge — and that was a
 product decision, taken with these numbers in hand, not a technical accident.
 
+### When the audio cannot decide, ask the transcript the same question
+
+Six of the 25 clips do not clear the acoustic gate, and every one of them falls through to
+the same place: the free transcript, string-matched against the line the app asked for, and
+accepted at 0.86. That is the worst possible moment to demand near-perfection, because the
+transcript is only being consulted at all on the turns where the model was least sure.
+
+Two changes, and the second is the one that matters.
+
+**Errors are charged by kind.** Aligning the phonetic keys of all 334 recorded transcripts
+against the line they were meant to be gives 21 substitutions, 14 of them consonant for
+consonant — and 11 of those 14 are between neighbours: `r`↔`l`, `t`↔`d`, `c`↔`k`, `c`↔`t`,
+`n`↔`m`, `y`↔`h`. Liquids for liquids, nasals for nasals, a stop for the same stop voiced.
+`difflib` charges the same for those as for a randomly wrong letter; `phonetics.sound_similarity`
+charges a third of a character for a neighbour and full price for a stranger. Insertions and
+deletions stay at full price — discounting them was tried twice, and let `hello` score 0.58
+against `Aħna erbgħa`.
+
+**And an answer can be right by being the nearest.** One absolute threshold has two jobs
+that pull against each other: high enough to turn down a different sentence, low enough to
+accept a garbled correct one. It cannot do both. Rank can, and the app already believes
+this one level down — the acoustic gate accepts a target that beats a field of 24. So the
+same question is now asked of the transcript: if what was said is nearer to what this node
+accepts than to any of the 377 lines the script accepts anywhere else, and clearly nearer,
+it is that answer heard badly rather than some other sentence.
+
+Measured by degrading all 334 real transcripts with the recogniser's own observed error
+types, at 3×, 5× and 8× the rate seen on clean synthesised speech, and asking each node to
+reject the nearest line it does *not* accept:
+
+| | said right, accepted | | | said wrong, accepted | | |
+|---|---|---|---|---|---|---|
+| | **3×** | **5×** | **8×** | **3×** | **5×** | **8×** |
+| threshold 0.86 (before) | 98.2% | 91.3% | 75.7% | 3.6% | 2.4% | 1.5% |
+| threshold 0.78 | 99.4% | 99.4% | 94.6% | 14.1% | 12.3% | 9.9% |
+| 0.86 with sound distance | 99.1% | 93.7% | 79.0% | 3.6% | 2.4% | 1.5% |
+| **…and accepted on a lead** | **100.0%** | **100.0%** | **97.9%** | **3.6%** | **2.4%** | **1.5%** |
+
+The wrong-answer column does not move. Every false accept in it is one the 0.86 threshold
+was already making; the lead rule adds none of its own, because a wrong line's rivals
+include the line it actually is, which scores 1.0 and leaves no daylight. Simply lowering
+the threshold to 0.78 buys less and costs five times as much.
+
+`ma nfix` is the shape of the refusal: 0.833 against `Ma nafx.` — I don't know — and 0.800
+against `Ma nifhimx.` — I don't understand. Which was said is exactly what the app cannot
+tell, so it does not pretend to.
+
+A turn accepted this way is marked `close enough` rather than ✓, and the model line is
+shown beside it. Waving a mangled answer through without showing what it should have
+sounded like teaches the mangling. The scan itself is 377 comparisons, about 20ms, and runs
+only for scores in [0.66, 0.86) — the band where the app was about to say no anyway.
+
 The recordings also exposed the recorder: 9 of the 25 were faulty and nothing said so at the
 time. One clip sat 30dB below the rest and was the worst-scoring in the set; eight more were
 digitally clipped, all late in the run. Both are now reported per clip as they land.

@@ -1560,7 +1560,13 @@ async function answerDrill(said) {
     if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 
-    const tone = r.moved_on ? 'near' : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
+    // `on_lead` is a pass, and it is not a clean one: the transcript did not reach the
+    // bar, and what carried it was being nearer to this answer than to anything else
+    // the script accepts. Marked as the near tone with the line shown beside it, so the
+    // learner can hear the difference between what they were credited with and what
+    // came back — printing a plain ✓ over a mangled transcript teaches the mangling.
+    const tone = (r.moved_on || r.on_lead) ? 'near'
+      : { correct: 'ok', close: 'near', wrong: 'bad' }[r.verdict];
     const mark = r.moved_on ? '→' : { correct: '✓', close: '≈', wrong: '✗' }[r.verdict];
     // An open question is your name, your town, your age: accepted whatever you
     // say, because the app cannot know it. What is scored is the Maltese *frame*
@@ -1580,7 +1586,8 @@ async function answerDrill(said) {
       ? (r.score >= 0.5
         ? `${freeLabel} · ${Math.round(r.score * 100)}%`
         : 'taken as given · not scored')
-      : `${r.moved_on ? 'moving on' : r.verdict} · ${Math.round(r.score * 100)}%`;
+      : `${r.moved_on ? 'moving on' : r.on_lead ? 'close enough' : r.verdict}`
+        + ` · ${Math.round(r.score * 100)}%`;
 
     const turn = {
       role: 'tutor',

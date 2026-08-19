@@ -122,9 +122,23 @@ export function diagnose({ ms = 0, bytes = 0, chunks = 0, mime = '', peak = null
   const measured = `${ms}ms recorded but only ${bytes} bytes captured `
     + `(${chunks} chunk${chunks === 1 ? '' : 's'}, ${mime || 'no mime'})`;
 
-  /* No container at all. A muted microphone would still have produced its headers,
-     so this is the encoder and nothing else, and it is struck off without waiting to
-     be told twice. */
+  /* No `dataavailable` at all. Not one chunk, empty or otherwise — so there is nothing
+     to accuse the container of: it was never handed anything to write. An encoder that
+     cannot use the container it accepted still emits its stub, which is the case below.
+
+     This distinction was learned the hard way. `audio/webm;codecs=opus` and
+     `audio/mp4;codecs=mp4a.40.2` were both struck off on this evidence, and both were
+     innocent — the recorder was emitting nothing whatever it was pointed at. Blaming
+     the container here burns through the whole list one wasted utterance at a time. */
+  if (!chunks) {
+    return { ok: false, blame: 'recorder', block: false, stale: true, meter: true,
+             reason: `${measured} — the recorder never delivered any audio, `
+                     + 'reopening the microphone; please try again' };
+  }
+
+  /* A chunk arrived and holds no container. A muted microphone would still have
+     produced its headers — see `EMPTY_BYTES` — so this is the encoder accepting a
+     container it cannot write, and it is struck off without waiting to be told twice. */
   if (bytes < EMPTY_BYTES) {
     return { ok: false, blame: 'encoder', block: true, stale: true, meter: false,
              reason: `${measured} — nothing was encoded at all, so `

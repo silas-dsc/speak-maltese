@@ -101,6 +101,10 @@ out.fine = diagnose({ ms: 3000, bytes: 40000, mime: 'audio/mp4' });
 
 // No container written at all — the iPhone SE, verbatim from the screenshot.
 const noContainer = { ms: 2782, bytes: 5, chunks: 1, mime: 'audio/webm;codecs=opus' };
+// And no chunk at all, which is the recorder rather than the container.
+const noChunk = { ms: 2959, bytes: 0, chunks: 0, mime: 'audio/mp4;codecs=mp4a.40.2' };
+out.noChunk = diagnose(noChunk);
+out.noChunkMetered = diagnose({ ...noChunk, peak: 0.4 });
 out.noContainer = diagnose(noContainer);
 out.noContainerMetered = diagnose({ ...noContainer, peak: 0.04 });
 
@@ -470,14 +474,53 @@ def test_a_muted_track_is_waited_for_and_not_replaced():
     moment."""
     src = _app_js()
     start = src.split("  async start() {")[1].split("\n  }")[0]
-    assert "readyState === 'live'" in start, "an ended track still has to be replaced"
+    assert "micTrack().readyState !== 'live'" in start, \
+        "an ended capture session still has to be replaced"
     assert "!t.muted" not in start, \
         "muted is being treated as a reason to reopen the stream again"
-    assert "await whenDelivering(stream);" in start
+    assert "await whenDelivering(sharedStream);" in start
 
     # Paid on the warm-up too, so in the ordinary case a press waits for nothing.
     ensure = src.split("async function ensureStream() {")[1].split("\n}")[0]
     assert "await whenDelivering(sharedStream);" in ensure
+
+
+def test_the_encoder_is_given_a_webaudio_reroute_of_the_microphone():
+    """The fault that survived every other fix:
+
+        audio/mp4;codecs=mp4a.40.2   2959ms → 0 bytes, 0 chunks
+                                     · mic live · at start delivering
+
+    A container the probe had verified, a private tab with no stored state, and a track
+    that was live and delivering when the recorder started. Three seconds of speech and
+    `dataavailable` never fired once — which rules out the container, the candidate
+    order, the probe's timing and the track's readiness, in that order, being the four
+    things already tried.
+
+    What has never failed on that phone is the probe, and the probe records a
+    `MediaStreamAudioDestinationNode`. So the microphone is routed through WebAudio and
+    the encoder is given *that*: measured at 17833 bytes where the raw stream gives
+    nothing. The capture session is still opened, watched and stopped as before — this
+    only changes what sits between it and the encoder."""
+    src = _app_js()
+    route = src.split("async function throughWebAudio(stream) {")[1].split("\n}")[0]
+    assert "createMediaStreamSource(stream)" in route
+    assert "createMediaStreamDestination()" in route
+    assert "micSource.connect(dest)" in route
+    # A suspended context passes no samples, which would turn a working microphone into
+    # silence — worse than the fault being fixed.
+    assert "if (audioCtx.state !== 'running') return stream;" in route
+    # The last catch is the outer one; the inner catch is the disconnect.
+    assert "return stream;" in route.split("catch")[-1], "no fallback to the raw stream"
+
+    ensure = src.split("async function ensureStream() {")[1].split("\n}")[0]
+    assert "recordable = await throughWebAudio(sharedStream);" in ensure
+    assert "return recordable;" in ensure
+
+    # The health of the capture session is still read from the microphone's own track.
+    assert "const micTrack = () => sharedStream?.getAudioTracks?.()[0] || null;" in src
+    # …and the report says which path the encoder was actually given.
+    assert "· via ${audioCtx?.state === 'running' && micSource ? 'webaudio' : 'raw'}" in src
 
 
 def test_the_failure_says_whether_the_microphone_had_started():
@@ -486,6 +529,23 @@ def test_the_failure_says_whether_the_microphone_had_started():
     been captured is its state when the recorder *started*, so that is recorded then and
     reported alongside."""
     src = _app_js()
-    assert "lastMutedAtStart = !!stream.getAudioTracks()[0]?.muted;" in src
+    assert "lastMutedAtStart = !!micTrack()?.muted;" in src
     assert "at start ${" in src
     assert "· mic ${mic}${atStart}" in src
+
+
+@pytest.mark.parametrize("case", ["noChunk", "noChunkMetered"])
+def test_no_chunk_at_all_is_not_the_containers_fault(result, case):
+    """`dataavailable` never fired — not one chunk, empty or otherwise. There is nothing
+    to accuse the container of, because it was never handed anything to write; an
+    encoder that cannot use a container it accepted still emits its stub, which is the
+    five-byte case.
+
+    Learned the hard way: `audio/webm;codecs=opus` and then `audio/mp4;codecs=mp4a.40.2`
+    were both struck off on this evidence and both were innocent. Blaming the container
+    here burns through the whole list, one wasted utterance at a time."""
+    d = result[case]
+    assert d["blame"] == "recorder"
+    assert d["block"] is False, "a container is being struck off for the recorder again"
+    assert d["stale"] is True, "the capture session is the thing to reopen"
+    assert "never delivered any audio" in d["reason"]

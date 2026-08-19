@@ -143,12 +143,13 @@ document.addEventListener('visibilitychange', () => {
 });
 
 async function ensureStream() {
-  if (sharedStream?.active && !streamStale) return sharedStream;
+  if (sharedStream?.active && !streamStale) return recordable ?? sharedStream;
   if (sharedStream && streamStale) {
     // Let the device go before asking for it again: two live capture sessions on iOS
     // is how you get one that produces nothing.
     for (const t of sharedStream.getTracks()) t.stop();
     sharedStream = null;
+    recordable = null;
   }
   // Share the in-flight request. prewarmMic() and a mic press can land together,
   // and without this each opened its own stream — the loser was overwritten but
@@ -179,8 +180,72 @@ async function ensureStream() {
   // Acquired is not the same as delivering. Paid here, on the warm-up, so a press
   // does not pay it. See `whenDelivering`.
   await whenDelivering(sharedStream);
-  return sharedStream;
+  recordable = await throughWebAudio(sharedStream);
+  return recordable;
 }
+
+/* ── What MediaRecorder is actually given ──────────────────────────────────────
+
+   Not the microphone. The microphone, re-routed through WebAudio:
+
+       getUserMedia → MediaStreamAudioSourceNode → MediaStreamAudioDestinationNode
+                    → MediaRecorder
+
+   Five rounds of this bug were spent on the wrong suspects — the container, the
+   candidate order, the probe's timing, a track that had not started — and each theory
+   was refuted by the next screenshot. The last one refuted the lot:
+
+       audio/mp4;codecs=mp4a.40.2   2959ms → 0 bytes, 0 chunks
+                                    · mic live · at start delivering
+
+   A container the probe had verified, in a private tab with no stored state, on a
+   track that was live and *delivering when the recorder started*. Three seconds of
+   speech and `dataavailable` never fired once. Nothing about the format, the ordering
+   or the readiness of the microphone can explain that, and the second press worked on
+   the same container through the same microphone.
+
+   What can explain it is the one thing that has worked on the first attempt every
+   single time, on this same phone and this same browser: the format probe. It records
+   a `MediaStreamAudioDestinationNode`, and it has never once come back empty. Measured
+   again here before committing to it — a MediaStream re-routed through WebAudio and
+   recorded gives 17833 bytes where the raw stream gives nothing.
+
+   So the recorder is given the re-routed stream. The microphone is still opened,
+   watched and stopped exactly as before — it is the capture session, and `sharedStream`
+   remains the thing that goes stale, mutes and ends. This only changes what sits
+   between it and the encoder.
+
+   If the AudioContext will not run, the raw stream is handed over as it always was.
+   That is the old behaviour, which is broken on this phone and fine everywhere else,
+   and it is better than no recording at all. */
+let audioCtx = null;
+let micSource = null;
+let recordable = null;
+
+async function throughWebAudio(stream) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return stream;
+  try {
+    audioCtx = audioCtx || new Ctx();
+    await audioCtx.resume();
+    // Suspended means no samples will flow through the graph, which would turn a
+    // working microphone into silence. Better the raw stream than that.
+    if (audioCtx.state !== 'running') return stream;
+
+    try { micSource?.disconnect(); } catch { /* already gone */ }
+    micSource = audioCtx.createMediaStreamSource(stream);
+    const dest = audioCtx.createMediaStreamDestination();
+    micSource.connect(dest);
+    return dest.stream;
+  } catch {
+    return stream;                        // no graph; record the microphone directly
+  }
+}
+
+/** The capture session's own track — for health, staleness and the failure report.
+    `ensureStream()` returns what the *encoder* is given, which is a WebAudio stream
+    whose track is always live and says nothing about the microphone. */
+const micTrack = () => sharedStream?.getAudioTracks?.()[0] || null;
 
 /* How long to wait for a freshly-opened microphone to start producing samples.
 
@@ -240,8 +305,11 @@ let meterCtx = null;
 function levelMeter(stream) {
   if (!meterWanted) return null;
   try {
+    // The capture graph if there is one: on iOS every extra audio node is another way
+    // to disturb a capture session, and there is no reason to build a second context
+    // when `throughWebAudio` already has one running.
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    meterCtx = meterCtx || new Ctx();
+    meterCtx = audioCtx || meterCtx || new Ctx();
     const analyser = meterCtx.createAnalyser();
     analyser.fftSize = 512;
     const src = meterCtx.createMediaStreamSource(stream);
@@ -478,7 +546,7 @@ function captureState() {
      takes the microphone while `readyState` still reads `live`, and between them they
      separate "nothing reached the encoder" from "the encoder dropped it" — which is
      the distinction two rounds of this bug turned on. */
-  const track = sharedStream?.getAudioTracks?.()[0];
+  const track = micTrack();
   const mic = track
     ? `${track.readyState}${track.muted ? '/muted' : ''}${track.enabled ? '' : '/disabled'}`
     : 'no track';
@@ -489,7 +557,10 @@ function captureState() {
   return ` · offers ${claims}`
     + `${blocked ? ` · struck off ${blocked}` : ''}`
     + `${capabilities.verified() ? ` · known good ${capabilities.verified().replace('audio/', '')}` : ''}`
-    + ` · mic ${mic}${atStart}`;
+    + ` · mic ${mic}${atStart}`
+    // Which stream the encoder was given. `raw` means the WebAudio graph would not
+    // start and the old, broken-on-some-phones path was used.
+    + ` · via ${audioCtx?.state === 'running' && micSource ? 'webaudio' : 'raw'}`;
 }
 
 class Recorder {
@@ -497,18 +568,19 @@ class Recorder {
 
   async start() {
     let stream = await ensureStream();
-    /* A track that has ended is gone and has to be replaced. A track that is merely
-       muted has not started yet, and replacing it produces another one that has not
-       started either — so that case waits. Conflating the two is what made the first
-       press of a session record nothing. */
-    if (!stream.getAudioTracks().some((t) => t.readyState === 'live')) {
+    /* Asked of the microphone, not of what the encoder is given — the re-routed stream
+       has a track of its own that is always live and knows nothing about the capture
+       session. A track that has ended is gone and needs replacing; one that is merely
+       muted has not started yet, and replacing it produces another that has not
+       started either, so that case waits. */
+    if (micTrack() && micTrack().readyState !== 'live') {
       markStreamStale();
       stream = await ensureStream();
     }
-    await whenDelivering(stream);
+    await whenDelivering(sharedStream);
     // Recorded before the recording, because by the time a failure is drawn the track
     // has usually unmuted and the evidence has gone with it.
-    lastMutedAtStart = !!stream.getAudioTracks()[0]?.muted;
+    lastMutedAtStart = !!micTrack()?.muted;
     const mime = chosenMime();
     this.chunks = [];
     this.meter = levelMeter(stream);       // only after something has gone wrong

@@ -366,3 +366,126 @@ def test_the_press_no_longer_waits_for_the_probe():
     # …and the recording still starts before anything else can be awaited.
     head = re.sub(r"(?m)^\s*//.*$", "", begin).split("await")[0]
     assert "recordingNow = true;" in head
+
+
+# ── Acquired is not delivering ─────────────────────────────────────────────────
+
+DELIVERY_DRIVER = r"""
+import { readFileSync } from 'node:fs';
+
+/* `whenDelivering` is lifted out and run, the same way test_api.py lifts `routeFor`
+   out of the service worker: the rest of app.js needs a DOM and this does not. */
+const src = readFileSync('frontend/app.js', 'utf8');
+const start = src.indexOf('function whenDelivering');
+if (start < 0) throw new Error('app.js has no whenDelivering to test');
+const end = src.indexOf('\n}', start) + 2;
+const whenDelivering = new Function(
+  'DELIVERY_MS', `${src.slice(start, end)}; return whenDelivering;`)(700);
+
+const fake = (muted) => {
+  const listeners = {};
+  const track = {
+    muted,
+    addEventListener: (k, f) => { (listeners[k] ||= []).push(f); },
+    removeEventListener: (k, f) => { listeners[k] = (listeners[k] || []).filter((x) => x !== f); },
+    fire: (k) => (listeners[k] || []).slice().forEach((f) => f()),
+    listenerCount: () => Object.values(listeners).flat().length,
+  };
+  return { track, stream: { getAudioTracks: () => [track] } };
+};
+
+const out = {};
+let t0;
+
+// Already delivering: nothing to wait for.
+const live = fake(false);
+t0 = Date.now();
+await whenDelivering(live.stream);
+out.deliveringMs = Date.now() - t0;
+
+// Muted, then the first samples arrive.
+const late = fake(true);
+t0 = Date.now();
+setTimeout(() => late.track.fire('unmute'), 120);
+await whenDelivering(late.stream);
+out.unmutedMs = Date.now() - t0;
+out.listenersLeft = late.track.listenerCount();
+
+// A browser that never fires `unmute` must not hold the microphone shut.
+const never = fake(true);
+t0 = Date.now();
+await whenDelivering(never.stream, 250);
+out.boundedMs = Date.now() - t0;
+
+// And nothing to wait on is not an error.
+await whenDelivering({ getAudioTracks: () => [] });
+await whenDelivering(undefined);
+out.tolerant = true;
+
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def delivery():
+    driver = ROOT / "tests" / "_delivery_driver.mjs"
+    driver.write_text(DELIVERY_DRIVER, encoding="utf-8")
+    try:
+        proc = subprocess.run([node, str(driver)], cwd=ROOT,
+                              capture_output=True, text=True, timeout=30)
+    finally:
+        driver.unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_the_recorder_waits_for_the_first_samples(delivery):
+    """`getUserMedia` resolves when permission is granted and a track exists, which is
+    before the source has started. A track from a live source arrives `muted: true` and
+    fires `unmute` when audio begins flowing, and that gap is where four rounds of this
+    bug lived — most clearly in the last one:
+
+        audio/mp4;codecs=mp4a.40.2   2034ms →  0 bytes, 0 chunks · mic live
+
+    Zero chunks means `dataavailable` never fired at all, in a private tab with no
+    stored state, on a container the probe had just verified, with the track reading
+    `live` by the time the message was drawn. The container was never the problem: the
+    recorder was started against a microphone that had not begun, and the second press
+    worked because by then it had.
+
+    Waiting on `unmute` is the fix, and it has to be bounded — a browser that never
+    fires it must not hold the microphone shut."""
+    assert delivery["deliveringMs"] < 60, "a live track must not be waited on"
+    assert 100 <= delivery["unmutedMs"] < 700, \
+        "must resolve when the samples arrive, not on the timeout"
+    assert 240 <= delivery["boundedMs"] < 700, "the wait has to be bounded"
+    assert delivery["listenersLeft"] == 0, "the unmute listener outlived the wait"
+    assert delivery["tolerant"], "no track at all must resolve, not throw"
+
+
+def test_a_muted_track_is_waited_for_and_not_replaced():
+    """`start()` used to treat "muted" as "stale" and throw the stream away — which is
+    the one response guaranteed not to help, because the replacement arrives muted too.
+    Ended and muted are different faults: one needs a new track, the other needs a
+    moment."""
+    src = _app_js()
+    start = src.split("  async start() {")[1].split("\n  }")[0]
+    assert "readyState === 'live'" in start, "an ended track still has to be replaced"
+    assert "!t.muted" not in start, \
+        "muted is being treated as a reason to reopen the stream again"
+    assert "await whenDelivering(stream);" in start
+
+    # Paid on the warm-up too, so in the ordinary case a press waits for nothing.
+    ensure = src.split("async function ensureStream() {")[1].split("\n}")[0]
+    assert "await whenDelivering(sharedStream);" in ensure
+
+
+def test_the_failure_says_whether_the_microphone_had_started():
+    """`mic live` is read when the failure is drawn, by which point the track has
+    usually unmuted and the evidence has gone. What decides whether anything could have
+    been captured is its state when the recorder *started*, so that is recorded then and
+    reported alongside."""
+    src = _app_js()
+    assert "lastMutedAtStart = !!stream.getAudioTracks()[0]?.muted;" in src
+    assert "at start ${" in src
+    assert "· mic ${mic}${atStart}" in src

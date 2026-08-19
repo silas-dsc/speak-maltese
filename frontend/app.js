@@ -176,7 +176,54 @@ async function ensureStream() {
     t.addEventListener('mute', markStreamStale);
     t.addEventListener('ended', markStreamStale);
   }
+  // Acquired is not the same as delivering. Paid here, on the warm-up, so a press
+  // does not pay it. See `whenDelivering`.
+  await whenDelivering(sharedStream);
   return sharedStream;
+}
+
+/* How long to wait for a freshly-opened microphone to start producing samples.
+
+   Short on purpose. In the normal case this is paid on the first gesture and costs the
+   learner nothing; when it is paid on a press it is added to the front of the
+   utterance, and a wait longer than this would be worse than the fault it is avoiding. */
+const DELIVERY_MS = 700;
+
+/** Resolve once the microphone is actually producing audio — not merely open.
+
+    `getUserMedia` resolves when permission is granted and a track exists, which is
+    before the source has started. Per spec a track from a live source arrives
+    `muted: true` and fires `unmute` when the first samples flow, and that gap is where
+    three rounds of this bug lived:
+
+        audio/webm;codecs=opus   2055ms →  5 bytes,  1 chunk
+        audio/mp4;codecs=mp4a…   2055ms →  5 bytes,  1 chunk
+        audio/mp4;codecs=mp4a…   2034ms →  0 bytes,  0 chunks   ← private tab, fresh
+
+    The last one settles it. Zero chunks means `dataavailable` never fired at all, in a
+    tab with no stored state, on a container the probe had just verified, with the track
+    reading `live` by the time the failure was drawn. Nothing was wrong with the
+    container — the recorder was started against a microphone that had not begun, and
+    the second press worked because by then it had. That is also why the earlier two
+    produced a five-byte stub rather than nothing: WebM writes its header before the
+    first sample arrives and MP4 does not.
+
+    `start()` used to react to `muted` by throwing the stream away and opening another
+    one, which is the one thing guaranteed not to help: the replacement arrives muted
+    too. Waiting is the whole fix. */
+function whenDelivering(stream, timeoutMs = DELIVERY_MS) {
+  const track = stream?.getAudioTracks?.()[0];
+  if (!track || !track.muted) return Promise.resolve(stream);
+  return new Promise((resolve) => {
+    const settle = () => {
+      clearTimeout(timer);
+      track.removeEventListener('unmute', settle);
+      resolve(stream);
+    };
+    // Bounded: a browser that never fires `unmute` must not hold the microphone shut.
+    const timer = setTimeout(settle, timeoutMs);
+    track.addEventListener('unmute', settle);
+  });
 }
 
 /* Was there any sound at all? Without this, "nothing recorded" cannot tell a
@@ -329,6 +376,10 @@ async function verifyCapture() {
   }
 }
 
+/** Whether the microphone had started delivering when the last recording began.
+    `null` until something has been recorded. Read by `captureState()`. */
+let lastMutedAtStart = null;
+
 /** True from the moment a mic press is handled until its recording has been sent.
     Module-level because the two things that must not overlap live in different
     scopes: the format probe up here and the button's `begin()` down there. */
@@ -431,10 +482,14 @@ function captureState() {
   const mic = track
     ? `${track.readyState}${track.muted ? '/muted' : ''}${track.enabled ? '' : '/disabled'}`
     : 'no track';
+  // What it was when the recorder started, which is the state that decides whether
+  // anything could have been captured. By failure time it has usually unmuted.
+  const atStart = lastMutedAtStart === null ? '' : ` · at start ${
+    lastMutedAtStart ? 'muted' : 'delivering'}`;
   return ` · offers ${claims}`
     + `${blocked ? ` · struck off ${blocked}` : ''}`
     + `${capabilities.verified() ? ` · known good ${capabilities.verified().replace('audio/', '')}` : ''}`
-    + ` · mic ${mic}`;
+    + ` · mic ${mic}${atStart}`;
 }
 
 class Recorder {
@@ -442,10 +497,18 @@ class Recorder {
 
   async start() {
     let stream = await ensureStream();
-    if (!stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted)) {
-      markStreamStale();                   // stale: drop it and ask again
+    /* A track that has ended is gone and has to be replaced. A track that is merely
+       muted has not started yet, and replacing it produces another one that has not
+       started either — so that case waits. Conflating the two is what made the first
+       press of a session record nothing. */
+    if (!stream.getAudioTracks().some((t) => t.readyState === 'live')) {
+      markStreamStale();
       stream = await ensureStream();
     }
+    await whenDelivering(stream);
+    // Recorded before the recording, because by the time a failure is drawn the track
+    // has usually unmuted and the evidence has gone with it.
+    lastMutedAtStart = !!stream.getAudioTracks()[0]?.muted;
     const mime = chosenMime();
     this.chunks = [];
     this.meter = levelMeter(stream);       // only after something has gone wrong

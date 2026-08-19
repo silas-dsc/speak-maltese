@@ -261,26 +261,6 @@ def _app_js() -> str:
     return (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
 
 
-def test_the_format_probe_stands_aside_for_a_real_recording():
-    """`prewarmMic` is bound to pointerdown on `window`, so on the first press it
-    runs when the event *bubbles* — after the button's own handler has called
-    `begin()` and found `probing` still null. The guard written to stop two
-    MediaRecorders sharing one stream therefore could not fire on the one press it
-    was needed for, and the 300ms probe recorded over the first utterance.
-
-    It stops happening for a different reason on the second press — by then a format
-    is known and the probe returns immediately — which is why it read as a first-try
-    problem rather than as a race."""
-    src = _app_js()
-    assert "let recordingNow = false;" in src
-    assert "if (recordingNow) return;" in src, "verifyCapture no longer stands aside"
-    # Set before anything is awaited, or the bubbling listener runs first anyway.
-    begin = src.split("async function begin() {")[1].split("async function end()")[0]
-    # Comments first: the one above the guard says "after the await below", and
-    # splitting on the word would cut the body off before any of it.
-    head = re.sub(r"(?m)^\s*//.*$", "", begin).split("await")[0]
-    assert "recordingNow = true;" in head, "the flag is set after an await"
-
 
 def test_letting_go_before_the_microphone_opened_still_sends():
     """Opening the microphone costs 100-500ms and `end()` returned early on
@@ -324,48 +304,6 @@ def test_the_microphone_is_opened_before_the_first_press_where_it_may_be():
     assert "prewarmIfAlreadyAllowed();" in src, "defined but never called"
 
 
-def test_the_probe_runs_before_the_press_it_has_to_inform():
-    """`begin()` holds the recording until `probing` settles, which only means
-    anything if `probing` has been *set* by then. Bound in the bubble phase, the
-    warm-up ran after the button's own handler on the very press that needed it — so
-    the guard was dead code and the first utterance went into whatever container
-    `isTypeSupported` had claimed. In the capture phase the window listener runs
-    first, which is what makes the await load-bearing.
-
-    Reported twice from an iPhone SE: first as a mic that failed on the first press
-    and worked on the second, then — once the release-during-startup fault was fixed
-    and the utterance survived — as `2444ms recorded but only 5 bytes captured
-    (1 chunk, audio/webm;codecs=opus)`."""
-    src = _app_js()
-    for line in ("window.addEventListener('pointerdown', prewarmMic, "
-                 "{ once: true, capture: true });",
-                 "window.addEventListener('keydown', prewarmMic, "
-                 "{ once: true, capture: true });"):
-        assert line in src, f"not in the capture phase: {line}"
-    assert "if (probing) await probing;" in src, "…and nothing waits for it"
-
-
-def test_the_probe_strikes_off_a_container_without_waiting_for_a_rival():
-    """The probe used to condemn nothing unless some *other* container had proved
-    itself first, on the reasoning that a muted microphone makes them all look broken.
-    It does not — see `EMPTY_BYTES` — and that caution was load-bearing in the wrong
-    direction: on a phone whose only advertised container is a broken one, nothing was
-    ever struck off and every first press went into it.
-
-    Striking off the last one is not a dead end. `pickMime` then returns the empty
-    string, which is `new MediaRecorder(stream)` with no container named — the browser
-    recording in whatever it actually implements, which is the answer on that phone."""
-    src = _app_js()
-    verify = src.split("async function verifyCapture(stream) {")[1].split("\nfunction ")[0]
-    assert "if (bytes < capture.EMPTY_BYTES) capabilities.block(mime);" in verify
-    assert "usable.length < 2" not in verify, \
-        "the short-circuit is back, and it skips the striking-off that fixes this"
-    assert "supportsMime(m) && !blocked.includes(m)" in verify
-
-    # And the fallback it opens up has to survive in pickMime.
-    cap = (ROOT / "frontend" / "capture.js").read_text(encoding="utf-8")
-    assert "|| ''" in cap.split("export function pickMime")[1].split("\n}")[0], \
-        "nothing falls back to letting the browser choose"
 
 
 def test_a_failure_says_what_the_device_offered():
@@ -380,3 +318,51 @@ def test_a_failure_says_what_the_device_offered():
     state = src.split("function captureState() {")[1].split("\n}")[0]
     assert "capture.CANDIDATES" in state and "supportsMime(m)" in state
     assert "capabilities.blocked()" in state and "capabilities.verified()" in state
+
+
+def test_the_probe_never_touches_the_microphone():
+    """An iPhone SE returned the identical five-byte stub for `audio/webm;codecs=opus`
+    and then for `audio/mp4;codecs=mp4a.40.2` — two unrelated encoders — before a third
+    container recorded properly through the same microphone. That rules out both stories
+    this code was built on: the microphone was working, and "the container is broken"
+    cannot hold for two unrelated codecs at once while a third succeeds.
+
+    What is left is that the device advertises more containers than it implements, and
+    the only way to know which is to try. So the probe tries all of them, on an
+    oscillator rather than on the microphone:
+
+    * it needs no permission, so it can run before anyone has agreed to anything;
+    * it cannot disturb the capture session the first utterance is about to use, which
+      was the first theory of this bug and is worth keeping ruled out;
+    * and with no capture session to conflict over, the containers can be measured at
+      the same time — 2.2s for three against 6.0s in sequence, same verdicts."""
+    src = _app_js()
+    probe = src.split("async function verifyCapture() {")[1].split("\n/**")[0]
+
+    assert "createMediaStreamDestination()" in probe, "the probe is back on the mic"
+    assert "createOscillator()" in probe
+    assert "getUserMedia" not in probe, "the probe must not open a capture session"
+    # All of them, at once.
+    assert "await Promise.all(" in probe
+    assert "capture.CANDIDATES.filter(" in probe
+
+    # A context that will not start produces silence, and silence must never be
+    # recorded as evidence against an encoder.
+    assert "if (ctx.state !== 'running') return;" in probe
+    # Nor may a probe where *nothing* wrote condemn anything.
+    assert "if (!wrote.length) {" in probe
+    assert "for (const m of empty) capabilities.block(m);" in probe
+
+
+def test_the_press_no_longer_waits_for_the_probe():
+    """The probe used to record 300ms through the microphone the press was about to
+    use, so `begin()` held the recording until it finished — which on a device with
+    three containers to try cost up to two seconds of the first utterance. On a
+    synthetic stream there is nothing to collide with, so the press starts at once."""
+    src = _app_js()
+    begin = src.split("async function begin() {")[1].split("async function end()")[0]
+    assert "await probing" not in begin, \
+        "the press is waiting on the probe again — it no longer has to"
+    # …and the recording still starts before anything else can be awaited.
+    head = re.sub(r"(?m)^\s*//.*$", "", begin).split("await")[0]
+    assert "recordingNow = true;" in head

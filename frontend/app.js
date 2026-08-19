@@ -248,56 +248,85 @@ function recordBriefly(stream, mime) {
   });
 }
 
-async function verifyCapture(stream) {
-  if (capabilities.verified()) return;            // already known on this device
-  /* Never alongside a real recording. The probe opens a MediaRecorder on the shared
-     stream, and two of those produce one empty clip — the comment in `begin()` says
-     so, and its `if (probing) await probing` was written to prevent exactly this.
-     That guard could not fire on the *first* press: `prewarmMic` is bound to
-     pointerdown on `window`, so it runs when the event bubbles up — after the
-     button's own handler has already called `begin()` and found `probing` still
-     null. The probe and the first utterance therefore recorded over each other
-     every time, and the second press worked because by then a format was known.
-     Which is the shape that was reported: fails on the first try, works on the
-     second. */
-  if (recordingNow) return;
-  /* Walk the list itself rather than asking `chosenMime()` each time: the probe does
-     not strike a format off until it has seen another one work, so the answer would
-     not change between rounds and the loop would ask the same question three times. */
-  const blocked = capabilities.blocked();
-  const usable = capture.CANDIDATES.filter(
-    (m) => supportsMime(m) && !blocked.includes(m));
+/** Which containers this device actually writes into.
 
-  for (const mime of usable) {
-    let bytes = 0;
-    try {
-      bytes = await recordBriefly(stream, mime);
-    } catch {
-      capabilities.block(mime);                   // refused outright: a real answer
-      continue;
-    }
-    if (bytes >= PROBE_BYTES) {
-      capabilities.verify(mime);                  // this one records; stop guessing
+    Two rounds of this were built on a guess and both were wrong, so here is what an
+    iPhone SE actually did, one press at a time:
+
+        audio/webm;codecs=opus    2055ms →     5 bytes
+        audio/mp4;codecs=mp4a...  2055ms →     5 bytes
+        (whatever was left)              →     worked
+
+    Two unrelated encoders — Opus in WebM and AAC-LC in MP4 — returning the identical
+    five-byte stub, then a third container recording properly through the same
+    microphone seconds later. Whatever this is, it is not the two explanations the code
+    was written around: the microphone was demonstrably working, and "that container is
+    broken" cannot be true of two unrelated codecs at once while a third succeeds. What
+    is certainly true is that this phone advertises three containers and implements
+    fewer, and there is no way to know which except to try them.
+
+    So all of them are tried — and on a stream with no microphone in it.
+
+    An oscillator into a `MediaStreamAudioDestinationNode` is a real MediaStream
+    carrying real samples, and it answers the only question the probe was ever asking:
+    does this browser write bytes when told to use this container. Doing it that way
+    buys three things the microphone could not. It needs no permission, so it can run
+    before anyone has agreed to anything. It cannot disturb the capture session the
+    first utterance is about to use — the original theory of this bug, and worth keeping
+    ruled out rather than reintroduced. And because there is no capture session to
+    conflict over, the containers can be measured *at the same time*: 2.2s for all
+    three against 6.0s one after another, with the same verdicts.
+
+    Which in turn means `begin()` no longer waits for it. The probe and the first press
+    are on separate streams now, so the press starts recording immediately and the probe
+    lands when it lands — at worst one press early. */
+const PROBE_TONE_HZ = 440;
+
+async function verifyCapture() {
+  if (capabilities.verified()) return;            // already known on this device
+
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  const ctx = new Ctx();
+  try {
+    await ctx.resume();
+    /* A context that will not start produces no samples, and every container would
+       measure as empty — which is the one outcome that must never be recorded as
+       evidence. Safari suspends until a gesture, which is why this runs from one. */
+    if (ctx.state !== 'running') return;
+
+    const dest = ctx.createMediaStreamDestination();
+    const osc = ctx.createOscillator();
+    osc.frequency.value = PROBE_TONE_HZ;
+    osc.connect(dest);
+    osc.start();
+
+    const blocked = capabilities.blocked();
+    const usable = capture.CANDIDATES.filter(
+      (m) => supportsMime(m) && !blocked.includes(m));
+    // -1 for a container the constructor refused outright, which is a real answer.
+    const sizes = await Promise.all(
+      usable.map((m) => recordBriefly(dest.stream, m).catch(() => -1)));
+    osc.stop();
+
+    const wrote = usable.filter((m, i) => sizes[i] >= PROBE_BYTES);
+    const empty = usable.filter((m, i) => sizes[i] < capture.EMPTY_BYTES);
+
+    /* Nothing wrote anything, on a stream that was certainly producing samples. That
+       is not several broken encoders, it is a probe that cannot be trusted — so no
+       container is condemned on it and the next real recording is metered instead. */
+    if (!wrote.length) {
+      if (empty.length) meterWanted = true;
       return;
     }
-    /* And this one does not. Struck off here rather than only once something else has
-       been seen to work, which is the change that finally fixed the first press.
 
-       The old rule was "condemn nothing unless an alternative proved itself", on the
-       reasoning that a muted microphone makes every container look broken. But it
-       does not: a muted mic still gets its headers written, which is hundreds of
-       bytes before a frame of audio, so anything under `EMPTY_BYTES` is an encoder
-       that wrote nothing at all. And there is always an alternative — striking the
-       last one off leaves `pickMime` returning '', which is `new MediaRecorder(stream)`
-       with no container named, which is the browser recording in whatever it actually
-       implements. On the phone this bug came from, that is the answer. */
-    if (bytes < capture.EMPTY_BYTES) capabilities.block(mime);
+    capabilities.verify(capture.CANDIDATES.find((m) => wrote.includes(m)));
+    for (const m of empty) capabilities.block(m);
+  } catch {
+    /* An AudioContext this browser will not give us says nothing about its encoders. */
+  } finally {
+    try { await ctx.close(); } catch { /* already gone */ }
   }
-  /* Nothing verified. Either every container was struck off — in which case the next
-     recording asks the browser to choose, and will verify whatever it picks — or one
-     is sitting in the ambiguous band and the meter can settle it. */
-  markStreamStale();
-  meterWanted = true;
 }
 
 /** True from the moment a mic press is handled until its recording has been sent.
@@ -308,11 +337,13 @@ let recordingNow = false;
 /** Warm the mic on the first interaction so the first recording isn't the slow one,
     and find out what this device can actually record while we are here. */
 function prewarmMic() {
-  probing = ensureStream()
-    .then((stream) => verifyCapture(stream))
+  /* Two independent things on the first gesture: open the microphone, so the first
+     press does not pay for it, and find out what this browser encodes into, which
+     needs no microphone at all. Neither waits for the other. */
+  probing = verifyCapture().catch(() => {}).finally(() => { probing = null; });
+  return ensureStream()
     .catch(() => { /* permission comes later, on first real use */ })
-    .finally(() => { probing = null; });
-  return probing;
+    .then(() => probing);
 }
 
 /* Opening the microphone costs 100-500ms, and until it is open a press records
@@ -392,9 +423,18 @@ function captureState() {
       supportsMime(m) ? '' : '✗'}`)
     .join(' ');
   const blocked = capabilities.blocked().map((m) => m.replace('audio/', '')).join(',');
+  /* And what the track says about itself. `muted` is the one iOS sets when another app
+     takes the microphone while `readyState` still reads `live`, and between them they
+     separate "nothing reached the encoder" from "the encoder dropped it" — which is
+     the distinction two rounds of this bug turned on. */
+  const track = sharedStream?.getAudioTracks?.()[0];
+  const mic = track
+    ? `${track.readyState}${track.muted ? '/muted' : ''}${track.enabled ? '' : '/disabled'}`
+    : 'no track';
   return ` · offers ${claims}`
     + `${blocked ? ` · struck off ${blocked}` : ''}`
-    + `${capabilities.verified() ? ` · known good ${capabilities.verified().replace('audio/', '')}` : ''}`;
+    + `${capabilities.verified() ? ` · known good ${capabilities.verified().replace('audio/', '')}` : ''}`
+    + ` · mic ${mic}`;
 }
 
 class Recorder {
@@ -684,9 +724,11 @@ function bindMic(button, { onResult, onStatus, target }) {
     // nothing is what teaches somebody to press it twice.
     button.classList.add('is-recording');
     onStatus?.('Opening the microphone…');
-    // A tap can land while the format probe is still recording its 300ms; two
-    // MediaRecorders on one stream is how you get a clip with nothing in it.
-    if (probing) await probing;
+    /* No waiting on the probe. It used to record 300ms through this very microphone,
+       so a press landing inside it put two MediaRecorders on one capture session — and
+       the await that prevented that cost the first press up to two seconds of the
+       utterance. The probe runs on a synthetic stream now and cannot collide with
+       this, so the recording starts immediately and the probe lands when it lands. */
     try {
       await recorder.start();
       active = true;

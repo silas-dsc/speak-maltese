@@ -709,8 +709,41 @@ class Recorder {
    answers into the FSRS scheduler and rot the review deck. Declined on those numbers.
 
    One speaker, 25 utterances — a real measurement, not a large one. Re-run
-   `--clips voice` after adding recordings and move this if the split has moved. */
-const MIN_CONFIDENCE = 0.55;
+   `--clips voice` after adding recordings and move this if the split has moved.
+
+   ── and then it came down to 0.35, because the disease was cured ──
+
+   Every word above is still true about the code as it was. What it does not say is *why*
+   ranking accepted silence, and the answer turns out to be the same fault that was
+   costing the learner their rank: a short sequence has fewer obligatory emissions and
+   more freedom about where to put them, so it explains a blank posterior beautifully and
+   a long utterance respectably. Silence winning against a field of longer alternatives
+   and `Grazzi ħafna` losing to `Bonġu!` are one bug seen from two sides, and the floor
+   was a patch over one side of it.
+
+   `nanostt.rankScore` now charges a hypothesis for claiming a length the audio cannot
+   support — a duration prior fitted on the 29,860 TTS passes of the distillation corpus.
+   With the cause addressed the patch can come off. Swept together, on the same 25 clips
+   and on 90 negatives (digital silence, white noise at five levels, the learner's own
+   clips at -30dB, and the learner's own clips reversed):
+
+     prior  floor   learner accepted   silence   hiss   -30dB   reversed
+      off    0.55         20/25            0%      0%     0%       8%     ← was
+      off    0.30         20/25            0%      5%     0%       8%
+      on     0.55         22/25            0%      0%     0%       8%
+      on     0.45         23/25            0%      0%     0%       8%
+      on     0.35         24/25            0%      0%     0%       8%     ← is
+      on     0.20         24/25            5%      0%     0%      12%
+      on     0.00         24/25           10%      5%     0%      12%
+
+   Four more of the learner's correct answers accepted, for *identical* rejection of
+   everything that is not speech. Not a trade: the row above the old one on both counts.
+   Lowering the floor on its own buys nothing and starts admitting hiss — the two have to
+   move together, which is what makes this a fix rather than a loosening.
+
+   Reversed speech at 8% is unchanged and is not a regression; it has full speech energy
+   and speech-like spectra, and nobody plays speech backwards at their phone. */
+const MIN_CONFIDENCE = 0.35;
 
 /** How far ahead of the runner-up the target has to be. It changes nothing at this floor,
     and it costs nothing: correct answers clear their field by 0.06-0.43, where the one
@@ -771,7 +804,7 @@ async function transcribe(blob, target) {
         target: flat,
         distractors: flat ? distractorsFor(flat) : [],
       });
-      const clear = r.runnerUp === null || r.confidence > r.runnerUp + MIN_MARGIN;
+      const clear = r.runnerUp === null || r.rank > r.runnerUp + MIN_MARGIN;
       if (flat && clear && r.confidence >= MIN_CONFIDENCE) {
         /* The line we asked for explains this audio better than anything else it could
            have been. A garbled transcript here is the model failing at the harder task,

@@ -43,7 +43,8 @@ CLIPS = ROOT / "data" / "eval_clips"
 DRIVER = r"""
 import { readFileSync } from 'node:fs';
 import { features, ctcDecode, melFilters, analysisWindow,
-         ctcLogp, greedyLogp, targetConfidence, encodeTarget } from '../frontend/nanostt.js';
+         ctcLogp, greedyLogp, targetConfidence, encodeTarget,
+         durationPrior, rankScore } from '../frontend/nanostt.js';
 
 const samples = Float32Array.from(JSON.parse(readFileSync(process.argv[2], 'utf-8')));
 const { data, nMels, frames } = features(samples);
@@ -69,7 +70,11 @@ console.log(JSON.stringify({
     empty: ctcLogp(LP, LPF, V, [], SBLK),
     greedy: greedyLogp(LP, LPF, V),
     confAb: targetConfidence(LP, LPF, V, [0, 1], SBLK),
+    rankAb: rankScore(LP, LPF, V, [0, 1], SBLK),
+    rankA:  rankScore(LP, LPF, V, [0], SBLK),
   },
+  duration: [[5, 100], [25, 100], [12, 60], [1, 1], [40, 200]]
+    .map(([k, f]) => durationPrior(k, f)),
   encoded: {
     plain: encodeTarget('ab', tokToId),
     spaced: encodeTarget('a b', tokToId),
@@ -199,6 +204,62 @@ def test_the_target_scorer_matches_python(pair):
     # eight of them on blanks, so it is not automatically the likelier reading.
     assert js["ctc"]["aa"] != js["ctc"]["a"]
     assert abs(js["ctc"]["aa"] - ctc_logp(grid, [0, 0], blank)) < 1e-9
+
+
+def test_the_duration_prior_matches_python(pair):
+    """Same arithmetic on both sides, or the browser ranks differently from the reference.
+
+    This one is worth its own test rather than riding on `rankScore`: the prior is three
+    constants and a squared z-score, which is exactly the shape of thing that gets ported
+    with a sign flipped or a standard deviation squared twice and still looks plausible."""
+    _py, js, _w, _fb, _g = pair
+    from constrained_ctc import duration_prior
+
+    for got, (tokens, frames) in zip(js["duration"],
+                                     ((5, 100), (25, 100), (12, 60), (1, 1), (40, 200))):
+        want = duration_prior(tokens, frames)
+        assert abs(got - want) < 1e-9, f"{tokens}/{frames}: JS {got} vs Python {want}"
+        assert got <= 0, "the prior is a penalty, never a bonus"
+
+
+def test_the_prior_charges_a_short_hypothesis_for_a_long_utterance(pair):
+    """The artefact this exists to remove.
+
+    Five tokens is not a plausible reading of two seconds of audio, and without the prior
+    nothing in the scorer says so — which is why all five of the learner's rank failures
+    lost to `Bonġu!`. A hundred frames is two seconds; the prior has to prefer 25 tokens
+    to 5 by a wide margin, and be nearly indifferent between lengths that are both
+    plausible."""
+    from constrained_ctc import DUR_WEIGHT, duration_prior
+
+    short, right = duration_prior(5, 100), duration_prior(25, 100)
+    assert right > short
+    assert DUR_WEIGHT * (right - short) > 0.5, "too weak to overturn a 0.14 gap"
+    # …and it must not start refereeing between two reasonable readings.
+    assert abs(DUR_WEIGHT * (duration_prior(38, 100) - duration_prior(40, 100))) < 0.02
+
+
+def test_the_floor_and_the_ranking_do_not_share_a_number(pair):
+    """`confidence` is the floor's, `rank` is the field's, and merging them would put the
+    duration prior into `MIN_CONFIDENCE` — where it would mean that the bar for "is there
+    speech here" moves with the length of whichever line happened to be asked for."""
+    _py, js, _w, _fb, grid = pair
+    from constrained_ctc import confidence, rank_score
+
+    assert abs(js["ctc"]["rankAb"] - rank_score(grid, [0, 1], 3)) < 1e-9
+    assert js["ctc"]["rankAb"] < js["ctc"]["confAb"], "the prior can only cost"
+    # The prior has to *reach* the decision: two hypotheses of different length cannot be
+    # separated by the same amount before and after it.
+    d_conf = abs(confidence(grid, [0, 1], 3) - confidence(grid, [0], 3))
+    d_rank = abs(js["ctc"]["rankAb"] - js["ctc"]["rankA"])
+    assert abs(d_rank - d_conf) > 1e-6
+
+    # Which way it pushes depends on which side of the expected duration the audio sits,
+    # and this fixture is on the other side from the real case: nine frames is far too
+    # short for either reading, so the prior prefers the shorter one — correctly, and as
+    # the mirror image of `Bonġu!` winning a two-second utterance. The direction that
+    # matters in practice is asserted above, at a hundred frames.
+    assert d_rank < d_conf
 
 
 def test_encoding_a_target_drops_only_what_the_model_lacks(pair):

@@ -110,6 +110,78 @@ def confidence(logprobs: np.ndarray, ids: list[int], blank: int) -> float:
     return float(np.exp(gap))
 
 
+# ── How long should that have taken? ───────────────────────────────────────
+#
+# `confidence` divides by frames, which fixes the obvious bias — an unnormalised total
+# ranks `Bonġu` above every sentence in the deck whatever was said. It does not fix the
+# other direction, and the other direction is where a learner loses.
+#
+# A short sequence has fewer obligatory emissions and more freedom about where to put
+# them, so it can explain a long utterance respectably by ignoring most of it. On the 25
+# recordings of a learner's voice, every single one of the five that lost its rank lost
+# it to the *same* line — `Bonġu!`, five tokens, the shortest thing in the field:
+#
+#     Illum x'jum hu?              0.679  lost to  Bonġu!  0.815   (14 tokens vs 5)
+#     Ma jogħġobnix.               0.573  lost to  Bonġu!  0.728   (13 vs 5)
+#     Irrid nitgħallem il-Malti.   0.432  lost to  Bonġu!  0.571   (25 vs 5)
+#     Grazzi ħafna.                0.243  lost to  Bonġu!  0.377   (12 vs 5)
+#     Noqgħod Tas-Sliema.          0.494  lost to  Bonġu!  0.633   (18 vs 5)
+#
+# Not one of those is a confusion. They are all the same artefact.
+#
+# So say out loud what the app already knows: two seconds of audio is not five tokens
+# long. Speech has a rate, the rate is measurable, and a hypothesis whose length is
+# absurd for the audio it claims to explain should be charged for it.
+#
+# Fitted on the TTS half of the distillation corpus — 29,860 passes where the line is
+# known and was actually synthesised, so frames and text correspond exactly:
+#
+#     frames ≈ 28.28 + 1.8794 × tokens        (sd 13.27, at the student's 50fps)
+#
+# The FLEURS half gives 59.71 + 0.3744 and is not usable: those are 15-30 second takes
+# chopped into two-second pieces with a guess at each piece's text, so frames and label
+# are only loosely related. 1.88 frames a token is 38ms a character, which is what
+# speech does; 0.37 is not.
+DUR_INTERCEPT = 28.28
+DUR_SLOPE = 1.8794
+DUR_SD = 13.27
+
+# How much the prior is allowed to say. Swept on the learner's recordings against the
+# deployed field — 24 lines drawn from the 377 the script accepts — and checked on the
+# 25 synthetic clips, which it must not damage, and on 90 negatives it must not admit:
+#
+#             learner accepted   near-miss rejected   synthetic   silence/hiss
+#   λ = 0            83%                12%              100%          0%
+#   λ = 0.05         85%                32%              100%          0%
+#   λ = 0.1          92%                44%              100%          0%    ← this
+#   λ = 0.15         81%                47%               96%          0%
+#   λ = 0.3          61%                43%               32%          0%
+#
+# The peak sits at 0.1 for three independently-trained students — the shipped one, an
+# older checkpoint that ranks 29% without the prior, and a half-trained one — so it is a
+# property of the method rather than of one model or of 25 clips.
+DUR_WEIGHT = 0.1
+
+
+def duration_prior(tokens: int, frames: int) -> float:
+    """How surprising this hypothesis's length is for this much audio. ≤ 0."""
+    expected = DUR_INTERCEPT + DUR_SLOPE * tokens
+    return -0.5 * ((frames - expected) / DUR_SD) ** 2
+
+
+def rank_score(logprobs: np.ndarray, ids: list[int], blank: int) -> float:
+    """What to *compare* hypotheses on: the acoustic fit, plus what their length costs.
+
+    Deliberately not folded into `confidence`. Two different questions are being asked
+    of the same audio and they want different numbers. "Which of these lines is it" is a
+    comparison, and the prior belongs in it. "Is there anything here at all" is a floor,
+    and a floor that moved with the length of whatever line happened to be asked for
+    would not be a floor.
+    """
+    return (confidence(logprobs, ids, blank)
+            + DUR_WEIGHT * duration_prior(len(ids), len(logprobs)))
+
+
 # ── Hard negatives ─────────────────────────────────────────────────────────
 # Other lines in the deck are easy negatives: `Bonġu` against `In-nanna tagħmel
 # il-pastizzi` is not a decision anything gets wrong, and a matrix of those flatters

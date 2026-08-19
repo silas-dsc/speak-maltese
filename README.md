@@ -543,6 +543,111 @@ a *different* line is still rejected. For somebody learning, being able to progr
 phonetic precision that no available Maltese model can actually judge — and that was a
 product decision, taken with these numbers in hand, not a technical accident.
 
+### It was never confused. It was counting.
+
+Every number above is about *which model*. None of them was the problem.
+
+Twenty of the learner's twenty-five recordings are accepted; five are refused. Print what
+the five lost their rank to and there is no ambiguity at all:
+
+| the line that was said | scored | lost to | scored | lengths |
+|---|---|---|---|---|
+| Illum x'jum hu? | 0.679 | **Bonġu!** | 0.815 | 14 tokens vs 5 |
+| Ma jogħġobnix. | 0.573 | **Bonġu!** | 0.728 | 13 vs 5 |
+| Irrid nitgħallem il-Malti. | 0.432 | **Bonġu!** | 0.571 | 25 vs 5 |
+| Grazzi ħafna. | 0.243 | **Bonġu!** | 0.377 | 12 vs 5 |
+| Noqgħod Tas-Sliema. | 0.494 | **Bonġu!** | 0.633 | 18 vs 5 |
+
+All five, to the same line: the shortest one in the field. Not one of them is a confusion
+between similar-sounding sentences. They are one artefact, five times.
+
+`confidence` divides the sequence log-likelihood by frames, which stops an unnormalised
+total ranking `Bonġu` above every sentence in the deck. It does nothing about the other
+direction, and the other direction is where a learner loses. A short sequence has fewer
+obligatory emissions and more freedom about where to put them, so it can explain a long
+utterance respectably by ignoring most of it.
+
+**So say out loud what the app already knows: two seconds of audio is not five tokens
+long.** Speech has a rate, the rate is measurable, and a hypothesis claiming a length the
+audio cannot support should be charged for it. Fitted on the 29,860 TTS passes of the
+distillation corpus, where the line is known and was actually synthesised so frames and
+text correspond exactly:
+
+```
+frames ≈ 28.28 + 1.8794 × tokens        sd 13.27, at the student's 50fps
+```
+
+38ms a character, which is what speech does. (The FLEURS half gives 0.374 frames a token
+and is unusable: those are 15-30 second takes chopped into two-second pieces with a guess
+at each piece's text.) The prior is `-½z²` on that fit, weighted 0.1, added to the score
+the *field* is compared on — never to the floor.
+
+Swept against the deployed field, 24 lines drawn from the 377 the script accepts:
+
+| | learner accepted | near-miss rejected | synthetic clips | silence / hiss |
+|---|---|---|---|---|
+| λ = 0 | 83% | 12% | 100% | 0% |
+| λ = 0.05 | 85% | 32% | 100% | 0% |
+| **λ = 0.1** | **92%** | **44%** | **100%** | **0%** |
+| λ = 0.15 | 81% | 47% | 96% | 0% |
+| λ = 0.3 | 61% | 43% | 32% | 0% |
+
+The peak is at 0.1 for three independently-trained students — the shipped one, an older
+checkpoint that ranks 29% without the prior, and a half-trained one — so it is a property
+of the method rather than of one model or of twenty-five clips.
+
+**And the floor came down with it, from 0.55 to 0.35.** `MIN_CONFIDENCE` existed because
+ranking alone accepted silence, and the reason ranking accepted silence is written above:
+against an all-blank posterior a *shorter* sequence is the likelier reading. Silence
+winning a field of longer alternatives and `Grazzi ħafna` losing to `Bonġu!` are one bug
+seen from two sides. The floor was a patch over one side of it.
+
+Swept together, on the 25 clips and on 90 negatives — digital silence, white noise at five
+levels, the learner's own clips at -30dB, and the learner's own clips reversed:
+
+| prior | floor | learner accepted | silence | hiss | -30dB | reversed |
+|---|---|---|---|---|---|---|
+| off | 0.55 | 20/25 | 0% | 0% | 0% | 8% |
+| off | 0.30 | 20/25 | 0% | 5% | 0% | 8% |
+| on | 0.55 | 22/25 | 0% | 0% | 0% | 8% |
+| on | 0.45 | 23/25 | 0% | 0% | 0% | 8% |
+| **on** | **0.35** | **24/25** | **0%** | **0%** | **0%** | **8%** |
+| on | 0.20 | 24/25 | 5% | 0% | 0% | 12% |
+| on | 0.00 | 24/25 | 10% | 5% | 0% | 12% |
+
+Four more of the learner's correct answers accepted for *identical* rejection of
+everything that is not speech. Not a trade — the row above the old one on both counts.
+Lowering the floor on its own buys nothing and starts admitting hiss, so the two had to
+move together, which is what makes this a fix rather than a loosening.
+
+**Nothing was retrained and nothing got bigger.** The model is the same 2.1MB student. The
+change is three constants and a squared z-score, in `constrained_ctc.rank_score` and its
+port `nanostt.rankScore`, parity-tested against each other.
+
+#### What was tried first, and did not work
+
+Worth recording, because each was the obvious next thing.
+
+* **Adapting to the learner's own voice.** Twenty-five labelled recordings of the exact
+  speaker, and the documented blocker is that the student has never heard a human — so a
+  few hundred parameters of speaker adaptation looked like the answer. Five-fold, fitted
+  on 20 clips and scored on the 5 it never saw: a 128-number feature affine cost 12 points
+  of accept rate on a CTC objective and 8 on a ranking objective, and LHUC drove training
+  loss to 0.004 and then generalised worse than nothing. It is a sample-size failure, not
+  a method failure — 25 utterances cannot fit 128 parameters that transfer.
+* **Averaging over vocal-tract warps at test time.** Resample ±8%, score all three,
+  average the posteriors: accept rate 80% → 72%. Averaging blunts the likelihood surface,
+  and a ranking decision lives on its sharpness.
+* **Searching the warp instead** — pick the warp whose posteriors best explain the audio,
+  then decide. Keeps the accept rate and takes fWER from 93.7% to 85.4% for three forward
+  passes. Kept in `scripts/` but not deployed: the transcript improvement does not reach
+  the scenes, and after the duration prior the accept rate has nowhere left to go on this
+  sample.
+* **Spending the byte budget on parameters.** The four-size table above already said the
+  curve is flat from 1MB to 10MB. Two identical-architecture checkpoints in this repo
+  score 29% and 83% on the learner's voice, so the *recipe* swings the metric fifty points
+  where capacity swings it none.
+
 ### When the audio cannot decide, ask the transcript the same question
 
 Six of the 25 clips do not clear the acoustic gate, and every one of them falls through to

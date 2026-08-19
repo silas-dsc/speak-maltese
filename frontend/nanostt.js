@@ -391,6 +391,52 @@ export function targetConfidence(logprobs, frames, vocab, ids, blank) {
   return Math.exp(gap);
 }
 
+/* ── How long should that have taken? ─────────────────────────────────────── */
+/* Port of `constrained_ctc.duration_prior` / `rank_score`.
+
+   `targetConfidence` divides by frames, which stops an unnormalised total ranking
+   `Bonġu` above every sentence in the deck. It does not stop the other direction, and
+   the other direction is where a learner loses: a short sequence has fewer obligatory
+   emissions and more freedom about where to put them, so it can explain a long
+   utterance respectably by ignoring most of it.
+
+   On 25 recordings of a learner's voice, every one of the five that lost its rank lost
+   it to the same line — `Bonġu!`, five tokens, the shortest thing in the field. Not one
+   was a confusion; all five were the same artefact.
+
+   So charge a hypothesis for claiming a length the audio cannot support. Fitted on the
+   29,860 TTS passes of the distillation corpus, where the line is known and was actually
+   synthesised: frames ≈ 28.28 + 1.8794 × tokens, sd 13.27, at the student's 50fps. That
+   is 38ms a character, which is what speech does. */
+const DUR_INTERCEPT = 28.28;
+const DUR_SLOPE = 1.8794;
+const DUR_SD = 13.27;
+
+/* Swept on the learner's recordings against the deployed field of 24 lines drawn from
+   the 377 the script accepts, and checked against 25 synthetic clips it must not damage
+   and 90 negatives it must not admit. 0.1 is the peak for three independently-trained
+   students, including one that ranks 29% without it — a property of the method, not of
+   one model or of 25 clips. See the table in `constrained_ctc.py`. */
+const DUR_WEIGHT = 0.1;
+
+/** How surprising this hypothesis's length is for this much audio. Always ≤ 0. */
+export function durationPrior(tokens, frames) {
+  const expected = DUR_INTERCEPT + DUR_SLOPE * tokens;
+  const z = (frames - expected) / DUR_SD;
+  return -0.5 * z * z;
+}
+
+/** What to *compare* hypotheses on: the acoustic fit plus what their length costs.
+
+    Kept separate from `targetConfidence` on purpose. "Which of these lines is it" is a
+    comparison and the prior belongs in it; "is there anything here at all" is a floor,
+    and a floor that moved with the length of whichever line was asked for would not be
+    a floor. `app.js` uses the first for ranking and the second for `MIN_CONFIDENCE`. */
+export function rankScore(logprobs, frames, vocab, ids, blank) {
+  return targetConfidence(logprobs, frames, vocab, ids, blank)
+    + DUR_WEIGHT * durationPrior(ids.length, frames);
+}
+
 /* ── Decode ──────────────────────────────────────────────────────────────── */
 
 /** Merge repeated frames, *then* drop the blanks. The other order looks identical and
@@ -462,11 +508,19 @@ export async function transcribe(blob, { target = '', distractors = [] } = {}) {
   };
 
   if (target) {
-    const score = (line) => {
+    /* Two numbers, two jobs. `confidence` is the acoustic fit alone and is what the
+       floor in app.js looks at. `rank` adds what the hypothesis's length costs and is
+       what the field is compared on — see `rankScore`. */
+    const acoustic = (line) => {
       const seq = encodeTarget(line, parts.tokToId);
       return seq.length ? targetConfidence(d, outFrames, vocab, seq, parts.blankId) : 0;
     };
-    result.confidence = score(target);
+    const ranked = (line) => {
+      const seq = encodeTarget(line, parts.tokToId);
+      return seq.length ? rankScore(d, outFrames, vocab, seq, parts.blankId) : -Infinity;
+    };
+    result.confidence = acoustic(target);
+    result.rank = ranked(target);
 
     /* Every alternative is scored against the same audio and the same denominator, so
        only the ordering is being trusted — not the absolute value, which is the part that
@@ -475,12 +529,12 @@ export async function transcribe(blob, { target = '', distractors = [] } = {}) {
     let bestLine = '';
     for (const line of distractors) {
       if (!line || line === target) continue;
-      const c = score(line);
+      const c = ranked(line);
       if (c > best) { best = c; bestLine = line; }
     }
     result.runnerUp = Number.isFinite(best) ? best : null;
     result.runnerUpLine = bestLine;
-    result.wins = result.runnerUp === null || result.confidence > result.runnerUp;
+    result.wins = result.runnerUp === null || result.rank > result.runnerUp;
   }
   return result;
 }

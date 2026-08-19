@@ -120,6 +120,32 @@ def test_the_client_prefers_the_remote_recogniser_where_one_is_named(tmp_path):
     assert app_js.count("remoteStt()") >= 4
 
 
+def test_the_field_is_ranked_on_the_rank_and_the_floor_on_the_confidence():
+    """Two numbers doing two jobs, and it matters which is used where.
+
+    `rank` carries the duration prior and is what the field is compared on. `confidence`
+    is the acoustic fit alone and is what `MIN_CONFIDENCE` tests. Rank the field on
+    `confidence` and the prior stops reaching the decision — which was worth four of the
+    learner's twenty-five answers. Floor on `rank` and the bar for "is there speech here"
+    starts moving with the length of whichever line was asked for."""
+    app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert "r.rank > r.runnerUp + MIN_MARGIN" in app_js
+    assert "r.confidence >= MIN_CONFIDENCE" in app_js
+    assert "r.confidence > r.runnerUp" not in app_js, (
+        "the field is being ranked on the un-priored confidence again")
+
+
+def test_the_floor_came_down_with_the_prior_and_not_alone():
+    """0.35 is only safe because `rankScore` charges for an implausible length. Lowering
+    the floor without the prior admits hiss and buys nothing — measured, in the comment
+    beside it. So the two are pinned together here: if the prior ever goes, this fails."""
+    app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    nano_js = (ROOT / "frontend" / "nanostt.js").read_text(encoding="utf-8")
+    assert "const MIN_CONFIDENCE = 0.35;" in app_js
+    assert "export function rankScore(" in nano_js
+    assert "export function durationPrior(" in nano_js
+
+
 def test_the_static_build_ships_the_recogniser(tmp_path):
     """2.1MB is small enough to serve from our own origin, which is the whole reason
     the model is in the repository. A build that copies the shell and forgets `stt/`

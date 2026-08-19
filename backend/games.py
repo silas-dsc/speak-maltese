@@ -119,7 +119,33 @@ _WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*", re.UNICODE)
 
 
 def _words(line: str) -> list[str]:
+    """The distinct words in a line, for matching and for decoys."""
     return _WORD.findall(line)
+
+
+# A quoted foreign word: `Kif tgħid 'bread' bil-Malti?`. The dialogue engine has a whole
+# branch for these — the learner is asked for the one word a Maltese recogniser has
+# never heard — and as a tile puzzle they are worse than useless: the tiles would include
+# an English word, and the quotes that make it a citation cannot survive being cut up.
+_QUOTED = re.compile(r"(?<!\w)['‘’\"][^'‘’\"]+['‘’\"](?!\w)")
+
+_EDGE_PUNCT = ".,!?;:—–"
+
+
+def _tiles(line: str) -> list[str]:
+    """One tile per word, as Maltese counts words.
+
+    Split on whitespace, not with `_WORD`. `_WORD` breaks on the hyphen, which turned
+    `bil-Malti` into `bil` + `Malti` and `mill-Awstralja` into two tiles — teaching that
+    the fused article comes apart, which is the exact opposite of the rule this exercise
+    reinforces. The hyphen in Maltese is not a word boundary; it is the seam where a
+    preposition and an article have already been welded together.
+
+    Sentence punctuation is stripped from the ends so a tile reads as a word rather than
+    as a fragment of typesetting. Apostrophes stay: in `ta'` and `ma'` the apostrophe is
+    a letter, not a quote mark.
+    """
+    return [word for word in (token.strip(_EDGE_PUNCT) for token in line.split()) if word]
 
 
 # ── 1. Build the sentence from tiles ─────────────────────────────────────────
@@ -144,12 +170,19 @@ def build_items(limit: int = 60) -> list[dict]:
 
     # A pool of single words to draw the redundant tiles from, so a decoy is a real
     # Maltese word rather than an obvious throwaway.
-    pool = sorted({w for p in phrases for w in _words(p["mt"]) if len(w) > 2})
+    pool = sorted({w for p in phrases if not _QUOTED.search(p["mt"])
+                   for w in _tiles(p["mt"]) if len(w) > 2})
 
     items = []
     for phrase in chosen:
-        answer = _words(phrase["mt"])
-        if len(answer) < 3:
+        # A citation of an English word cannot be cut into tiles — see `_QUOTED`.
+        if _QUOTED.search(phrase["mt"]):
+            continue
+        answer = _tiles(phrase["mt"])
+        # Three is the shortest that is about order at all; above seven the tiles wrap to
+        # a third row on a 375px screen and the exercise becomes a search rather than a
+        # sentence.
+        if not 3 <= len(answer) <= 7:
             continue
         own = _rng(f"build:{phrase['mt']}")
         lower = {w.lower() for w in answer}

@@ -153,6 +153,46 @@ def test_tile_puzzles_can_be_solved_and_only_one_way(payload):
         assert item["mt"].startswith(item["answer"][0]), item["id"]
 
 
+def test_a_tile_is_a_whole_maltese_word(payload):
+    """Maltese fuses its prepositions onto the article — `bil-Malti`, `mill-Awstralja`,
+    `it-triq` — and the hyphen is the seam of that weld, not a word boundary. The first
+    version of this split on a word regex, which cut `bil-Malti` into `bil` and `Malti`
+    and put both on the board: an exercise about word order teaching that the fused
+    article comes apart.
+
+    Nor can a tile be a fragment of typesetting. A trailing comma on `kafè,` is not part
+    of the word, and an em dash is not a word at all."""
+    fused = 0
+    for item in payload["build"]:
+        for tile in item["tiles"] + item["answer"]:
+            assert " " not in tile, f"{item['id']}: {tile!r} is more than one tile"
+            assert tile, f"{item['id']}: an empty tile"
+            assert tile[-1] not in ".,!?;:", f"{item['id']}: {tile!r} carries punctuation"
+            assert tile not in ("—", "–", "-"), f"{item['id']}: {tile!r} is not a word"
+            if "-" in tile:
+                fused += 1
+    assert fused, "no puzzle keeps a fused article whole — are they being split again?"
+
+
+def test_a_quoted_english_word_is_not_made_into_a_puzzle(payload):
+    """`Kif tgħid 'bread' bil-Malti?` is the one shape the dialogue engine handles
+    specially — the learner is asked for the one word a Maltese recogniser has never
+    heard. As tiles it is worse than useless: `bread` would be on the board as a word to
+    place, and the quotes that make it a citation cannot survive being cut up."""
+    for item in payload["build"]:
+        assert not games._QUOTED.search(item["mt"]), (
+            f"{item['id']}: built from a quoted-word sentence — {item['mt']!r}")
+
+
+def test_a_puzzle_fits_on_a_phone(payload):
+    """Three tiles is the shortest that is about order at all. Above seven they wrap to a
+    third row on a 375px screen and the exercise turns into a search."""
+    for item in payload["build"]:
+        assert 3 <= len(item["answer"]) <= 7, (
+            f"{item['id']}: {len(item['answer'])} words")
+        assert len(item["tiles"]) <= 10, f"{item['id']}: {len(item['tiles'])} tiles"
+
+
 def test_some_tile_puzzles_carry_words_to_leave_alone(payload):
     """Redundant tiles are what stop the exercise being "use everything in any order".
     Not on every item, though — order-only is a different and also useful exercise, and

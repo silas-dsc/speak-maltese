@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random as _random
 import sys
 import time
 from pathlib import Path
@@ -484,6 +485,85 @@ def stage_pseudo(shard: str) -> int:
 
 # ── The student ────────────────────────────────────────────────────────────
 
+# ── Training the model to do its actual job ────────────────────────────────
+#
+# The student is trained to transcribe and deployed to *decide*: the app never asks
+# what was said, it asks whether the audio is the line it asked for, ranked against a
+# field of others (`nanostt.js`, `MIN_CONFIDENCE`). Those are different problems, and
+# the gap shows. On a learner's 25 recordings the shipped student ranks the right line
+# first 80% of the time against other deck lines — and 12% of the time once the
+# target's own near-misses join the field. It can tell `Bonġu` from `In-nanna tagħmel
+# il-pastizzi`, and cannot tell a sentence from the same sentence with a word missing.
+#
+# Nothing in KD or CTC asks it to. Both reward assigning probability to the right
+# transcript; neither penalises assigning just as much to a wrong one. So add a term
+# that does: score the target and a handful of near-misses on the same audio, per-frame
+# normalised exactly as `constrained_ctc.confidence` does, and make the target win.
+# That is MMI in miniature, over a hypothesis set generated for free from the tokens.
+#
+# **It works, and it is not what the app needs.** Thirty epochs at weight 0.3, measured on
+# the learner's recordings against the deployed field, with the duration prior in place:
+#
+#                            accept rate   near-miss rejected
+#   no margin (control)          95%              40%
+#   margin 0.3                   91%              60%
+#
+# Near-miss discrimination goes from 12% (no prior, no margin) through 44% (prior) to 60%,
+# five times the baseline. It costs six points of accept rate — and the app does not rank
+# against near-misses. Its field is other lines the script accepts, so this buys honesty
+# the app is not currently spending, at the price of the thing the learner feels. Left off
+# by default. It is the lever to pull the day the app grades pronunciation rather than
+# identifying which line was said.
+def _near_miss_ids(ids: list[int], space: int, rng, k: int) -> list[list[int]]:
+    """Plausible wrong things to have said, as token sequences.
+
+    Derived from the ids rather than the text so this needs no vocabulary of its own,
+    and so it works on FLEURS prose as well as on deck lines. The classes are the ones
+    `constrained_ctc.near_misses` uses and the ones a learner actually produces: a word
+    trailed off, a word missed at the start, a middle word dropped, a geminate lost,
+    two sounds swapped.
+    """
+    words, cur = [], []
+    for t in ids:
+        if t == space:
+            if cur:
+                words.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    if cur:
+        words.append(cur)
+
+    out = []
+    def add(seq):
+        if 2 <= len(seq) < len(ids) + 2 and seq != ids and seq not in out:
+            out.append(seq)
+
+    def join(ws):
+        flat = []
+        for i, w in enumerate(ws):
+            if i:
+                flat.append(space)
+            flat.extend(w)
+        return flat
+
+    if len(words) > 1:
+        add(join(words[:-1]))                       # trailed off
+        add(join(words[1:]))                        # missed the opening
+    if len(words) > 2:
+        drop = rng.randrange(1, len(words) - 1)
+        add(join(words[:drop] + words[drop + 1:]))  # a middle word gone
+    doubles = [i for i in range(1, len(ids)) if ids[i] == ids[i - 1]]
+    if doubles:
+        i = doubles[rng.randrange(len(doubles))]
+        add(ids[:i] + ids[i + 1:])                  # geminate lost
+    if len(ids) > 3:
+        i = rng.randrange(len(ids) - 1)
+        add(ids[:i] + [ids[i + 1], ids[i]] + ids[i + 2:])   # two sounds swapped
+    rng.shuffle(out)
+    return out[:k]
+
+
 def build_student(vocab_size: int, width: int, blocks: int, kernel: int):
     """QuartzNet-shaped: a strided stem, then depthwise-separable residual blocks.
 
@@ -529,7 +609,8 @@ def param_count(model) -> int:
 # ── Stage 2: distil ────────────────────────────────────────────────────────
 
 def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
-                lr: float, kd_weight: float, tag: str) -> int:
+                lr: float, kd_weight: float, tag: str,
+                margin_weight: float = 0.0, margin_k: int = 3) -> int:
     import torch
     from torch import nn
 
@@ -613,6 +694,12 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps,
                                                 pct_start=0.15)
     ctc = nn.CTCLoss(blank=blank, zero_infinity=True)
+    # Same loss, per hypothesis rather than averaged: the discriminative term needs one
+    # number per candidate line, not one per batch.
+    ctc_none = nn.CTCLoss(blank=blank, zero_infinity=True, reduction="none")
+    space_id = vocab[space]
+    # Its own stream, so turning the term on does not reshuffle SpecAugment.
+    nm_rng = _random.Random(17)
 
     def batch_of(ix: list[int], augment: bool):
         frames = [offs[i][3] for i in ix]
@@ -643,6 +730,54 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 torch.tensor([len(targets[i]) for i in ix], dtype=torch.long),
                 torch.from_numpy(kd_scale[list(ix)]).to(device))
 
+    # Per-frame log-likelihood, on the scale `constrained_ctc.confidence` compares on:
+    # gaps there live around 0.02, so a softmax needs telling that 0.02 is a lot.
+    MARGIN_TEMP = 100.0
+
+    def targets_of(ix: list[int]) -> list[list[int]]:
+        return [targets[i] for i in ix]
+
+    def discriminate(out, lens, tgts) -> "torch.Tensor":
+        """Make the right line the best explanation of the audio, not merely a good one.
+
+        One CTC pass over the target and its near-misses on the same posteriors, scored
+        the way the app scores them — total log-likelihood divided by frames — and then
+        a cross-entropy that says the target is the answer. Utterances too short to
+        perturb sit this out rather than contributing a degenerate term.
+        """
+        rows, labels, keep_rows = [], [], []
+        for b, t in enumerate(tgts):
+            if len(t) < 3:
+                continue
+            wrong = _near_miss_ids(t, space_id, nm_rng, margin_k)
+            if not wrong:
+                continue
+            keep_rows.append(b)
+            labels.append(len(rows))
+            rows.append(t)
+            rows.extend(wrong)
+        if not keep_rows:
+            return torch.zeros((), device=out.device)
+        cpu = out.cpu()
+        # One row of posteriors per hypothesis, repeated from the utterance it belongs to.
+        which, group = [], []
+        i = 0
+        for b, start in zip(keep_rows, labels):
+            n = (labels[i + 1] if i + 1 < len(labels) else len(rows)) - start
+            which.extend([b] * n)
+            group.append((start, n))
+            i += 1
+        rep = cpu[which].transpose(0, 1)                      # (T, R, V)
+        flat = torch.cat([torch.tensor(r, dtype=torch.long) for r in rows])
+        tlen_r = torch.tensor([len(r) for r in rows], dtype=torch.long)
+        ilen = lens.cpu()[which]
+        nll = ctc_none(rep, flat, ilen, tlen_r)               # (R,)
+        logits = (-nll / ilen.clamp(min=1)) * MARGIN_TEMP
+        losses = []
+        for start, n in group:
+            losses.append(-torch.log_softmax(logits[start:start + n], dim=0)[0])
+        return torch.stack(losses).mean().to(out.device)
+
     def run_epoch(ix: list[int], train: bool):
         model.train(train)
         order = list(ix)
@@ -651,7 +786,7 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
         # Length-bucketed so padding does not dominate: sort within large chunks.
         chunks = [order[i:i + batch * 16] for i in range(0, len(order), batch * 16)]
         order = [i for ch in chunks for i in sorted(ch, key=lambda k: offs[k][3])]
-        tot_kd = tot_ctc = n = 0
+        tot_kd = tot_ctc = tot_mg = n = 0
         for s in range(0, len(order) - batch + 1, batch):
             bx, by, blen, flat, tlen, kscale = batch_of(order[s:s + batch], augment=train)
             with torch.set_grad_enabled(train):
@@ -676,6 +811,11 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 else:
                     ctc_loss = torch.zeros((), dtype=out.dtype)
                 loss = kd_weight * kd + (1 - kd_weight) * ctc_loss
+                if margin_weight and int(tlen.sum()) > 0:
+                    mg = discriminate(out, torch.clamp(blen, max=keep),
+                                      targets_of(order[s:s + batch]))
+                    loss = loss + margin_weight * mg
+                    tot_mg += float(mg.detach())
                 if train:
                     opt.zero_grad(set_to_none=True)
                     loss.backward()
@@ -685,23 +825,28 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
             tot_kd += float(kd.detach())
             tot_ctc += float(ctc_loss.detach())
             n += 1
-        return tot_kd / max(1, n), tot_ctc / max(1, n)
+        return tot_kd / max(1, n), tot_ctc / max(1, n), tot_mg / max(1, n)
 
     out_dir = WORK / tag
     out_dir.mkdir(parents=True, exist_ok=True)
+    if margin_weight:
+        print(f"  discriminative term on: weight {margin_weight}, "
+              f"{margin_k} near-misses per utterance")
     best = float("inf")
     for ep in range(1, epochs + 1):
         t0 = time.time()
-        kd, c = run_epoch(train_ix, True)
-        dkd, dc = run_epoch(dev_ix, False)
+        kd, c, mg = run_epoch(train_ix, True)
+        dkd, dc, dmg = run_epoch(dev_ix, False)
         flag = ""
-        if dkd + dc < best:
-            best = dkd + dc
+        if dkd + dc + margin_weight * dmg < best:
+            best = dkd + dc + margin_weight * dmg
             torch.save({"state": model.state_dict(), "width": width, "blocks": blocks,
                         "kernel": kernel, "vocab_size": v_size}, out_dir / "student.pt")
             flag = "  ←"
         print(f"  ep {ep:>3}/{epochs}  kd {kd:.4f} ctc {c:.3f} │ "
-              f"dev kd {dkd:.4f} ctc {dc:.3f}  {time.time() - t0:.0f}s{flag}", flush=True)
+              f"dev kd {dkd:.4f} ctc {dc:.3f}"
+              + (f" mg {dmg:.3f}" if margin_weight else "")
+              + f"  {time.time() - t0:.0f}s{flag}", flush=True)
     print(f"\nbest dev {best:.4f} → {out_dir / 'student.pt'}")
     return 0
 
@@ -770,6 +915,10 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--kd-weight", type=float, default=0.9)
     ap.add_argument("--tag", default="student")
+    ap.add_argument("--margin-weight", type=float, default=0.0,
+                    help="weight on the discriminative term; 0 disables it")
+    ap.add_argument("--margin-k", type=int, default=3,
+                    help="near-misses generated per utterance")
     ap.add_argument("--shard", default="tts", help="name for this teacher shard")
     ap.add_argument("--sources", default="tts,real",
                     help="which audio to run the teacher over: tts, real, accent")
@@ -788,7 +937,7 @@ def main() -> int:
         return stage_pseudo(args.shard)
     if args.stage == "train":
         return stage_train(args.width, args.blocks, args.kernel, args.epochs,
-                           args.batch, args.lr, args.kd_weight, args.tag)
+                           args.batch, args.lr, args.kd_weight, args.tag, args.margin_weight, args.margin_k)
     return stage_export(args.tag)
 
 

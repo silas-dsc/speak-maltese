@@ -620,9 +620,61 @@ everything that is not speech. Not a trade — the row above the old one on both
 Lowering the floor on its own buys nothing and starts admitting hiss, so the two had to
 move together, which is what makes this a fix rather than a loosening.
 
+**And the verdict stops depending on the draw.** `RANK_AGAINST = 24` samples two dozen
+lines from the 377, so the same utterance could be accepted or refused according to which
+two dozen it met. Five seeds on the learner's recordings:
+
+| field | accept rate without the prior | spread | with it | spread | ms/clip |
+|---|---|---|---|---|---|
+| **24** | 80 84 84 68 80 | **16 pts** | 92 92 92 92 96 | **4 pts** | 20 |
+| 48 | 80 68 80 80 68 | 12 | 96 96 88 92 88 | 8 | 39 |
+| 96 | 68 72 64 68 76 | 12 | 88 84 88 88 88 | 4 | 65 |
+| all 377 | 64 64 64 64 64 | 0 | 76 76 76 76 76 | 0 | 250 |
+
+Most of the randomness was the length artefact: a draw containing `Bonġu!` refused answers
+a draw without it accepted. The last row also settles a question the code left open —
+ranking against everything is *deterministic* but costs sixteen points, so 24 is the better
+setting on accuracy and not only on latency.
+
 **Nothing was retrained and nothing got bigger.** The model is the same 2.1MB student. The
 change is three constants and a squared z-score, in `constrained_ctc.rank_score` and its
 port `nanostt.rankScore`, parity-tested against each other.
+
+#### Teaching it to discriminate, which is a different job from transcribing
+
+The student is trained to transcribe and deployed to *decide*. Nothing in knowledge
+distillation or CTC asks it to tell a sentence from the same sentence with a word missing:
+both reward assigning probability to the right transcript, neither penalises assigning just
+as much to a wrong one. `distill_stt.py --margin-weight` adds a term that does — score the
+target and a handful of near-misses on the same posteriors, per-frame normalised exactly as
+the app normalises, cross-entropy that says the target wins. MMI in miniature, with the
+hypothesis set generated from the target's own tokens so it costs no data and works on
+FLEURS prose as well as deck lines.
+
+| 30 epochs, same data | accept rate | near-miss rejected |
+|---|---|---|
+| control | **95%** | 40% |
+| margin 0.3 | 91% | **60%** |
+
+Near-miss discrimination goes 12% (no prior, no margin) → 44% (prior) → **60%**, five times
+the baseline. It costs four points of accept rate, and **the app does not rank against
+near-misses** — its field is other lines the script accepts. So it buys an honesty the app
+is not currently spending, at the price of the thing the learner actually feels. Left off
+by default, and it is the lever to pull the day the app grades pronunciation rather than
+identifying which line was said.
+
+#### Ensembling, since ten megabytes is five copies of the model
+
+| models | MB | accept rate | near-miss rejected |
+|---|---|---|---|
+| best single | 2.1 | **95%** | 40% |
+| two | 4.2 | 93% | 40% |
+| three | 6.3 | 91% | 44% |
+
+No ensemble beats the best single model. Averaging posteriors of independently-trained
+students is the cheapest variance reduction available and it does nothing here, which is
+the four-size table's finding again from a different direction: extra capacity of any
+shape is not the constraint.
 
 #### What was tried first, and did not work
 

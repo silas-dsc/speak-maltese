@@ -49,6 +49,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backend import text as mtext  # noqa: E402
 from backend.config import AUDIO_CACHE, CFG, DATA_DIR  # noqa: E402
 from compare_stt import _NEMO, _mel_filters, _nemo_features  # noqa: E402
+from constrained_ctc import (  # noqa: E402
+    DUR_INTERCEPT, DUR_SLOPE, DUR_WEIGHT, duration_sd,
+)
 
 WORK = DATA_DIR / "distill"
 CLIPS = DATA_DIR / "eval_clips"
@@ -564,12 +567,19 @@ def _near_miss_ids(ids: list[int], space: int, rng, k: int) -> list[list[int]]:
     return out[:k]
 
 
-def build_student(vocab_size: int, width: int, blocks: int, kernel: int):
+def build_student(vocab_size: int, width: int, blocks: int, kernel: int,
+                  aux_at: int = 0):
     """QuartzNet-shaped: a strided stem, then depthwise-separable residual blocks.
 
     Convolution only — no attention anywhere. That is not a stylistic choice: WASM has
     no fast attention kernel and WebGPU is what an iPhone could not afford, so a stack
-    of convolutions is the only shape that runs everywhere this has to run."""
+    of convolutions is the only shape that runs everywhere this has to run.
+
+    `aux_at` hangs a second output off block `aux_at`, supervised exactly like the real
+    one. Deep supervision partway up a convolutional encoder is one of the few things
+    that buys accuracy for nothing at all: the head is dropped at export, so the shipped
+    graph is the same 0.53M parameters it was, byte for byte. `forward` deliberately
+    never touches it — that is what guarantees the traced ONNX cannot contain it."""
     import torch
     from torch import nn
 
@@ -594,10 +604,27 @@ def build_student(vocab_size: int, width: int, blocks: int, kernel: int):
             )
             self.blocks = nn.Sequential(*[Block(width, kernel) for _ in range(blocks)])
             self.head = nn.Conv1d(width, vocab_size, 1)
+            self.aux_at = int(aux_at)
+            self.aux_head = (nn.Conv1d(width, vocab_size, 1)
+                             if 0 < self.aux_at <= blocks else None)
+
+        def _trunk(self, mel):
+            x = self.stem(mel)
+            aux = None
+            for depth, block in enumerate(self.blocks, 1):
+                x = block(x)
+                if self.aux_head is not None and depth == self.aux_at:
+                    aux = torch.log_softmax(self.aux_head(x).transpose(1, 2), dim=-1)
+            return x, aux
 
         def forward(self, mel):                       # (B, 64, T) → (B, T/2, V)
-            x = self.blocks(self.stem(mel))
+            x, _ = self._trunk(mel)
             return torch.log_softmax(self.head(x).transpose(1, 2), dim=-1)
+
+        def forward_aux(self, mel):
+            """Both outputs, for training only. Never traced."""
+            x, aux = self._trunk(mel)
+            return torch.log_softmax(self.head(x).transpose(1, 2), dim=-1), aux
 
     return Student()
 
@@ -610,7 +637,10 @@ def param_count(model) -> int:
 
 def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 lr: float, kd_weight: float, tag: str,
-                margin_weight: float = 0.0, margin_k: int = 3) -> int:
+                margin_weight: float = 0.0, margin_k: int = 3,
+                aux_at: int = 0, aux_weight: float = 0.3,
+                ema_decay: float = 0.0, select: str = "dev",
+                select_n: int = 128, select_field: int = 24) -> int:
     import torch
     from torch import nn
 
@@ -684,10 +714,37 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
           f"({len(keys) - len(dev_keys)}/{len(dev_keys)} distinct utterances)")
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
-    model = build_student(v_size, width, blocks, kernel).to(device)
+    model = build_student(v_size, width, blocks, kernel, aux_at=aux_at).to(device)
     n_par = param_count(model)
+    shipped = n_par - (0 if model.aux_head is None
+                       else sum(p.numel() for p in model.aux_head.parameters()))
     print(f"student: width={width} blocks={blocks} k={kernel} · "
-          f"{n_par / 1e6:.2f}M params · {n_par * 4 / 1e6:.1f}MB fp32")
+          f"{shipped / 1e6:.2f}M params · {shipped * 4 / 1e6:.1f}MB fp32")
+    if model.aux_head is not None:
+        print(f"  auxiliary CTC head after block {aux_at}, weight {aux_weight} · "
+              f"{n_par - shipped} extra parameters, none of them exported")
+
+    # ── Weight averaging ───────────────────────────────────────────────────
+    # Not the ensembling that was already tried and did nothing: that averaged the
+    # *posteriors* of independently-trained students and shipped three files. This
+    # averages one trajectory's weights into one file of the same size. The case for it
+    # is in the README — two checkpoints of identical architecture score 29% and 83% on
+    # the learner's voice, so the variance between runs dwarfs anything capacity does,
+    # and averaging along the path is the standard answer to exactly that.
+    ema = None
+    if ema_decay > 0:
+        ema = {k: v.detach().clone().float()
+               for k, v in model.state_dict().items()}
+        print(f"  EMA of the weights at decay {ema_decay}")
+
+    def ema_update():
+        with torch.no_grad():
+            for k, v in model.state_dict().items():
+                if ema[k].dtype.is_floating_point:
+                    ema[k].mul_(ema_decay).add_(v.detach().float(),
+                                                alpha=1 - ema_decay)
+                else:
+                    ema[k].copy_(v.detach())
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     steps = max(1, len(train_ix) // batch) * epochs
@@ -786,11 +843,14 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
         # Length-bucketed so padding does not dominate: sort within large chunks.
         chunks = [order[i:i + batch * 16] for i in range(0, len(order), batch * 16)]
         order = [i for ch in chunks for i in sorted(ch, key=lambda k: offs[k][3])]
-        tot_kd = tot_ctc = tot_mg = n = 0
+        tot_kd = tot_ctc = tot_mg = tot_aux = n = 0
         for s in range(0, len(order) - batch + 1, batch):
             bx, by, blen, flat, tlen, kscale = batch_of(order[s:s + batch], augment=train)
             with torch.set_grad_enabled(train):
-                out = model(bx)                                # (B, T, V)
+                if model.aux_head is not None:
+                    out, aux = model.forward_aux(bx)            # (B, T, V) twice
+                else:
+                    out, aux = model(bx), None
                 keep = min(out.shape[1], by.shape[1])
                 out, by_ = out[:, :keep], by[:, :keep]
                 mask = (torch.arange(keep)[None, :] < blen[:, None]).to(device)
@@ -811,6 +871,20 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 else:
                     ctc_loss = torch.zeros((), dtype=out.dtype)
                 loss = kd_weight * kd + (1 - kd_weight) * ctc_loss
+                # The same two terms on the intermediate output. The head is thrown
+                # away at export, so this costs the shipped model nothing.
+                if aux is not None:
+                    a = aux[:, :keep]
+                    a_kd = (by_.exp() * (by_ - a)).sum(-1)
+                    a_kd = (a_kd * mask * kscale[:, None]).sum() / mask.sum()
+                    if int(tlen.sum()) > 0:
+                        a_ctc = ctc(a.cpu().transpose(0, 1), flat.cpu(),
+                                    torch.clamp(blen, max=keep), tlen)
+                    else:
+                        a_ctc = torch.zeros((), dtype=a.dtype)
+                    aux_loss = kd_weight * a_kd + (1 - kd_weight) * a_ctc
+                    loss = loss + aux_weight * aux_loss
+                    tot_aux += float(aux_loss.detach())
                 if margin_weight and int(tlen.sum()) > 0:
                     mg = discriminate(out, torch.clamp(blen, max=keep),
                                       targets_of(order[s:s + batch]))
@@ -822,47 +896,135 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
                     opt.step()
                     sched.step()
+                    if ema is not None:
+                        ema_update()
             tot_kd += float(kd.detach())
             tot_ctc += float(ctc_loss.detach())
             n += 1
-        return tot_kd / max(1, n), tot_ctc / max(1, n), tot_mg / max(1, n)
+        return (tot_kd / max(1, n), tot_ctc / max(1, n), tot_mg / max(1, n),
+                tot_aux / max(1, n))
+
+    def rank_accuracy(ix: list[int]) -> float:
+        """How often the true line is the best explanation of its own audio.
+
+        The app's question, and the one `constrained_ctc.py` reports as rank-1: score the
+        target and a field of other deck lines on the same posteriors with the same
+        `confidence + λ·prior`, and see whether the target wins.
+
+        This exists because dev loss does not answer it. The README's own four-size table
+        has KD sitting flat at 0.18 from about epoch 50 while the app-level numbers swing
+        fifty points between checkpoints of identical architecture — so selecting on the
+        loss is close to selecting at random on the metric that ships. Deliberately not
+        the near-miss field `discriminate` uses: the app ranks against other lines in the
+        script, not against perturbations of the answer.
+        """
+        pool = [t for t in {tuple(t) for t in targets if len(t) >= 3}]
+        if not pool or not ix:
+            return 0.0
+        pick = _random.Random(23)
+        sample = [i for i in ix if len(targets[i]) >= 3]
+        pick.shuffle(sample)
+        sample = sample[:select_n]
+        model.eval()
+        won = seen = 0
+        for s0 in range(0, len(sample), batch):
+            chunk_ix = sample[s0:s0 + batch]
+            bx, _by, blen, _flat, _tlen, _ks = batch_of(chunk_ix, augment=False)
+            with torch.no_grad():
+                out = model(bx).cpu()
+            for row, i in enumerate(chunk_ix):
+                nb = int(min(blen[row], out.shape[1]))
+                if nb < 4:
+                    continue
+                post = out[row, :nb]                          # (T, V)
+                truth = targets[i]
+                field = [truth]
+                # Sampled per utterance, so one unlucky draw cannot decide the epoch.
+                while len(field) < select_field + 1:
+                    cand = list(pick.choice(pool))
+                    if cand != truth:
+                        field.append(cand)
+                rep = post[:, None, :].expand(nb, len(field), post.shape[1])
+                flat_f = torch.cat([torch.tensor(f, dtype=torch.long) for f in field])
+                tl = torch.tensor([len(f) for f in field], dtype=torch.long)
+                il = torch.full((len(field),), nb, dtype=torch.long)
+                nll = ctc_none(rep, flat_f, il, tl)            # (F,)
+                greedy = float(post.max(-1).values.sum())
+                conf = torch.exp((-nll - greedy) / max(1, nb))
+                prior = torch.tensor(
+                    [-0.5 * ((nb - (DUR_INTERCEPT + DUR_SLOPE * len(f)))
+                             / duration_sd(len(f))) ** 2 for f in field])
+                score = conf + DUR_WEIGHT * prior
+                won += int(torch.argmax(score) == 0)
+                seen += 1
+        return won / max(1, seen)
 
     out_dir = WORK / tag
     out_dir.mkdir(parents=True, exist_ok=True)
     if margin_weight:
         print(f"  discriminative term on: weight {margin_weight}, "
               f"{margin_k} near-misses per utterance")
-    best = float("inf")
+    if select == "rank":
+        print(f"  selecting on rank-1 against a field of {select_field}, "
+              f"{select_n} dev utterances a epoch")
+    best = -float("inf")
     for ep in range(1, epochs + 1):
         t0 = time.time()
-        kd, c, mg = run_epoch(train_ix, True)
-        dkd, dc, dmg = run_epoch(dev_ix, False)
+        kd, c, mg, ax = run_epoch(train_ix, True)
+        dkd, dc, dmg, dax = run_epoch(dev_ix, False)
+        # Both are printed whichever one selects, because the gap between them is the
+        # finding: a run where the loss improves while the rank does not is a run whose
+        # best-by-loss checkpoint is not its best checkpoint.
+        acc = rank_accuracy(dev_ix) if select == "rank" or epochs <= 1 else 0.0
+        score = acc if select == "rank" else -(dkd + dc + margin_weight * dmg)
         flag = ""
-        if dkd + dc + margin_weight * dmg < best:
-            best = dkd + dc + margin_weight * dmg
-            torch.save({"state": model.state_dict(), "width": width, "blocks": blocks,
-                        "kernel": kernel, "vocab_size": v_size}, out_dir / "student.pt")
+        if score > best:
+            best = score
+            payload = {"state": model.state_dict(), "width": width, "blocks": blocks,
+                       "kernel": kernel, "vocab_size": v_size, "aux_at": aux_at,
+                       "epoch": ep, "dev": dkd + dc, "rank1": acc}
+            if ema is not None:
+                payload["ema"] = {k: v.clone() for k, v in ema.items()}
+            torch.save(payload, out_dir / "student.pt")
             flag = "  ←"
         print(f"  ep {ep:>3}/{epochs}  kd {kd:.4f} ctc {c:.3f} │ "
               f"dev kd {dkd:.4f} ctc {dc:.3f}"
               + (f" mg {dmg:.3f}" if margin_weight else "")
+              + (f" aux {dax:.3f}" if aux_at else "")
+              + (f" │ rank-1 {acc:.1%}" if select == "rank" else "")
               + f"  {time.time() - t0:.0f}s{flag}", flush=True)
-    print(f"\nbest dev {best:.4f} → {out_dir / 'student.pt'}")
+    label = "rank-1" if select == "rank" else "dev"
+    print(f"\nbest {label} {abs(best):.4f} → {out_dir / 'student.pt'}")
     return 0
 
 
 # ── Stage 3: export ────────────────────────────────────────────────────────
 
-def stage_export(tag: str) -> int:
+def stage_export(tag: str, use_ema: bool = False) -> int:
     """Write the student in the layout `compare_stt.py` and `constrained_ctc.py`
     already read — the same `model.onnx` / `vocab.txt` / `config.json` triple the
     QuartzNet export uses — so both harnesses score it with no new code."""
     import torch
 
     ckpt = torch.load(WORK / tag / "student.pt", map_location="cpu", weights_only=False)
+    state = ckpt["state"]
+    if use_ema:
+        if "ema" not in ckpt:
+            print("this checkpoint carries no EMA weights — train with --ema-decay",
+                  file=sys.stderr)
+            return 2
+        state = ckpt["ema"]
+        print("exporting the averaged weights")
+
+    # Built without the auxiliary head and loaded without its weights, so there is no
+    # path by which deep supervision can reach the shipped file. `forward` never touched
+    # it anyway; this makes that structural rather than a property of the trace.
     model = build_student(ckpt["vocab_size"], ckpt["width"], ckpt["blocks"],
-                          ckpt["kernel"])
-    model.load_state_dict(ckpt["state"])
+                          ckpt["kernel"], aux_at=0)
+    dropped = [k for k in state if k.startswith("aux_head.")]
+    model.load_state_dict({k: v for k, v in state.items() if k not in dropped})
+    if dropped:
+        print(f"dropped the auxiliary head ({len(dropped)} tensors) — training only")
     model.eval()
 
     out = WORK / tag / "onnx"
@@ -919,6 +1081,24 @@ def main() -> int:
                     help="weight on the discriminative term; 0 disables it")
     ap.add_argument("--margin-k", type=int, default=3,
                     help="near-misses generated per utterance")
+    ap.add_argument("--aux-at", type=int, default=0,
+                    help="block to hang an intermediate CTC head off; 0 disables. The "
+                         "head is dropped at export, so it costs the shipped model "
+                         "nothing — try half the depth")
+    ap.add_argument("--aux-weight", type=float, default=0.3,
+                    help="weight on the intermediate head's loss")
+    ap.add_argument("--ema-decay", type=float, default=0.0,
+                    help="average the weights along the trajectory into one file of the "
+                         "same size; 0 disables. 0.999 is a usual starting point")
+    ap.add_argument("--select", choices=["dev", "rank"], default="dev",
+                    help="what makes a checkpoint the best one: dev loss, or rank-1 "
+                         "against a field of other lines — the question the app asks")
+    ap.add_argument("--select-n", type=int, default=128,
+                    help="dev utterances scored per epoch when --select rank")
+    ap.add_argument("--select-field", type=int, default=24,
+                    help="how many other lines to rank against, matching the app")
+    ap.add_argument("--ema", action="store_true",
+                    help="export the averaged weights rather than the last ones")
     ap.add_argument("--shard", default="tts", help="name for this teacher shard")
     ap.add_argument("--sources", default="tts,real",
                     help="which audio to run the teacher over: tts, real, accent")
@@ -937,8 +1117,11 @@ def main() -> int:
         return stage_pseudo(args.shard)
     if args.stage == "train":
         return stage_train(args.width, args.blocks, args.kernel, args.epochs,
-                           args.batch, args.lr, args.kd_weight, args.tag, args.margin_weight, args.margin_k)
-    return stage_export(args.tag)
+                           args.batch, args.lr, args.kd_weight, args.tag,
+                           args.margin_weight, args.margin_k,
+                           args.aux_at, args.aux_weight, args.ema_decay,
+                           args.select, args.select_n, args.select_field)
+    return stage_export(args.tag, args.ema)
 
 
 if __name__ == "__main__":

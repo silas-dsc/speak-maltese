@@ -146,6 +146,60 @@ DUR_INTERCEPT = 28.28
 DUR_SLOPE = 1.8794
 DUR_SD = 13.27
 
+# ── Two knobs that are deliberately inert ──────────────────────────────────
+#
+# `scripts/fit_duration.py` measured the three constants above against 1,335 cached
+# `edge-tts` renders of deck lines, in the token range the deployed field actually
+# spans, and found two things worth acting on and one reason not to act yet.
+#
+#   * **The residual is not homoscedastic.** Binned by length, the residual sd runs
+#     2.5 frames at 4 tokens, 6.9 at 12, 24.0 at 20 and 37.9 at 26. One constant
+#     cannot describe that, and `DUR_SD` is closest to right at about 16 tokens.
+#   * **The padding is not the problem.** `edge-tts` pads every render with 60.0
+#     output frames of silence at sd 3.7 — near enough constant that trimming it
+#     moves the intercept (50.13 → -9.31 on this sample) and leaves the residual
+#     where it was (24.45 → 24.85). Trimming was expected to reduce the spread on
+#     this corpus. It does not, because on synthesised audio there is no spread to
+#     reduce. `MediaRecorder` under a human thumb is a different matter, and that is
+#     the case `DUR_FRAMES = "speech"` exists for — untested, because the only
+#     corpus here is the one where padding is constant.
+#
+# And the reason both stay off: **the constants and `DUR_WEIGHT` are one joint fit,
+# so neither moves alone.** What the ranking actually consumes is the prior's
+# *differential* between hypothesis lengths on fixed audio, and the sweep that chose
+# λ = 0.1 chose it against these constants. Measured on the same 1,335 clips, the
+# charge laid on a five-token hypothesis against the true line — the `Bonġu!`
+# artefact this prior exists to kill — comes to +0.834 in confidence units as
+# deployed, where the documented failures needed about +0.14 to reverse. Refitting
+# the mean and keeping one sd drops it to +0.115, under the bar, which puts the bug
+# back. Refitting with `sd(tokens)` raises it to +2.6, which is λ ≈ 0.3 in all but
+# name, and λ = 0.3 is measured above at 61% learner accept and 32% synthetic.
+#
+# Both directions are regressions, so the defaults below reproduce today's arithmetic
+# exactly and the switches wait for a joint sweep — `fit_duration.py --sweep` against
+# `data/eval_clips` and the negatives, neither of which lives in this repository.
+#
+# One loose end, recorded rather than resolved. Refitting reproduces neither published
+# number: this sample gives 50.13 + 4.0700 × tokens at sd 24.45 against the published
+# 28.28 + 1.8794 at sd 13.27. Halving the frame unit lines them up nearly exactly
+# (2.035 vs 1.8794, sd 12.2 vs 13.27), which is what would happen if the fit had been
+# taken at 25fps while `rank_score` feeds it the student's 50fps output frames. That
+# would also explain a z of sd 2.47 on audio the model was trained on, and why λ had
+# to come down to 0.1 to stay usable. It needs `data/distill` to settle, which is not
+# here, so it stays a hypothesis with the evidence attached.
+
+# "total" is every frame the recogniser was handed. "speech" trims the leading and
+# trailing silence first — see `speech_frames`. Only the prior reads this; `confidence`
+# is deliberately left on the full frame count, because it is a floor and a floor whose
+# denominator moved with the recording's padding would not be one.
+DUR_FRAMES = "total"
+
+# Slope of sd against hypothesis length. 0.0 is the constant `DUR_SD` deployed today.
+DUR_SD_SLOPE = 0.0
+
+# How far below the loudest frame still counts as speech, in dB.
+SPEECH_DROP_DB = 30.0
+
 # How much the prior is allowed to say. Swept on the learner's recordings against the
 # deployed field — 24 lines drawn from the 377 the script accepts — and checked on the
 # 25 synthetic clips, which it must not damage, and on 90 negatives it must not admit:
@@ -163,13 +217,63 @@ DUR_SD = 13.27
 DUR_WEIGHT = 0.1
 
 
+def duration_sd(tokens: int) -> float:
+    """Spread of the length a hypothesis of this many tokens implies.
+
+    `DUR_SD_SLOPE = 0` gives the single constant deployed today. Above zero it grows
+    with length, which is what the residual actually does — see the note above."""
+    return max(1e-6, DUR_SD + DUR_SD_SLOPE * tokens)
+
+
+def frame_energy(wave: np.ndarray) -> np.ndarray:
+    """Total mel-band energy per analysis frame, on the same STFT `_nemo_features` uses.
+
+    Taken before the per-bin normalisation, which is what makes it usable: normalising
+    each mel bin over time is exactly the step that throws absolute level away, so the
+    features the model sees carry no notion of loud or quiet."""
+    cfg = _NEMO
+    x = np.concatenate([wave[:1], wave[1:] - cfg["preemph"] * wave[:-1]])
+    x = np.pad(x.astype(np.float32), cfg["n_fft"] // 2, mode="reflect")
+    frames = np.lib.stride_tricks.sliding_window_view(x, cfg["n_fft"])[::cfg["hop_length"]]
+    win = np.hanning(cfg["win_length"]).astype(np.float32)
+    pad = (cfg["n_fft"] - cfg["win_length"]) // 2
+    window = np.pad(win, (pad, pad))
+    spec = np.abs(np.fft.rfft(frames * window, n=cfg["n_fft"])) ** 2
+    fb = _mel_filters(cfg["n_fft"] // 2 + 1, 64, cfg["sample_rate"])
+    return (spec.astype(np.float32) @ fb).sum(axis=1)
+
+
+def speech_span(energy: np.ndarray, drop_db: float = SPEECH_DROP_DB) -> tuple[int, int]:
+    """`[start, end)` over analysis frames, dropping the quiet head and tail.
+
+    Relative to the loudest frame, so it needs no absolute level and survives a quiet
+    microphone. Interior pauses are kept: they are part of how long the line took."""
+    if not len(energy):
+        return (0, 0)
+    db = 10.0 * np.log10(energy + 1e-10)
+    on = np.flatnonzero(db >= db.max() - drop_db)
+    return (int(on[0]), int(on[-1]) + 1) if len(on) else (0, len(energy))
+
+
+def speech_frames(wave: np.ndarray, drop_db: float = SPEECH_DROP_DB) -> int:
+    """How many *output* frames of the recording are speech.
+
+    The student strides its 100fps mel by 2, so the prior counts in output frames and
+    this halves to match. Not an endpointer for acceptance — the energy gate tried for
+    that was dropped for overfitting 25 clips. This only decides what the prior calls
+    the length of the audio."""
+    start, end = speech_span(frame_energy(wave), drop_db)
+    return max(0, end // 2 - start // 2)
+
+
 def duration_prior(tokens: int, frames: int) -> float:
     """How surprising this hypothesis's length is for this much audio. ≤ 0."""
     expected = DUR_INTERCEPT + DUR_SLOPE * tokens
-    return -0.5 * ((frames - expected) / DUR_SD) ** 2
+    return -0.5 * ((frames - expected) / duration_sd(tokens)) ** 2
 
 
-def rank_score(logprobs: np.ndarray, ids: list[int], blank: int) -> float:
+def rank_score(logprobs: np.ndarray, ids: list[int], blank: int,
+               speech: int | None = None) -> float:
     """What to *compare* hypotheses on: the acoustic fit, plus what their length costs.
 
     Deliberately not folded into `confidence`. Two different questions are being asked
@@ -177,9 +281,14 @@ def rank_score(logprobs: np.ndarray, ids: list[int], blank: int) -> float:
     comparison, and the prior belongs in it. "Is there anything here at all" is a floor,
     and a floor that moved with the length of whatever line happened to be asked for
     would not be a floor.
+
+    `speech` overrides what counts as the length of the audio — pass
+    `speech_frames(wave)` to charge the hypothesis against the speech only. Defaults to
+    every frame, which is what the deployed constants were fitted against.
     """
     return (confidence(logprobs, ids, blank)
-            + DUR_WEIGHT * duration_prior(len(ids), len(logprobs)))
+            + DUR_WEIGHT * duration_prior(len(ids), len(logprobs) if speech is None
+                                          else speech))
 
 
 # ── Hard negatives ─────────────────────────────────────────────────────────

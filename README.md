@@ -640,6 +640,63 @@ setting on accuracy and not only on latency.
 change is three constants and a squared z-score, in `constrained_ctc.rank_score` and its
 port `nanostt.rankScore`, parity-tested against each other.
 
+#### Re-measuring those three constants, and why they did not move
+
+`scripts/fit_duration.py` refits the line on 1,335 cached `edge-tts` renders of deck
+lines, in the 6-62 token range the deployed field actually spans. Two things it found are
+worth acting on, one is worth knowing, and none of them changed a default.
+
+**The residual is not homoscedastic, and one constant is the wrong shape.** Binned by
+length, on the same clips:
+
+| tokens | 6-10 | 10-14 | 14-18 | 18-24 | 24-30 | 30-40 | 40-60 |
+|---|---|---|---|---|---|---|---|
+| residual sd | 4.6 | 6.7 | 13.2 | 23.5 | 37.2 | 33.4 | 39.9 |
+
+`DUR_SD = 13.27` is right at about sixteen tokens and wrong everywhere else. Fitting
+`sd ≈ s0 + s1 × tokens` instead takes the z-score from sd 2.47 to 0.99 and the `|z| > 3`
+tail from 96% of clips to 1%.
+
+**Trimming the silence does nothing here, which was not the expectation.** `edge-tts`
+pads every render with 60.0 output frames of silence at sd 3.7 — near enough constant
+that removing it moves the intercept (50.13 → −9.31) and leaves the residual where it
+was (24.45 → 24.90). The hypothesis was that padding is a variance source; on synthesised
+audio it is not, because there is no variance in it. `MediaRecorder` under a human thumb
+is the case where it should be, and there is no corpus here to show it, so
+`DUR_FRAMES = "speech"` is implemented, parity-tested and switched off.
+
+**And the reason neither switch is on: the constants and λ are one joint fit.** What the
+ranking consumes is not the quality of the fit but the prior's *differential* between two
+hypothesis lengths on the same audio — the common penalty cancels. So the question to ask
+of any change is whether it still charges a five-token rival enough to reverse the five
+failures above, which needed +0.155 in confidence units:
+
+| | median charge on 5 tokens | reverses |
+|---|---|---|
+| **deployed** | **+0.834** | **91.5%** |
+| refit, one sd | +0.115 | 41.3% |
+| refit, sd(tokens) | +2.602 | 99.0% |
+| deployed constants on trimmed frames | +0.024 | 36.9% |
+
+Refitting the mean and keeping one sd drops the charge below what the bug needs and puts
+it back. Refitting with a sloped sd triples it, which is λ ≈ 0.3 under another name, and
+λ = 0.3 is measured above at 61% learner accept and 32% synthetic. The last row is the
+trap in one line: change the frame definition without refitting the constants and the
+prior stops working almost entirely. A better-calibrated prior is not a better grader,
+and the sweep that chose λ = 0.1 chose it against these constants — so the two move
+together or not at all. `fit_duration.py` is the instrument for moving them; it needs
+`data/eval_clips` and the negatives, which are not in the repository.
+
+**One loose end, recorded rather than resolved.** The refit reproduces neither published
+number: this sample gives 50.13 + 4.0700 × tokens at sd 24.45, against the published
+28.28 + 1.8794 at sd 13.27. Halving the frame unit lines them up nearly exactly — slope
+2.035 against 1.8794, sd 12.2 against 13.27 — which is what would happen if the original
+fit had been taken at 25fps while `rank_score` feeds it the student's 50fps output
+frames. That would also explain a z of sd 2.47 on audio the model was trained on, and why
+λ had to come down to 0.1 to stay usable. Settling it needs the `data/distill` shards,
+which are not here, so it stays a hypothesis with its evidence attached rather than a
+fix.
+
 #### Teaching it to discriminate, which is a different job from transcribing
 
 The student is trained to transcribe and deployed to *decide*. Nothing in knowledge

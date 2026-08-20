@@ -39,6 +39,13 @@ const PREEMPH = 0.97;
 const LOG_GUARD = 2 ** -24;
 const N_MELS = 64;
 
+/* How far below the loudest frame still counts as speech, and which frame count the
+   duration prior is fed. Both inert at these values: `total` is every frame the
+   recogniser was handed, which is what the deployed constants were fitted against.
+   See the note above `DUR_INTERCEPT` for why neither moves on its own. */
+const SPEECH_DROP_DB = 30;
+const DUR_FRAMES = 'total';
+
 let ready = null;
 let parts = null;         // { session, idToTok, blankId, mel, window }
 
@@ -189,12 +196,14 @@ export function features(wave, mel = melFilters(), window = analysisWindow()) {
   const frames = Math.floor((padded.length - N_FFT) / HOP) + 1;
   const nMels = mel.length;
   const out = new Float32Array(nMels * frames);       // row-major (nMels, frames)
+  const energy = new Float32Array(frames);            // pre-normalisation, see below
   const re = new Float64Array(N_FFT);
   const im = new Float64Array(N_FFT);
   const power = new Float64Array(N_FFT / 2 + 1);
 
   for (let t = 0; t < frames; t += 1) {
     const off = t * HOP;
+    let eAcc = 0;
     for (let i = 0; i < N_FFT; i += 1) {
       re[i] = padded[off + i] * window[i];
       im[i] = 0;
@@ -211,7 +220,12 @@ export function features(wave, mel = melFilters(), window = analysisWindow()) {
       let acc = 0;
       for (let k = from; k < to; k += 1) acc += power[k] * row[k];
       out[m * frames + t] = Math.log(acc + LOG_GUARD);
+      eAcc += acc;
     }
+    /* Kept here because it cannot be recovered later: normalising each mel bin over
+       time is precisely the step that throws absolute level away, so the features the
+       model sees carry no notion of loud or quiet. */
+    energy[t] = eAcc;
   }
 
   // `normalize: per_feature` — per mel bin across time, sample variance (n-1), which
@@ -230,7 +244,38 @@ export function features(wave, mel = melFilters(), window = analysisWindow()) {
     const scale = 1 / (std + 1e-5);
     for (let t = 0; t < frames; t += 1) out[base + t] = (out[base + t] - mean) * scale;
   }
-  return { data: out, nMels, frames };
+  return { data: out, nMels, frames, energy };
+}
+
+/** `[start, end)` over analysis frames, dropping the quiet head and tail.
+
+    Relative to the loudest frame, so it needs no absolute level and survives a quiet
+    microphone. Interior pauses stay: they are part of how long the line took to say. */
+export function speechSpan(energy, dropDb = SPEECH_DROP_DB) {
+  if (!energy || !energy.length) return [0, 0];
+  let peak = 0;
+  for (let t = 0; t < energy.length; t += 1) if (energy[t] > peak) peak = energy[t];
+  const floor = 10 * Math.log10(peak + 1e-10) - dropDb;
+  let start = -1;
+  let end = 0;
+  for (let t = 0; t < energy.length; t += 1) {
+    if (10 * Math.log10(energy[t] + 1e-10) >= floor) {
+      if (start < 0) start = t;
+      end = t + 1;
+    }
+  }
+  return start < 0 ? [0, energy.length] : [start, end];
+}
+
+/** How many *output* frames of the recording are speech.
+
+    The student strides its 100fps mel by 2, so the prior counts in output frames and
+    this halves to match. Deliberately not an endpointer for acceptance — the energy
+    gate tried for that was dropped for overfitting 25 clips. This only decides what
+    the prior is told the length of the audio was. */
+export function speechFrames(energy, dropDb = SPEECH_DROP_DB) {
+  const [start, end] = speechSpan(energy, dropDb);
+  return Math.max(0, (end >> 1) - (start >> 1));
 }
 
 /* ── Load ────────────────────────────────────────────────────────────────── */
@@ -419,10 +464,33 @@ const DUR_SD = 13.27;
    one model or of 25 clips. See the table in `constrained_ctc.py`. */
 const DUR_WEIGHT = 0.1;
 
+/* Slope of the spread against hypothesis length. 0 is the single constant above, which
+   is what ships.
+
+   `scripts/fit_duration.py` re-measured all of this against 1,335 cached renders and
+   found the residual is nothing like homoscedastic — binned by length its sd runs 4.6
+   frames at 7 tokens, 13.2 at 15, 37.2 at 26 — so one constant is provably the wrong
+   shape. It is still what ships, because the constants and `DUR_WEIGHT` are one joint
+   fit and neither survives moving alone. What ranking consumes is not the fit but the
+   prior's *differential* between two hypothesis lengths on fixed audio, and on those
+   same clips the charge laid on a five-token rival over the truth — the `Bonġu!`
+   artefact all of this exists to kill — is +0.834 in confidence units as deployed,
+   against the +0.155 needed to reverse the five documented failures. Refitting the mean
+   and keeping one sd drops it to +0.115 and puts the bug back; refitting with a sloped
+   sd raises it to +2.6, which is λ = 0.3 wearing a different hat, and λ = 0.3 measured
+   61% learner accept and 32% synthetic. Both are regressions, so both wait for a joint
+   sweep against the learner clips and the negatives. */
+const DUR_SD_SLOPE = 0;
+
+/** Spread of the length a hypothesis of this many tokens implies. */
+export function durationSd(tokens) {
+  return Math.max(1e-6, DUR_SD + DUR_SD_SLOPE * tokens);
+}
+
 /** How surprising this hypothesis's length is for this much audio. Always ≤ 0. */
 export function durationPrior(tokens, frames) {
   const expected = DUR_INTERCEPT + DUR_SLOPE * tokens;
-  const z = (frames - expected) / DUR_SD;
+  const z = (frames - expected) / durationSd(tokens);
   return -0.5 * z * z;
 }
 
@@ -431,10 +499,14 @@ export function durationPrior(tokens, frames) {
     Kept separate from `targetConfidence` on purpose. "Which of these lines is it" is a
     comparison and the prior belongs in it; "is there anything here at all" is a floor,
     and a floor that moved with the length of whichever line was asked for would not be
-    a floor. `app.js` uses the first for ranking and the second for `MIN_CONFIDENCE`. */
-export function rankScore(logprobs, frames, vocab, ids, blank) {
+    a floor. `app.js` uses the first for ranking and the second for `MIN_CONFIDENCE`.
+
+    `speech` overrides what counts as the length of the audio — pass `speechFrames` to
+    charge the hypothesis against the speech alone. Left out, every frame counts, which
+    is what the deployed constants were fitted against. */
+export function rankScore(logprobs, frames, vocab, ids, blank, speech) {
   return targetConfidence(logprobs, frames, vocab, ids, blank)
-    + DUR_WEIGHT * durationPrior(ids.length, frames);
+    + DUR_WEIGHT * durationPrior(ids.length, speech === undefined ? frames : speech);
 }
 
 /* ── Decode ──────────────────────────────────────────────────────────────── */
@@ -482,7 +554,7 @@ export async function decode(blob) {
 export async function transcribe(blob, { target = '', distractors = [] } = {}) {
   if (!parts) throw new Error('Local recogniser is not loaded');
   const audio = await decode(blob);
-  const { data, nMels, frames } = features(audio, parts.mel, parts.window);
+  const { data, nMels, frames, energy } = features(audio, parts.mel, parts.window);
   const t0 = performance.now();
   const input = new parts.ort.Tensor('float32', data, [1, nMels, frames]);
   const { logprobs } = await parts.session.run({ audio_signal: input });
@@ -515,9 +587,15 @@ export async function transcribe(blob, { target = '', distractors = [] } = {}) {
       const seq = encodeTarget(line, parts.tokToId);
       return seq.length ? targetConfidence(d, outFrames, vocab, seq, parts.blankId) : 0;
     };
+    /* What the prior is told the audio's length was. `DUR_FRAMES` is 'total' — every
+       frame — because that is the definition the constants were fitted against; feeding
+       it the speech span without refitting them charges a five-token rival correctly on
+       only 37% of clips against the deployed 91%, which is the whole trap. */
+    const spoken = DUR_FRAMES === 'speech' ? speechFrames(energy) : outFrames;
     const ranked = (line) => {
       const seq = encodeTarget(line, parts.tokToId);
-      return seq.length ? rankScore(d, outFrames, vocab, seq, parts.blankId) : -Infinity;
+      return seq.length
+        ? rankScore(d, outFrames, vocab, seq, parts.blankId, spoken) : -Infinity;
     };
     result.confidence = acoustic(target);
     result.rank = ranked(target);

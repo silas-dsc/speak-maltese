@@ -1063,6 +1063,56 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### The duration prior works because it is miscalibrated
+
+The constants were suspected of being fitted in the wrong frame unit: a 25-clip sample
+refit them to roughly double the published slope, which would mean λ = 0.1 had been
+absorbing a 25-vs-50 fps error. Refitting on all 63,114 distillation passes kills that
+hypothesis — the slope comes back at **1.6238** against the deployed **1.8794**, near
+enough identical, where a unit error would have shown ~0.81 or ~3.76.
+
+What is wrong is the intercept and the spread: **93.38 against 28.28**, sd **27.11 against
+13.27**. The deployed prior therefore scores z at about twice the true scale and z² at four
+times it, and the calibration table says so plainly — z sd 2.057, with **78.3% of passes
+sitting past |z| > 3**. As a probability model it is broken.
+
+It is nonetheless the version that works, and not by a little:
+
+| config | charge on a 5-token rival | reverses the documented failures |
+|---|---|---|
+| deployed | +2.274 | **94.9%** |
+| refit, one sd | +0.131 | 9.8% |
+| refit, sd(tokens) | +0.159 | 52.1% |
+
+Swept against the 75 recordings and 190 negatives, the refit loses at **every** λ from 0.1
+to 1.2 — 90% accept against 95%, wrong-line 10% against 7% — and raising λ makes the
+negatives *worse* rather than better, which no honest length penalty does.
+
+The arithmetic says why. Take a 76-frame clip, the median here, whose true line is 14
+tokens, against a 5-token rival:
+
+| | expects for the truth | expects for the rival | rival charged, relative to the truth |
+|---|---|---|---|
+| deployed | 54.6 frames | 37.7 frames | **−2.869** |
+| refit | 116.1 frames | 101.5 frames | **+0.652** |
+
+The refit expects 116 frames for a line that occupies 76, so the truth already looks too
+short — and the shorter rival, being closer to nothing, looks *less* wrong. The sign
+flips. A prior fitted on the distillation corpus is a prior fitted on FLEURS sentences and
+full TTS renderings, which start at 1.9 seconds; the app asks people to say `Bonġu!`. The
+corpus is not the population.
+
+So the deployed constants are not an error waiting to be corrected. They describe short
+prompted phrases, which is what the app grades, and their disagreement with the corpus is
+the corpus's length distribution rather than a mistake. The term is a length penalty that
+happens to be written as a Gaussian, and calibrating it into an honest one would remove
+90% of what it was added to do.
+
+This also settles the `frames` row in the sweep above. That row was to be distrusted until
+the refit arrived; the refit has arrived, and it is not a baseline worth correcting toward,
+so the measured verdict on `DUR_FRAMES = "speech"` — worse on every column — stands by
+itself.
+
 #### Leniency in the ranking, priced and declined
 
 `MIN_MARGIN = 0.02` had only ever been swept in the strict direction. Every value of

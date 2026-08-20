@@ -187,26 +187,21 @@ so this is a deliberate act.
 
 ---
 
-## 4. Settle the frame-unit question — do this before trusting step 3's `frames` row
+## 4. The frame-unit question — answered, do not re-run
 
-The refit reproduces neither published constant: this sample gives
-`50.13 + 4.0700 × tokens` at sd 24.45 against the published `28.28 + 1.8794` at sd 13.27,
-and halving the frame unit lines them up almost exactly (2.035 vs 1.8794, sd 12.2 vs
-13.27). If the original fit was taken at 25 fps while `rank_score` feeds it the student's
-50 fps output frames, then λ = 0.1 is compensating for a unit error and the whole
-`(constants, λ)` pair should be re-derived rather than nudged.
+**The unit hypothesis is dead and the refit is not an improvement.** Refitting on all
+63,114 distillation passes gives `93.38 + 1.6238 × tokens` at sd 27.11. The slope matches
+the deployed 1.8794; only the intercept and sd differ, and a unit error would have moved
+the slope. Swept against the clips and negatives the refit loses at every λ from 0.1 to
+1.2, because it expects 116 frames for a line that occupies 76 — so the true line already
+looks too short and a shorter rival looks *less* wrong. The sign of the term flips.
 
-Settling it needs the distillation shards, which are not in the repository:
+The corpus is not the population: it is FLEURS sentences and full TTS renderings, and the
+app asks for `Bonġu!`. The deployed constants describe short prompted phrases. Their
+disagreement with the corpus is not an error to fix, and `--grid calib` re-measures this
+in seconds if anyone doubts it.
 
-```bash
-.venv/bin/python scripts/distill_stt.py teacher --sources tts       # hours, GPU
-.venv/bin/python scripts/fit_duration.py --corpus data/distill
-```
-
-If that reproduces `28.28 + 1.8794` at sd 13.27, the constants are right and the unit
-hypothesis is dead. If it reproduces roughly double the slope, the deployed prior has been
-running on a frame count twice the unit it was fitted in, and step 3 should be re-run from
-a corrected baseline.
+Consequence: the `frames` row in step 3 no longer needs a refit before being trusted.
 
 ---
 

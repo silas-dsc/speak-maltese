@@ -66,6 +66,9 @@ DEPLOYED = {
     "margin_sigmas": 0.0,
     "field_local": 0.0,
     "field_size": 24,
+    # Which duration constants the prior uses. See CALIBRATIONS: the deployed set is
+    # measurably miscalibrated, and that is what makes it work.
+    "calibration": "deployed",
 }
 
 # How many wrong lines each clip is paired with. 25 clips x 7 is the published 175.
@@ -84,17 +87,36 @@ def confidence(logp: float, greedy: float, frames_total: int) -> float:
     return float(np.exp((logp - greedy) / max(1, frames_total)))
 
 
-def duration_prior(tokens: int, frames: int, sd_slope: float) -> float:
-    sd = max(1e-6, DUR_SD + sd_slope * tokens)
-    return -0.5 * ((frames - (DUR_INTERCEPT + DUR_SLOPE * tokens)) / sd) ** 2
+# The deployed constants and the ones a refit on 63,114 distillation passes gives.
+# They are not a small correction to each other: the intercept is 93.38 against 28.28 and
+# the sd is 27.11 against 13.27, so the deployed prior scores z at roughly twice the true
+# scale and z-squared at four times it. That is why it works — it charges a short rival
+# +2.274 confidence units where a calibrated prior charges +0.131, and only the blunt
+# version reverses the failures the prior was added for. Kept as presets rather than a
+# correction, because the choice between them is a choice about what the term is *for*.
+CALIBRATIONS = {
+    "deployed": (28.28, 1.8794, 13.27, 0.0),
+    "refit": (93.38, 1.6238, 27.11, 0.0),
+    "refit-sd": (93.38, 1.6238, 24.595, -0.0251),
+}
+
+
+def duration_prior(tokens: int, frames: int, sd_slope: float,
+                   calibration: str = "deployed") -> float:
+    intercept, slope, sd0, sd_slope0 = CALIBRATIONS[calibration]
+    # An explicit dur_sd_slope overrides the preset's own, so the existing sdslope grid
+    # keeps meaning what it did.
+    sd = max(1e-6, sd0 + (sd_slope if sd_slope else sd_slope0) * tokens)
+    return -0.5 * ((frames - (intercept + slope * tokens)) / sd) ** 2
 
 
 def rank_of(entry: dict, rec: dict, params: dict) -> float:
     frames = (rec["frames_speech"] if params["dur_frames"] == "speech"
               else rec["frames_total"])
     return (confidence(entry["logp"], rec["greedy"], rec["frames_total"])
-            + params["dur_weight"] * duration_prior(entry["tokens"], frames,
-                                                    params["dur_sd_slope"]))
+            + params["dur_weight"] * duration_prior(
+                entry["tokens"], frames, params["dur_sd_slope"],
+                params["calibration"]))
 
 
 def choose_field(rec: dict, params: dict, rng) -> list[dict]:
@@ -301,6 +323,7 @@ GRIDS = {
     # min_margin is clamped away. Accepting a target the model ranks second is a
     # different rule, not a smaller number; `--probe-loss` prices that separately.
     "margin": ("min_margin", [0.0, 0.005, 0.01, 0.02, 0.04, 0.08]),
+    "calib": ("calibration", ["deployed", "refit", "refit-sd"]),
     "local": ("field_local", [0.0, 0.25, 0.5, 0.75]),
     "frames": ("dur_frames", ["total", "speech"]),
     "sdslope": ("dur_sd_slope", [0.0, 0.25, 0.5, 1.0]),

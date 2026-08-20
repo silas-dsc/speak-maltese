@@ -1063,6 +1063,35 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### The prior had already half-solved gemination
+
+`kollox` and `kolox` differ by consonant length alone, and the recorded failure is that
+`kolox` scores 1.02 against audio of `kollox` and is accepted. That is the named reason for
+the degemination work. It is also measured on the wrong quantity.
+
+`scripts/gemination.py` needs no new audio: every recording of a line containing a doubled
+consonant already holds the evidence, so score the true spelling and its halved twin against
+the same audio, one geminate at a time. Across the 47 pairs the 75 recordings contain:
+
+| | the true spelling wins |
+|---|---|
+| confidence alone | 18/47 (**38%**) |
+| rank, as the app compares it | 35/47 (**74%**) |
+
+On confidence the model is *worse than a coin toss* — it prefers the halved spelling 62% of
+the time. That is the short-sequence bias again, one level down: dropping a doubled letter
+removes an obligatory emission and makes the sequence easier to align, exactly as a short
+line was easier to align than a long one. It is the same bug at sub-word scale.
+
+Which means the duration prior already charges for it. It penalises a hypothesis for being
+shorter than its frames whether the missing length is a word or a letter, and it takes
+gemination from 38% to 74% — a change that shipped to fix `Bonġu!` and was never credited
+with this. The app is fooled on a quarter of geminates, not on two thirds.
+
+Degemination in the shard may still be worth doing, but it is now a 26-point problem rather
+than the blocker it was written up as, and `gemination.py` is the number to move. The
+aggregate app score will not show it either way, which is why it was never visible.
+
 #### Scoring each sound instead of the whole attempt
 
 The grader answers one question with one number, which is why three recordings are refused

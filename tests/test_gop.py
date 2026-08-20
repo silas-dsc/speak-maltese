@@ -94,3 +94,22 @@ def test_the_encoders_agree():
     assert ids == encode(line, vocab, "▁")
     assert len(ids) == len(toks)
     assert toks == ["a", "b", "␣", "ħ", "a"]
+
+
+def test_degeminate_halves_one_consonant_at_a_time():
+    """A line with two geminates must not be compared against a variant differing twice.
+
+    `kollox tajjeb` has two. Halving both at once and winning says the model heard *a*
+    length somewhere, which is not the question — the question is which doubled consonant
+    it heard, and that needs one change per variant."""
+    from gemination import degeminate
+
+    out = degeminate("kollox tajjeb")
+    assert {v for v, _ in out} == {"kolox tajjeb", "kollox tajeb"}
+    assert {c for _, c in out} == {"l", "j"}
+
+    # Doubled vowels are a different thing in Maltese orthography and not what the
+    # degemination work is about.
+    assert degeminate("iimla") == []
+    assert degeminate("grazzi") == [("grazi", "z")]
+    assert degeminate("bonġu") == []

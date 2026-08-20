@@ -473,3 +473,33 @@ def test_the_held_out_split_is_stable_when_the_corpus_grows(tmp_path):
     # Every original clip stays on the side it started on.
     assert held <= held2
     assert train <= train2
+
+
+def test_checkpoint_selection_ignores_hypotheses_that_cannot_fit(tmp_path_factory):
+    """`ctc_none` zeroes an infinite loss, so a hypothesis too long for the audio comes
+    back with loss 0 — which reads as a perfect fit, not an impossible one. On 10 frames a
+    30-token line scores 2.681 against a 4-token line's 1.151, so a field containing one
+    would always be won by whatever was too long to say, and `--select rank` would then
+    choose checkpoints on that.
+
+    Exercised with a pool deliberately full of over-long lines: the accuracy has to stay a
+    real number in range rather than collapsing to zero."""
+    module = load_distill()
+    work = tmp_path_factory.mktemp("select") / "work"
+    module.WORK = work
+    # Long labels against short clips, so most of the pool cannot fit most of the audio.
+    write_shard(work)
+    meta_path = work / "index_tts.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    for item in meta["items"][::2]:
+        item["text"] = " ".join(WORDS) * 3
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    rc = module.stage_train(width=16, blocks=2, kernel=3, epochs=1, batch=2, lr=1e-3,
+                            kd_weight=0.9, tag="s", select="rank", select_n=16,
+                            select_field=8)
+    assert rc == 0
+    ckpt = torch.load(work / "s" / "student.pt", map_location="cpu", weights_only=False)
+    # The metric must have been computable and in range. A pool of unfittable lines used
+    # to drive this to 0 by handing every field to an impossible hypothesis.
+    assert 0.0 <= ckpt["rank1"] <= 1.0

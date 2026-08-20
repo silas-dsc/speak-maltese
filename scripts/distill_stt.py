@@ -1280,12 +1280,26 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                     continue
                 post = out[row, :nb]                          # (T, V)
                 truth = targets[i]
+                # A hypothesis longer than the audio has no alignment at all, and
+                # `ctc_none` carries `zero_infinity=True`, so its loss comes back as 0 —
+                # which then reads as the *best* possible fit rather than the worst.
+                # Measured: on 10 frames a 30-token hypothesis scores 2.681 where a
+                # 4-token one scores 1.151. Left in, the field would be won by whichever
+                # line was too long to say, and checkpoints would be chosen on that.
+                if len(truth) > nb:
+                    continue
                 field = [truth]
                 # Sampled per utterance, so one unlucky draw cannot decide the epoch.
-                while len(field) < select_field + 1:
+                # Bounded, because a short clip may simply not admit `select_field`
+                # alternatives that fit.
+                for _ in range(select_field * 20):
+                    if len(field) > select_field:
+                        break
                     cand = list(pick.choice(pool))
-                    if cand != truth:
+                    if cand != truth and len(cand) <= nb:
                         field.append(cand)
+                if len(field) < 2:
+                    continue
                 rep = post[:, None, :].expand(nb, len(field), post.shape[1])
                 flat_f = torch.cat([torch.tensor(f, dtype=torch.long) for f in field])
                 tl = torch.tensor([len(f) for f in field], dtype=torch.long)

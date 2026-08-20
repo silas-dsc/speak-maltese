@@ -1063,6 +1063,63 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### Scoring each sound instead of the whole attempt
+
+The grader answers one question with one number, which is why three recordings are refused
+outright: a sound the model cannot hear sinks a sentence that was otherwise right, and
+`--probe-loss` showed that loss cannot be forgiven at the utterance level without admitting
+half of all backwards speech. Goodness of Pronunciation asks per sound instead. The
+segmentation-free form ([arXiv 2507.16838](https://arxiv.org/abs/2507.16838)) needs no
+aligner and no lexicon — the occupancy CTC already implies is enough:
+
+    GOP(i) = sum_t gamma_i(t) * (log p(y_i | t) - max_v log p(v | t)) / sum_t gamma_i(t)
+
+`scripts/gop.py` computes it from posteriors the app already has. Its forward total is
+checked against `ctc_logp` and agrees to 0.00e+00, which is the only test that catches a
+subtly wrong skip rule — a wrong one still yields plausible-looking scores.
+
+**What the model can and cannot hear**, measured on the 75 recordings that are *correct*.
+A token that scores badly on speech known to be right is not the learner's error:
+
+| | graphemes | median GOP |
+|---|---|---|
+| cannot hear it | `q` | **−5.37** |
+| silent by orthography | `'`, `h`, `g` | −3.01, −2.84, −2.73 |
+| weaker than expected | `r`, `ż`, `d`, `j` | −2.59 … −1.32 |
+| reliable | `i a t f m s u n e x b l` | −0.24 … −0.45 |
+
+`q` is twenty times worse than the median grapheme, which is the first number to confirm
+what was previously a suspicion. But `g` and `h` scoring badly is **not** a defect: `għ` is
+silent, so there is no `g` sound to find, and the model is right. And `ħ` sits mid-table at
+−0.93, so "the model cannot do `għ`" was too broad — it is `q` that it cannot do.
+
+**As a gate it is a trade, not a win.** Restricting the score to reliable graphemes and
+gating on it alongside the deployed rule:
+
+| | deployed | + GOP gate |
+|---|---|---|
+| learner | 95% | 92% |
+| reversed | 6% | **0%** |
+| hiss | 2% | **0%** |
+| quiet | 6% | 6% |
+| silence | 0% | 0% |
+
+Two whole categories of negative disappear, for two learner clips — one of which is
+`me_019`, the same marginal recording that sits 0.013 above the candidate floor. GOP
+separates real speech from time-reversed speech by 93 points (reversed 0% at a threshold
+holding 93% of the learner), which is the one negative the deployed rule still admits.
+
+It cannot judge level at all: 16 points between the learner clips and their own −30 dB
+copies. That is not a flaw in GOP but a property of the model — a −30 dB copy comes back
+with the same mean top posterior as the original, −0.198 against −0.199, so the model is
+largely gain-invariant and GOP, being a ratio, cannot see what the absolute floor sees.
+The two are complementary, and neither replaces the other.
+
+**The part worth having is not the gate.** It is that the app can now say *which sound*
+went wrong instead of refusing the attempt, and that the table above says which sounds it
+is entitled to have an opinion about. Requiring `q` of a learner is asking them to fix
+something the model cannot hear.
+
 #### The duration prior works because it is miscalibrated
 
 The constants were suspected of being fitted in the wrong frame unit: a 25-clip sample

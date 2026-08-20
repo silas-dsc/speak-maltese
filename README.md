@@ -688,8 +688,9 @@ together or not at all. `fit_duration.py` fits the constants and prices a candid
 charge on a short rival; `scripts/sweep_grader.py` is the other half, sweeping
 `DUR_WEIGHT` and the floor against accept rate, wrong-line rejection and the negatives,
 the way every table above was scored. Both need `data/eval_clips`, which is not in the
-repository — `scripts/make_negatives.py` rebuilds the negatives once the recordings
-exist, and [`RUNBOOK.md`](RUNBOOK.md) is the order to do it in.
+repository — see [Where the recordings live](#where-the-recordings-live) below.
+`scripts/make_negatives.py` rebuilds the negatives once the recordings are in place, and
+[`RUNBOOK.md`](RUNBOOK.md) is the order to do it in.
 
 #### Two more switches in the grader, and the same reason both are off
 
@@ -1061,6 +1062,46 @@ Azure `mt-MT` neural voices.
 The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs are not
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
+
+## Where the recordings live
+
+`data/eval_clips/` is gitignored, and deliberately: it is audio, it does not diff, and one
+of the two things in it is a recording of a specific person's voice. But every accuracy
+number in this README that is not marked synthetic was measured on those clips, so a
+checkout without them cannot reproduce or extend any of it.
+
+They live on the Hugging Face Hub as a **private** dataset,
+[`silasdsc/speak-maltese-learner-clips`](https://huggingface.co/datasets/silasdsc/speak-maltese-learner-clips):
+the 75 learner clips at 113 seconds, `clips/` trimmed and `raw/` as recorded, with a
+`manifest.tsv` carrying each clip's sentence, level, and which microphone made it — plus
+`xvoice/`, the 106-clip synthetic contrast set (25 lines and 81 near-misses in
+`mt-MT-JosephNeural`) that `scripts/dtw_match.py` scores against the app's own
+`mt-MT-GraceNeural` references, with a `kind` column separating the two. It is private
+because the learner half is one identifiable person's voice; the dataset card sets no
+licence for the same reason, and notes separately that the synthetic half is a commercial
+voice whose terms are Microsoft's. Restore it with a token that can read the dataset:
+
+```bash
+.venv/bin/python -c "
+from huggingface_hub import snapshot_download
+from pathlib import Path
+import shutil
+d = Path(snapshot_download('silasdsc/speak-maltese-learner-clips', repo_type='dataset',
+                           token=Path('.hf-token').read_text().strip()))
+out = Path('data/eval_clips'); (out / 'raw').mkdir(parents=True, exist_ok=True)
+for f in (d / 'clips').glob('*.wav'): shutil.copy2(f, out / f.name)
+for f in (d / 'raw').glob('*.wav'): shutil.copy2(f, out / 'raw' / f.name)
+(out / 'xvoice').mkdir(exist_ok=True)
+for f in (d / 'xvoice').glob('*.mp3'): shutil.copy2(f, out / 'xvoice' / f.name)
+shutil.copy2(d / 'manifest.tsv', out / 'manifest.tsv')
+print('restored', len(list(out.glob('me_*.wav'))), 'clips')"
+```
+
+One thing in that directory is **not** in the dataset, and does not need to be:
+`synth_*.mp3`, the app's own `mt-MT-GraceNeural` renderings of 25 deck sentences.
+`--synth 25` regenerates them from the deck at no cost, and the restored `manifest.tsv`
+lists only the learner clips — so re-run `--synth 25` before reproducing any table that
+compares against the synthetic baseline.
 
 ## A real Maltese frequency list
 

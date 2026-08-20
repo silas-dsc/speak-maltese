@@ -63,36 +63,52 @@ blocks forever with no error, no timeout and no clue. That failure is silent by
 construction, so it is worth knowing before it eats twenty minutes.
 
 Grant it once under System Settings → Privacy & Security → Microphone, for the terminal
-you are using, and check with a two-second capture before recording anything long:
+you are using. After that, `--record` checks the device itself before it prompts for
+anything, so there is no separate command to run: it opens the input once, reports how
+long the device took to start and what its noise floor is, and refuses outright on a
+device that produces pure silence. `[0]` above is refused by that check.
 
-```bash
-ffmpeg -f avfoundation -i :3 -ar 16000 -ac 1 -t 2 /tmp/mic.wav && \
-  .venv/bin/python -c "import sys;sys.path.insert(0,'scripts');\
-import compare_stt as C;from pathlib import Path;print('peak %.2f'%C._peak(Path('/tmp/mic.wav')))"
-```
-
-A peak around 0.3–0.9 is a working microphone. `0.00` is the wrong device. A hang is the
-permission dialog you cannot see.
+**Do not test a device with a two-second capture.** It is the obvious thing to try and it
+reports the opposite of the truth. avfoundation hands ffmpeg the device before the device
+is delivering, so the front of every recording is missing — about 0.3s on the built-in
+microphone, and roughly two seconds on the *first* open of an iPhone over Continuity. A
+`-t 2` capture of a perfectly good iPhone microphone therefore comes back as 0.01 seconds,
+one packet, which reads as a dead input. It is not dead; it had not started. Measure with
+three seconds or more, and read the captured *duration* alongside the peak.
 
 The iPhone microphone is the most representative choice — the app runs on that phone, so
 its microphone is the closest thing to what the recogniser meets in production, and every
 number in the README carries the caveat that the existing clips are clean desk takes. It
-also arrives over Continuity, so it needs the phone awake, unlocked and nearby, and it is
-the one most likely to need the two-second check twice.
+needs the phone awake, unlocked and nearby; the phone shows "Connected to <your Mac>" when
+Continuity has it. Measured on this machine it starts in 0.28–0.32s once warm and sits at
+a noise floor of 0.006–0.009, quieter than the built-in microphone, so there is plenty of
+headroom before the clipping that cost eight of the first 25 takes.
 
 ---
 
 ## 1. Record the clips — the gate
 
+**If the clips already exist, skip this step and restore them instead.** All 75 are on the
+Hugging Face Hub as the private dataset `silasdsc/speak-maltese-learner-clips`, alongside
+the untrimmed originals and the synthetic contrast set; the restore command is in
+[Where the recordings live](README.md#where-the-recordings-live). Recording is 40 minutes
+of someone's time and the takes are not reproducible, so re-record only to *add* to the
+set, never to recover it.
+
+
 ```bash
 .venv/bin/python scripts/compare_stt.py --record 25 --input :1
 ```
 
-It prompts each sentence, plays the app's own rendering of it, then records until you
-press Enter. Every take is level-checked as it lands: it reports quiet and clipped clips
+It prompts each sentence, plays the app's own rendering of it, then arms the microphone,
+waits out the device's measured start-up delay, and prints `▶ speak now`. **Wait for that
+line.** Speaking into the gap before it loses the first word, which is where the hardest
+sounds are — għ- and x- and ħ-. Recording stops when you press Enter. Every take is
+level-checked as it lands: it reports quiet and clipped clips
 immediately, which is worth acting on — of the original 25, **nine were faulty and nothing
 said so at the time**, and the worst-scoring recording in the set was one sitting 30 dB
-below the rest.
+below the rest. A take that comes back shorter than half a second is reported as a stalled
+input rather than a quiet one, because the fix for that is not the gain knob.
 
 Redo anything it flags — `bad` discards exactly the takes that failed a level check,
 and a comma-separated list names them by hand:

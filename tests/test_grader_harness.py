@@ -89,19 +89,51 @@ def test_silence_is_actually_zero(mn):
     assert mn.peak(quiet) == 0.0
 
 
+def test_the_stdlib_wav_path_agrees_with_a_real_decoder(tmp_path):
+    """`audio_io` reads a plain WAV with the standard library so the negatives can be
+    built with nothing installed — which is only safe if it returns the same samples a
+    real decoder would. `--record` writes exactly this format, so this is the normal
+    path, not a fallback."""
+    sf = pytest.importorskip("soundfile")
+    io = load_script("audio_io")
+    rng = np.random.default_rng(0)
+    wave = rng.uniform(-0.9, 0.9, 8000).astype(np.float32)
+
+    mono = tmp_path / "mono.wav"
+    io.write_wav(mono, wave)
+    viasf, _rate = sf.read(str(mono), dtype="float32", always_2d=True)
+    assert np.array_equal(io.read_audio(mono), viasf.mean(axis=1))
+
+    # Stereo at another rate has to come back mono at 16k, the same length either way.
+    other = tmp_path / "stereo24k.wav"
+    sf.write(str(other), np.c_[wave, wave], 24000, subtype="PCM_16")
+    got = io.read_audio(other)
+    assert got.ndim == 1
+    assert len(got) == int(round(len(wave) * 16000 / 24000))
+
+
+def test_unreadable_audio_is_none_rather_than_a_crash(tmp_path):
+    io = load_script("audio_io")
+    junk = tmp_path / "not-audio.wav"
+    junk.write_bytes(b"this is not a RIFF header")
+    assert io.read_audio(junk) is None
+    assert io.read_audio(tmp_path / "absent.wav") is None
+
+
 def test_the_set_is_built_from_the_recordings_and_counted(mn, tmp_path):
     """The composition is the thing a later sweep has to be able to reproduce, so it is
-    written down rather than implied."""
-    sf = pytest.importorskip("soundfile")
+    written down rather than implied.
+
+    Runs everywhere: the fixtures are written and read through `audio_io`, which needs
+    only the standard library for a plain WAV."""
     clips = tmp_path / "eval_clips"
     clips.mkdir()
     rng = np.random.default_rng(3)
     for i in range(1, 26):
         n = int(16000 * rng.uniform(1.2, 2.6))
         t = np.arange(n, dtype=np.float32) / 16000
-        sf.write(str(clips / f"me_{i:03d}.wav"),
-                 (0.4 * np.sin(2 * np.pi * 180 * t)).astype(np.float32), 16000,
-                 subtype="PCM_16")
+        mn.write_clip(clips / f"me_{i:03d}.wav",
+                      (0.4 * np.sin(2 * np.pi * 180 * t)).astype(np.float32))
 
     rows = mn.build(clips, tmp_path / "negatives", seed=5)
     counts = mn.summarise(rows)

@@ -21,26 +21,56 @@ import numpy as np
 SR = 16000
 
 
+def _read_wav_stdlib(path: Path):
+    """A plain PCM WAV, using only `wave`. Returns `(samples, rate)` or `None`.
+
+    Worth having first because it covers the normal path completely: `compare_stt.py
+    --record` writes 16-bit mono WAV and `write_wav` below writes the same, so building
+    the negatives from real recordings needs no optional dependency at all. Anything
+    compressed or float-encoded falls through to a real decoder."""
+    try:
+        with wave.open(str(path), "rb") as fh:
+            if fh.getsampwidth() != 2:
+                return None                  # 8/24/32-bit: let a real decoder have it
+            channels = fh.getnchannels()
+            rate = fh.getframerate()
+            raw = fh.readframes(fh.getnframes())
+    except Exception:                        # noqa: BLE001 — not a WAV we can handle
+        return None
+    if not raw:
+        return None
+    pcm = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if channels > 1:
+        pcm = pcm.reshape(-1, channels).mean(axis=1)
+    return pcm, rate
+
+
 def read_audio(path: Path, sample_rate: int = SR) -> np.ndarray | None:
     """Mono float32 at `sample_rate`, or `None` if nothing here can read it.
 
-    Tried in order of cost: `soundfile` if it is present, then `faster_whisper`, which is
-    heavier but already required. Both are imported lazily so this module imports on
-    numpy alone — `tests/test_scripts.py` imports every script, and CI installs neither."""
-    try:
-        import soundfile as sf
-
-        data, rate = sf.read(str(path), dtype="float32", always_2d=True)
-        wave_out = data.mean(axis=1)
-    except Exception:                        # noqa: BLE001 — fall through to the other
+    Tried in order of cost: the standard library for a plain WAV, then `soundfile` if it
+    is installed, then `faster_whisper`, which is heavier but already in
+    `requirements.txt`. The last two are imported lazily so this module imports on numpy
+    alone — `tests/test_scripts.py` imports every script, and CI installs neither."""
+    got = _read_wav_stdlib(path)
+    if got is not None:
+        wave_out, rate = got
+    else:
         try:
-            from faster_whisper.audio import decode_audio
+            import soundfile as sf
 
-            wave_out = np.asarray(decode_audio(str(path), sampling_rate=sample_rate),
-                                  dtype=np.float32)
-            rate = sample_rate
-        except Exception:                    # noqa: BLE001 — genuinely unreadable
-            return None
+            data, rate = sf.read(str(path), dtype="float32", always_2d=True)
+            wave_out = data.mean(axis=1)
+        except Exception:                    # noqa: BLE001 — fall through to the other
+            try:
+                from faster_whisper.audio import decode_audio
+
+                wave_out = np.asarray(
+                    decode_audio(str(path), sampling_rate=sample_rate),
+                    dtype=np.float32)
+                rate = sample_rate
+            except Exception:                # noqa: BLE001 — genuinely unreadable
+                return None
 
     if rate != sample_rate:
         n = int(round(len(wave_out) * sample_rate / rate))

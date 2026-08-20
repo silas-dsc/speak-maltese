@@ -273,6 +273,28 @@ Each ends in an exported `model.onnx` scored by `constrained_ctc.py`, so each is
 rather than an opinion. Run them in this order, because they compound and you want to know
 which one paid.
 
+**6a is measured, and it did not work.** Recorded here rather than left as a step to run.
+
+| | rank-1 | pass | conf ✓ | other | near | hard |
+|---|---|---|---|---|---|---|
+| deployed `frontend/stt` | **85%** | **88%** | 0.843 | 0.367 | 0.810 | 13% |
+| EMA 0.999 + `--select rank` | 83% | 87% | 0.869 | 0.406 | 0.845 | 12% |
+
+Two points of rank-1 on 75 clips is a clip and a half, so this is a tie at best. What did
+move is instructive: the new model is *more confident about everything* — the target by
+0.026, other lines by 0.039, near-misses by 0.035 — so it is better calibrated upward and no
+more discriminating, which is exactly what rank-1 says.
+
+The premise did not hold either. The README's finding was that two checkpoints of identical
+architecture score 29% and 83%, so between-run variance should dwarf everything. This run
+was smooth: rank-1 climbed 50.8 → 68.8% and plateaued from epoch 20, and selecting on rank
+chose epoch 20 while dev loss went on improving 16% to epoch 60 without rank-1 moving. So
+loss and ranking do come apart — but selecting on loss would have picked a checkpoint that
+*ties*, not one that is worse. On this run the choice of selection metric did not matter.
+
+Whether the 29%-vs-83% variance was a property of a different architecture, a different
+data mix, or a run that happened to go badly is not answered by one run at this size.
+
 **6a. Variance first.** The README's own finding is that two checkpoints of identical
 architecture score 29% and 83% on the learner's voice, so between-run variance dwarfs
 everything else. Reduce that before measuring anything.

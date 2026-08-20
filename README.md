@@ -684,7 +684,10 @@ it back. Refitting with a sloped sd triples it, which is λ ≈ 0.3 under anothe
 trap in one line: change the frame definition without refitting the constants and the
 prior stops working almost entirely. A better-calibrated prior is not a better grader,
 and the sweep that chose λ = 0.1 chose it against these constants — so the two move
-together or not at all. `fit_duration.py` is the instrument for moving them; it needs
+together or not at all. `fit_duration.py` fits the constants and prices a candidate's
+charge on a short rival, which is half the instrument; the other half — sweeping
+`DUR_WEIGHT` against accept rate and the negatives, as every table above was scored —
+does not exist yet, and it needs
 `data/eval_clips` and the negatives, which are not in the repository.
 
 #### Two more switches in the grader, and the same reason both are off

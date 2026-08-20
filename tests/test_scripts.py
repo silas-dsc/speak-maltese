@@ -464,3 +464,86 @@ def test_no_rendered_line_was_cut_short():
         "scripts/prebuild_audio.py --what all:\n  "
         + "\n  ".join(f"{r[0]:.2f}× ({r[1]:.2f}s for {r[2]} chars) {r[3]!r}"
                       for r in sorted(short)[:8]))
+
+
+def test_duration_reads_a_wav_and_shrugs_off_anything_else(tmp_path):
+    """A stalled microphone leaves a file behind, so length has to be measured.
+
+    avfoundation opens the device before it delivers, and the first open of an iPhone
+    over Continuity came back with 0.01 seconds of a 2-second request — one packet. The
+    peak of that is a plausible-looking number, which is how a dead input gets reported
+    as a quiet one and sends the speaker to the gain knob."""
+    import sys
+    import wave
+
+    sys.path.insert(0, "scripts")
+    import compare_stt as C
+
+    good = tmp_path / "good.wav"
+    with wave.open(str(good), "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x01" * 8000)
+    assert abs(C._duration(good) - 0.5) < 1e-6
+
+    stalled = tmp_path / "stalled.wav"
+    with wave.open(str(stalled), "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x01" * 160)
+    assert C._duration(stalled) < 0.5, "0.01s of audio must not read as a usable take"
+
+    junk = tmp_path / "junk.wav"
+    junk.write_bytes(b"not a wav")
+    assert C._duration(junk) == 0.0, "an unreadable take is a take that failed"
+
+
+def test_trim_caps_silence_and_never_loses_the_original(tmp_path):
+    """Leading silence is measured in frames by the duration prior, so it is not cosmetic.
+
+    Waiting for the input device to start put 0.86s in front of every take — 43 frames at
+    50fps, larger than the prior's whole 28.28 intercept — while the clips recorded before
+    that wait existed have 0.009s. Left alone, the two halves of the eval set differ by an
+    artefact of the recorder."""
+    import sys
+    import wave
+
+    sys.path.insert(0, "scripts")
+    import compare_stt as C
+
+    clips = tmp_path / "clips"
+    clips.mkdir()
+    quiet = b"\x00\x00" * 16000          # 1.0s of silence
+    loud = b"\x00\x40" * 8000            # 0.5s of signal
+    with wave.open(str(clips / "me_001.wav"), "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(quiet + loud + quiet)
+
+    before = C.CLIPS, C.MANIFEST
+    try:
+        C.use_clips_dir(clips)
+        C.trim(0.20, 0.25)
+        with wave.open(str(clips / "me_001.wav")) as w:
+            trimmed = w.getnframes() / w.getframerate()
+        with wave.open(str(clips / C.RAW / "me_001.wav")) as w:
+            original = w.getnframes() / w.getframerate()
+    finally:
+        C.CLIPS, C.MANIFEST = before
+
+    assert abs(original - 2.5) < 1e-3, "the untouched take has to survive somewhere"
+    assert abs(trimmed - 0.95) < 0.02, f"0.5s of speech plus the pads, got {trimmed:.2f}s"
+
+    # Reading from raw/ every time is what makes a second pass with a different pad
+    # meaningful rather than compounding.
+    try:
+        C.use_clips_dir(clips)
+        C.trim(0.05, 0.05)
+        with wave.open(str(clips / "me_001.wav")) as w:
+            again = w.getnframes() / w.getframerate()
+    finally:
+        C.CLIPS, C.MANIFEST = before
+    assert abs(again - 0.60) < 0.02, f"trimming must not compound, got {again:.2f}s"

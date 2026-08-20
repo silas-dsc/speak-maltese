@@ -31,6 +31,7 @@ Metrics
 from __future__ import annotations
 
 import argparse
+import array
 import asyncio
 import csv
 import hashlib
@@ -237,6 +238,51 @@ def print_guide(n: int) -> None:
         print(f"    meaning: {en.get(line, '?')}\n")
 
 
+def _input_lead(device: str) -> float:
+    """Open the input once and measure how much of a take it swallows before samples flow.
+
+    avfoundation hands ffmpeg the device before the device is ready, so the front of
+    every recording is missing: a 3-second request comes back as 2.68 seconds on the
+    built-in microphone, and the *first* open of an iPhone over Continuity is worse
+    still — a 2-second request came back as 0.01 seconds, one packet, which reads as a
+    dead device rather than a slow one. Both are the same fault, so measure it instead
+    of guessing: this call pays the cold open, and what it returns is how long to wait
+    after arming the microphone before telling anyone to speak.
+
+    It doubles as a check on the device itself, which is worth having before fifty
+    prompts rather than after: exact silence means the wrong input (BlackHole, Teams),
+    and no audio at all means the device never started."""
+    want = 3.0
+    probe = CLIPS / ".probe.wav"
+    proc = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-f", "avfoundation", "-i", device,
+         "-ar", "16000", "-ac", "1", "-t", str(want), str(probe)],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0 or not probe.exists():
+        sys.exit(f"could not record from {device}: {proc.stderr.strip() or 'no output'}\n"
+                 f"run --list-inputs to see what this machine has, and check the "
+                 f"microphone is granted under System Settings > Privacy & Security")
+
+    got = _duration(probe)
+    level = _peak(probe)
+    probe.unlink(missing_ok=True)
+    if got < 0.5:
+        sys.exit(f"{device} produced {got:.2f}s of a {want:.0f}s recording — it is not "
+                 f"starting. If it is an iPhone over Continuity, wake and unlock the "
+                 f"phone and try again; otherwise pick another --input.")
+    if level == 0.0:
+        sys.exit(f"{device} produced pure silence, not even a noise floor — that is a "
+                 f"virtual device or a muted input, not a microphone. Run "
+                 f"--list-inputs and pick another --input.")
+
+    lead = max(0.5, (want - got) + 0.3)
+    print(f"{device}: ready after {want - got:.2f}s, noise floor {level:.3f} — "
+          f"waiting {lead:.1f}s before each take")
+    return lead
+
+
 def record(n: int, device: str = ":default") -> None:
     """Prompt for each sentence and record it from a microphone via ffmpeg.
 
@@ -248,6 +294,7 @@ def record(n: int, device: str = ":default") -> None:
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is required for --record (brew install ffmpeg)")
     CLIPS.mkdir(parents=True, exist_ok=True)
+    lead = _input_lead(device)
     en, say = _guide()
     rows = _read_manifest()
     existing = {r["file"] for r in rows}
@@ -261,23 +308,33 @@ def record(n: int, device: str = ":default") -> None:
         print(f"          meaning: {en.get(sentence, '?')}")
         if not _play(sentence):
             print("          (no reference audio — run scripts/prebuild_audio.py)")
-        input("       Enter to hear it again, or just speak after the next Enter… ")
+        input("       Enter to hear it again, or arm the microphone with the next Enter… ")
         _play(sentence)
-        input("       Enter to start recording, speak, then Enter again to stop… ")
+        input("       Enter to arm the microphone, then wait for 'speak now'… ")
         proc = subprocess.Popen(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-f", "avfoundation", "-i", device,
              "-ar", "16000", "-ac", "1", str(CLIPS / name)],
             stdin=subprocess.PIPE,
         )
+        # The device is open but not yet delivering. Speaking into this gap loses the
+        # first word, which is where the hardest sounds live — għ- and x- and ħ-.
+        time.sleep(lead)
+        print("       ▶ speak now, then Enter to stop")
         input()
         proc.communicate(b"q")
 
         level = _peak(CLIPS / name)
+        held = _duration(CLIPS / name)
         # 0.01 was far too lenient: a take at peak 0.03 passed it, sat 30dB under every
         # other clip, and was the single worst-scoring recording in the set — both Whisper
         # models hallucinated on it. Anything this far down is unusable, not merely quiet.
-        if level < 0.10:
+        if held < 0.5:
+            # Not a quiet take — a take that never happened. Saying "too quiet" here
+            # sends someone to the gain knob for a fault in the device handshake.
+            quiet += 1
+            print(f"       ! only {held:.2f}s recorded — the input stalled, --redo {i}")
+        elif level < 0.10:
             quiet += 1
             print(f"       ! too quiet to use (peak {level:.2f}) — move closer or raise "
                   f"the input gain, then --redo {i}")
@@ -298,6 +355,91 @@ def record(n: int, device: str = ":default") -> None:
               f"than the recogniser.")
     print(f"\n✓ {len(rows)} clips in {CLIPS}")
     print(f"  score them with:  --clips voice --models <model>")
+
+
+RAW = "raw"
+LEAD_PAD = 0.20
+TRAIL_PAD = 0.25
+
+
+def trim(lead_pad: float = LEAD_PAD, trail_pad: float = TRAIL_PAD) -> None:
+    """Cap the silence at both ends of every recording, keeping the originals.
+
+    Waiting for the input device to start puts about 0.86s of silence in front of every
+    take. At 50 frames per second that is 43 frames — larger than the duration prior's
+    whole intercept of 28.28 — so a clip recorded this way looks far too long for its
+    token count and the prior penalises the right answer for it. The clips recorded
+    before the wait existed have 0.009s of lead, so the two halves of the set would
+    otherwise differ by an artefact of the recorder rather than by anything about speech.
+
+    Nothing production sees looks like either extreme: a learner taps a button and
+    speaks, and the app trims nothing. So both ends are capped at a plausible pad rather
+    than shaved to the waveform, and the untouched files stay in `raw/` — the audio is
+    the one thing here that cannot be regenerated."""
+    import wave as wave_mod
+
+    raw_dir = CLIPS / RAW
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    changed = kept = 0
+    for path in sorted(CLIPS.glob("*.wav")):
+        backup = raw_dir / path.name
+        if not backup.exists():
+            shutil.copy2(path, backup)
+        with wave_mod.open(str(backup)) as w:
+            params = w.getparams()
+            rate, width = w.getframerate(), w.getsampwidth()
+            frames = w.readframes(w.getnframes())
+        if width != 2:
+            kept += 1
+            continue
+        samples = array.array("h")
+        samples.frombytes(frames)
+        if not samples:
+            kept += 1
+            continue
+
+        peak = max(abs(s) for s in samples)
+        if peak == 0:
+            kept += 1
+            continue
+        # A tenth of the clip's own peak, so the cut follows the recording's own level
+        # rather than an absolute number the quiet iPhone takes would fail.
+        floor = peak * 0.10
+        first = next((i for i, s in enumerate(samples) if abs(s) >= floor), 0)
+        last = next((i for i in range(len(samples) - 1, -1, -1)
+                     if abs(samples[i]) >= floor), len(samples) - 1)
+        start = max(0, first - int(rate * lead_pad))
+        end = min(len(samples), last + int(rate * trail_pad))
+        if start == 0 and end == len(samples):
+            kept += 1
+            continue
+
+        with wave_mod.open(str(path), "w") as w:
+            w.setparams(params)
+            w.setnframes(0)
+            w.writeframes(samples[start:end].tobytes())
+        changed += 1
+        print(f"  {path.name}  {len(samples) / rate:.2f}s -> "
+              f"{(end - start) / rate:.2f}s")
+
+    print(f"\n✓ trimmed {changed}, left {kept} alone. Originals in {raw_dir}")
+    print("  re-run with a different --trim-pad to change it; it always reads from raw/")
+
+
+def _duration(path: Path) -> float:
+    """Seconds of audio actually on disk.
+
+    Deliberately stdlib `wave` rather than the decoder `_peak` uses: this is asked the
+    same question about a device that may be broken, and it must not depend on anything
+    CI does not install. A file that cannot be read counts as no audio, which is what a
+    stalled input leaves behind."""
+    import wave as wave_mod
+
+    try:
+        with wave_mod.open(str(path)) as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:  # noqa: BLE001 — an unreadable take is a take that failed
+        return 0.0
 
 
 def _peak(path: Path) -> float:
@@ -595,6 +737,12 @@ def main() -> int:
                     help="show the microphones ffmpeg can see, then exit")
     ap.add_argument("--guide", type=int, metavar="N", default=None,
                     help="print the N lines to record, with pronunciation, then exit")
+    ap.add_argument("--trim", action="store_true",
+                    help="cap silence at both ends of every clip (originals kept in "
+                         "eval_clips/raw)")
+    ap.add_argument("--trim-pad", type=float, nargs=2, metavar=("LEAD", "TRAIL"),
+                    default=(LEAD_PAD, TRAIL_PAD),
+                    help="seconds of silence to leave at each end")
     ap.add_argument("--redo", metavar="WHICH", default=None,
                     help="discard recordings before recording: 'bad' (fails the "
                          "level checks), 'all', or '2,7,19'")
@@ -620,6 +768,10 @@ def main() -> int:
         use_clips_dir(args.clips_dir)
     if args.synth:
         asyncio.run(synth(args.synth, args.voice))
+    if args.trim:
+        trim(*args.trim_pad)
+        return
+
     if args.redo:
         redo(args.redo, args.record or 25)
         if not args.record:

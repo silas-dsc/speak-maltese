@@ -45,6 +45,41 @@ the default input, and on a machine with BlackHole or Teams installed that can b
 virtual device — which records twenty-five files of silence and tells you nothing until
 scoring. Note the index of the real microphone and pass it explicitly.
 
+On the machine this was written for, the audio devices come back as:
+
+```
+[0] BlackHole 2ch          [1] External Microphone       [2] MacBook Pro Microphone
+[3] Silas's iPhone SE 2020 Microphone                    [4] Microsoft Teams Audio
+```
+
+`[0]` is exactly the trap above, and it is what `:default` may well resolve to.
+
+**Run this yourself, in your own terminal.** `--list-inputs` needs no permission because
+enumerating devices is not opening one, so it will happily succeed anywhere — but the
+first *capture* triggers the macOS microphone consent dialog, and macOS shows that dialog
+only to a foreground application. Started from anything that cannot put a window in front
+of you (a tool-spawned shell, an agent, a CI runner), ffmpeg prints its banner and then
+blocks forever with no error, no timeout and no clue. That failure is silent by
+construction, so it is worth knowing before it eats twenty minutes.
+
+Grant it once under System Settings → Privacy & Security → Microphone, for the terminal
+you are using, and check with a two-second capture before recording anything long:
+
+```bash
+ffmpeg -f avfoundation -i :3 -ar 16000 -ac 1 -t 2 /tmp/mic.wav && \
+  .venv/bin/python -c "import sys;sys.path.insert(0,'scripts');\
+import compare_stt as C;from pathlib import Path;print('peak %.2f'%C._peak(Path('/tmp/mic.wav')))"
+```
+
+A peak around 0.3–0.9 is a working microphone. `0.00` is the wrong device. A hang is the
+permission dialog you cannot see.
+
+The iPhone microphone is the most representative choice — the app runs on that phone, so
+its microphone is the closest thing to what the recogniser meets in production, and every
+number in the README carries the caveat that the existing clips are clean desk takes. It
+also arrives over Continuity, so it needs the phone awake, unlocked and nearby, and it is
+the one most likely to need the two-second check twice.
+
 ---
 
 ## 1. Record the clips — the gate

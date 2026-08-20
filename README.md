@@ -640,6 +640,87 @@ setting on accuracy and not only on latency.
 change is three constants and a squared z-score, in `constrained_ctc.rank_score` and its
 port `nanostt.rankScore`, parity-tested against each other.
 
+#### Re-measuring those three constants, and why they did not move
+
+`scripts/fit_duration.py` refits the line on 1,335 cached `edge-tts` renders of deck
+lines, in the 6-62 token range the deployed field actually spans. Two things it found are
+worth acting on, one is worth knowing, and none of them changed a default.
+
+**The residual is not homoscedastic, and one constant is the wrong shape.** Binned by
+length, on the same clips:
+
+| tokens | 6-10 | 10-14 | 14-18 | 18-24 | 24-30 | 30-40 | 40-60 |
+|---|---|---|---|---|---|---|---|
+| residual sd | 4.6 | 6.7 | 13.2 | 23.5 | 37.2 | 33.4 | 39.9 |
+
+`DUR_SD = 13.27` is right at about sixteen tokens and wrong everywhere else. Fitting
+`sd ≈ s0 + s1 × tokens` instead takes the z-score from sd 2.47 to 0.99 and the `|z| > 3`
+tail from 96% of clips to 1%.
+
+**Trimming the silence does nothing here, which was not the expectation.** `edge-tts`
+pads every render with 60.0 output frames of silence at sd 3.7 — near enough constant
+that removing it moves the intercept (50.13 → −9.31) and leaves the residual where it
+was (24.45 → 24.90). The hypothesis was that padding is a variance source; on synthesised
+audio it is not, because there is no variance in it. `MediaRecorder` under a human thumb
+is the case where it should be, and there is no corpus here to show it, so
+`DUR_FRAMES = "speech"` is implemented, parity-tested and switched off.
+
+**And the reason neither switch is on: the constants and λ are one joint fit.** What the
+ranking consumes is not the quality of the fit but the prior's *differential* between two
+hypothesis lengths on the same audio — the common penalty cancels. So the question to ask
+of any change is whether it still charges a five-token rival enough to reverse the five
+failures above, which needed +0.155 in confidence units:
+
+| | median charge on 5 tokens | reverses |
+|---|---|---|
+| **deployed** | **+0.834** | **91.5%** |
+| refit, one sd | +0.115 | 41.3% |
+| refit, sd(tokens) | +2.602 | 99.0% |
+| deployed constants on trimmed frames | +0.024 | 36.9% |
+
+Refitting the mean and keeping one sd drops the charge below what the bug needs and puts
+it back. Refitting with a sloped sd triples it, which is λ ≈ 0.3 under another name, and
+λ = 0.3 is measured above at 61% learner accept and 32% synthetic. The last row is the
+trap in one line: change the frame definition without refitting the constants and the
+prior stops working almost entirely. A better-calibrated prior is not a better grader,
+and the sweep that chose λ = 0.1 chose it against these constants — so the two move
+together or not at all. `fit_duration.py` is the instrument for moving them; it needs
+`data/eval_clips` and the negatives, which are not in the repository.
+
+#### Two more switches in the grader, and the same reason both are off
+
+`MIN_MARGIN = 0.02` is an absolute distance, which is the mistake the absolute confidence
+made one level up: a distance without a scale, where the scale moves with the speaker.
+Correct answers cleared their field by 0.06-0.43 and the one false accept by 0.006, and
+0.02 happens to separate those *on this speaker*. So `nanostt` now reports `fieldSd`, the
+spread of the 24 alternatives on the recording being graded — a scale measured where it
+applies, per utterance, needing no history and having no cold start — and `MARGIN_SIGMAS`
+would require the target to clear the runner-up by that many of them.
+
+`FIELD_LOCAL` is the second: draw part of the field from the scene being spoken rather
+than uniformly from the whole script, since `In-nanna tagħmel il-pastizzi` is not an
+equally likely thing to have said in the middle of a pharmacy scene. A more plausible
+field is a stricter test, which is the safe direction for a grader — but stricter means
+*fewer accepts*, and which ones is not something 25 recordings of one speaker can settle.
+It tops up from the global pool rather than replacing it, because a scene holds only a
+dozen or two answers and a field of twelve is a different change wearing the same clothes.
+
+Both are zero, so the deployed rule is exactly what the table above swept. Every constant
+in this block was priced against those 25 clips and 90 negatives, and these two have not
+been — the failure mode of guessing is a grader that has quietly become stricter, marking
+correct answers wrong and feeding that into the FSRS scheduler. `tests/test_scripts.py`
+pins both at zero for that reason.
+
+**One loose end, recorded rather than resolved.** The refit reproduces neither published
+number: this sample gives 50.13 + 4.0700 × tokens at sd 24.45, against the published
+28.28 + 1.8794 at sd 13.27. Halving the frame unit lines them up nearly exactly — slope
+2.035 against 1.8794, sd 12.2 against 13.27 — which is what would happen if the original
+fit had been taken at 25fps while `rank_score` feeds it the student's 50fps output
+frames. That would also explain a z of sd 2.47 on audio the model was trained on, and why
+λ had to come down to 0.1 to stay usable. Settling it needs the `data/distill` shards,
+which are not here, so it stays a hypothesis with its evidence attached rather than a
+fix.
+
 #### Teaching it to discriminate, which is a different job from transcribing
 
 The student is trained to transcribe and deployed to *decide*. Nothing in knowledge
@@ -699,6 +780,69 @@ Worth recording, because each was the obvious next thing.
   curve is flat from 1MB to 10MB. Two identical-architecture checkpoints in this repo
   score 29% and 83% on the learner's voice, so the *recipe* swings the metric fifty points
   where capacity swings it none.
+
+#### Six levers built on that last sentence, none of them bigger
+
+If the recipe swings the metric fifty points and capacity swings it none, the recipe is
+where the work goes. These are in `distill_stt.py` and cost the shipped model nothing —
+the same 0.53M parameters, the same 2.1MB, the same 0.08s a clip. All are opt-in, and
+none has been run against the real corpus, which is not in this repository.
+
+**Deep supervision** (`--aux-at N --aux-weight W`). A second CTC head hangs off block N
+during training, taking the same KD and CTC terms as the real output, and is dropped at
+export. That is structural rather than incidental: `forward` never touches the head, the
+export builds the model without it and refuses its weights, and
+`tests/test_distill_student.py` reads the ONNX back and pins the live-against-exported
+parameter gap to exactly what BatchNorm folding removes — so a leak cannot hide inside a
+loose bound.
+
+**Weight averaging** (`--ema-decay 0.999`). Not the posterior ensembling above, which
+averaged independently-trained students and shipped three files for no gain. This
+averages one trajectory into one file of the same size, which is the standard answer to
+the variance the line above describes.
+
+**Choosing the checkpoint on the metric that ships** (`--select rank`). Dev KD sits flat
+at 0.18 from about epoch 50 while the app-level numbers swing fifty points, so selecting
+on the loss is close to selecting at random on rank-1. This scores a sample of dev
+utterances against a field of other deck lines every epoch — the app's question, with the
+app's `confidence + λ·prior` — and keeps the best. Both numbers print whichever one
+selects, because the gap between them is the finding.
+
+**Constraining the teacher to the text we already have** (`distill_stt.py constrain`). On
+the TTS half the line is known and was synthesised from it, and the teacher still gets
+5.3% of it wrong — each of those a frame teaching the wrong character with full
+confidence behind it. Knowing the text does not say *when* each character was said, so
+the target is not a one-hot: CTC forward-backward over the target lattice, using the
+teacher's own frames as emissions, keeps its timing and its confidence while every path
+spelling something else is gone. FLEURS keeps raw posteriors, because its pseudo-labels
+*are* the teacher's argmax and constraining to them would sharpen its mistakes rather
+than remove them. The forward-backward is checked against torch — a `ctc_loss` gradient
+is `softmax - posterior`, the same occupancies by another route — and agrees to 1e-7.
+
+**Making a geminate audible by its absence** (`distill_stt.py degeminate`). The README
+calls `kolox` scoring 1.02 against `kollox` the clearest thing the next round has to buy,
+and `--margin-weight` looks like the fix but is not: its `geminate lost` near-miss
+perturbs the *text* against audio where the geminate was pronounced, which teaches the
+converse of the app's failure. The model has never heard Maltese *without* a geminate,
+because all 1,494 overfitted lines have one. So cut it out of the audio — the alignment
+says which frames the second half occupies, and excising exactly those from mel and
+posteriors together leaves a pass that sounds like one consonant and is labelled as one.
+Nothing is re-synthesised and the teacher is not run again.
+
+**Any Maltese audio, not one dataset** (`--sources corpus`). FLEURS is 3,149 clips, and
+more real speech is the lever with the largest measured effect in this project. FLEURS
+arriving as a parquet dump was an accident of what got reached for first; the pipeline's
+own design is what makes it replaceable, because the teacher labels whatever it is handed
+and **a transcript is not needed for audio to be useful here**. That opens the sources
+normally skipped for Maltese: [VoxPopuli](https://aclanthology.org/2021.acl-long.80/)
+carries about 9,100 hours of unlabelled Maltese from Parliament plenaries and has no
+transcribed Maltese at all — which is exactly why it gets passed over, and exactly why it
+costs nothing here. The [MASRI project](https://github.com/UMSpeech/MASRI) at the
+University of Malta adds MASRI-HEADSET (8 hours, 25 speakers, close-mic) and MASRI-TUBE
+(the same speakers at about two metres, so a different room and microphone), under a
+research/academic licence worth reading first. Common Voice has Maltese too. Drop audio
+in any format ffmpeg reads under `data/corpora/<name>/`; `chunk` already cuts long
+recordings to three seconds, so a plenary session ingests as readily as a read sentence.
 
 ### When the audio cannot decide, ask the transcript the same question
 

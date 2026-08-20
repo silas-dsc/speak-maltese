@@ -751,6 +751,34 @@ const MIN_CONFIDENCE = 0.35;
     thin win this sample did not happen to contain. */
 const MIN_MARGIN = 0.02;
 
+/** How many of the field's own standard deviations the target also has to clear.
+
+    `MIN_MARGIN` is an absolute distance, and the recordings show why that is only half a
+    rule: correct answers cleared their field by 0.06-0.43 and the one false accept by
+    0.006, which 0.02 happens to separate on this speaker. It is the same mistake the
+    absolute confidence made one level up — a distance without a scale, where the scale
+    moves with the speaker. `nanostt` now reports the spread of the 24 alternatives on
+    this very recording, which is that scale, measured where it applies and needing no
+    history.
+
+    Zero, so the rule is exactly `MIN_MARGIN` and nothing else. Turning it up can only
+    refuse answers this floor currently accepts, and which ones is not something 25
+    recordings of one speaker can settle — it needs the sweep in
+    `constrained_ctc.py --clips voice` against those clips and the 90 negatives, the same
+    way every other constant in this block was chosen. */
+const MARGIN_SIGMAS = 0;
+
+/** What share of the ranking field to draw from the scene being spoken.
+
+    The rest comes from the whole script, as all of it does today. The case for it is that
+    a plausible alternative is a better test than an implausible one, and the case for
+    leaving it at zero is that it changes which answers are accepted: a harder field is
+    stricter, so this trades accepts for false-accept resistance, and that trade is
+    exactly what the floor sweep exists to price. Note also that the scene's field is
+    small — a dozen or two lines — so a high share shrinks the effective field, and
+    ranking against fewer alternatives is a different change wearing the same clothes. */
+const FIELD_LOCAL = 0;
+
 /** How many alternatives to rank against. Each is one CTC forward pass over posteriors
     already computed — about a millisecond — so this is bounded by patience, not cost. */
 const RANK_AGAINST = 24;
@@ -771,26 +799,43 @@ const RANK_AGAINST = 24;
    loaded at boot and never edited. */
 let answerPool = null;
 
-function distractorsFor(target) {
+/** Partial Fisher-Yates: draw `want` without replacement and stop, rather than
+    shuffling the whole pool to read the front of it. */
+function drawFrom(pool, want, target, taken) {
+  const rest = pool.slice();
+  const out = [];
+  for (let n = rest.length; out.length < want && n > 0; n -= 1) {
+    const j = Math.floor(Math.random() * n);
+    const pick = rest[j];
+    rest[j] = rest[n - 1];
+    if (pick !== target && !taken.has(pick)) {
+      taken.add(pick);
+      out.push(pick);
+    }
+  }
+  return out;
+}
+
+function distractorsFor(target, scene) {
   if (!answerPool) {
     answerPool = dialogueEngine.everyAnswer()
       .map((line) => mtext.normalise(line).toLowerCase().trim())
       .filter(Boolean);
   }
-  // Partial Fisher–Yates on a copy: draw 24 without replacement and stop, rather
-  // than shuffling all 377 to read the front of it.
-  const pool = answerPool.slice();
+  const taken = new Set();
   const out = [];
-  for (let n = pool.length; out.length < RANK_AGAINST && n > 0; n -= 1) {
-    const j = Math.floor(Math.random() * n);
-    const pick = pool[j];
-    pool[j] = pool[n - 1];
-    if (pick !== target) out.push(pick);
+  if (FIELD_LOCAL > 0 && scene) {
+    const local = dialogueEngine.answersIn(scene)
+      .map((line) => mtext.normalise(line).toLowerCase().trim())
+      .filter(Boolean);
+    out.push(...drawFrom(local, Math.round(FIELD_LOCAL * RANK_AGAINST), target, taken));
   }
+  // Topped up from the whole script, so a thin scene never shrinks the field.
+  out.push(...drawFrom(answerPool, RANK_AGAINST - out.length, target, taken));
   return out;
 }
 
-async function transcribe(blob, target) {
+async function transcribe(blob, target, scene) {
   /* On-device only when there is nowhere better to send it. The model is the
      heaviest thing this app can do and the least reliable place to do it. */
   if (!remoteStt() && state.settings.local_stt && nanostt.isReady()) {
@@ -802,9 +847,10 @@ async function transcribe(blob, target) {
       const flat = target ? mtext.normalise(target).toLowerCase().trim() : '';
       const r = await nanostt.transcribe(blob, {
         target: flat,
-        distractors: flat ? distractorsFor(flat) : [],
+        distractors: flat ? distractorsFor(flat, scene) : [],
       });
-      const clear = r.runnerUp === null || r.rank > r.runnerUp + MIN_MARGIN;
+      const need = Math.max(MIN_MARGIN, MARGIN_SIGMAS * (r.fieldSd || 0));
+      const clear = r.runnerUp === null || r.rank > r.runnerUp + need;
       if (flat && clear && r.confidence >= MIN_CONFIDENCE) {
         /* The line we asked for explains this audio better than anything else it could
            have been. A garbled transcript here is the model failing at the harder task,
@@ -958,7 +1004,8 @@ function bindMic(button, { onResult, onStatus, target }) {
       // Say what actually went wrong. "Too short" was a guess the code made about
       // the learner, and twice it was wrong about itself instead.
       if (!blob) { onStatus?.(`Nothing recorded — ${reason}${captureState()}`); return; }
-      const result = await transcribe(blob, typeof target === 'function' ? target() : target);
+      const result = await transcribe(blob, typeof target === 'function' ? target() : target,
+                                      drill.dialogue);
       onStatus?.('');
       await onResult(result);
     } catch (err) {

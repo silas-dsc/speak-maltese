@@ -24,6 +24,8 @@ attention, so it runs on WASM and needs no WebGPU, which was the other half of w
 made 200MB unusable on an iPhone.
 
     python scripts/distill_stt.py teacher     # mel + teacher posteriors → memmaps
+    python scripts/distill_stt.py constrain   # fold the known text into those posteriors
+    python scripts/distill_stt.py degeminate  # derive audio with a geminate removed
     python scripts/distill_stt.py train       # distil
     python scripts/distill_stt.py export      # ONNX, in the layout the eval harness reads
 
@@ -49,6 +51,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backend import text as mtext  # noqa: E402
 from backend.config import AUDIO_CACHE, CFG, DATA_DIR  # noqa: E402
 from compare_stt import _NEMO, _mel_filters, _nemo_features  # noqa: E402
+from constrained_ctc import (  # noqa: E402
+    DUR_INTERCEPT, DUR_SLOPE, DUR_WEIGHT, duration_sd,
+)
 
 WORK = DATA_DIR / "distill"
 CLIPS = DATA_DIR / "eval_clips"
@@ -288,6 +293,73 @@ def write_manifest(rows: list[dict], path: Path) -> None:
 FLEURS = DATA_DIR / "fleurs"
 REAL_EVAL_N = 150
 
+# ── Any Maltese audio at all ───────────────────────────────────────────────
+# FLEURS is 3,149 clips, and the README's own conclusion is that more real speech is the
+# lever with the largest measured effect — it took real-speech fWER from 102.5% to 74.6%,
+# which no amount of capacity did. FLEURS being a parquet dump of one dataset is an
+# accident of which corpus was reached for first, not a requirement, and the reason it
+# does not have to be a requirement is the pipeline's own design: the teacher labels
+# whatever it is given, so **a transcript is not needed for audio to be useful here**.
+#
+# That opens up sources that are otherwise unusable. VoxPopuli carries about 9,100 hours
+# of *unlabelled* Maltese from European Parliament plenaries — Maltese is absent from its
+# transcribed portion entirely, which is precisely why it tends to be skipped, and
+# precisely why it costs nothing here. The MASRI project at the University of Malta has
+# MASRI-HEADSET (8 hours, 25 speakers, close-mic) and MASRI-TUBE (the same speakers at
+# about two metres, so a different room and a different microphone), released for
+# research and academic use — check the licence before shipping anything trained on it.
+# Common Voice has Maltese too.
+#
+# So this takes a directory instead of a dataset. Drop audio in any format ffmpeg reads
+# under `data/corpora/<name>/`, optionally with a `manifest.tsv` of `file` and `text`
+# columns if transcripts happen to exist, and:
+#
+#     python scripts/distill_stt.py teacher --sources corpus --corpus-name voxpopuli
+#
+# Long recordings are cut to three seconds by `chunk`, which is what the app asks for
+# anyway, so a plenary session is as usable as a read sentence.
+
+CORPORA = DATA_DIR / "corpora"
+
+# What ffmpeg will decode without being asked twice.
+AUDIO_EXTS = (".wav", ".flac", ".mp3", ".m4a", ".ogg", ".opus", ".webm", ".mp4", ".aac")
+
+
+def corpus_clips(root: Path, limit: int | None = None,
+                 eval_frac: float = 0.0, want_eval: bool = False) -> list[dict]:
+    """Every audio file under `root`, with transcripts if any were supplied.
+
+    The split is by a hash of the path rather than by position, so adding files to a
+    corpus never moves an existing clip between training and evaluation — which is the
+    way a held-out set quietly stops being held out."""
+    import csv
+    import hashlib
+
+    if not root.exists():
+        return []
+
+    texts: dict[str, str] = {}
+    manifest = root / "manifest.tsv"
+    if manifest.exists():
+        with manifest.open(encoding="utf-8") as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                if row.get("file"):
+                    texts[row["file"]] = (row.get("text") or "").strip()
+
+    rows = []
+    for path in sorted(root.rglob("*")):
+        if path.suffix.lower() not in AUDIO_EXTS or not path.is_file():
+            continue
+        uid = str(path.relative_to(root))
+        if eval_frac > 0:
+            bucket = int(hashlib.md5(uid.encode("utf-8")).hexdigest()[:8], 16) % 1000
+            if (bucket < eval_frac * 1000) != want_eval:
+                continue
+        rows.append({"path": path, "uid": uid, "text": texts.get(uid, "")})
+        if limit is not None and len(rows) >= limit:
+            break
+    return rows
+
 
 def fleurs_split(eval_n: int = REAL_EVAL_N, train_limit: int | None = None):
     """Real speech, split so the evaluation half is never trained on.
@@ -310,7 +382,7 @@ def fleurs_split(eval_n: int = REAL_EVAL_N, train_limit: int | None = None):
 # ── Stage 1: features and teacher posteriors ───────────────────────────────
 
 def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None,
-                  shard: str, sources: list[str]) -> int:
+                  shard: str, sources: list[str], corpus_name: str | None = None) -> int:
     """Precompute once: the student's input and the teacher's answer, side by side.
 
     Both go into flat memmaps with an index, so training never touches audio or the
@@ -336,6 +408,23 @@ def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None
         train_rows, _held = fleurs_split(train_limit=real_limit)
         jobs += [(FLEURS / "clips" / r["file"], "", "fleurs") for r in train_rows]
         print(f"{len(train_rows)} real-speech clips")
+
+    if "corpus" in sources:
+        # Deliberately fed in with no text even where a manifest supplied one: a
+        # transcript from another corpus is not the deck line, and the CTC term exists to
+        # keep the *app's* sequences honest. `stage_pseudo` gives these a target from the
+        # teacher's own reading, the same as FLEURS.
+        roots = ([CORPORA / corpus_name] if corpus_name
+                 else sorted(d for d in CORPORA.glob("*") if d.is_dir()))
+        n = 0
+        for root in roots:
+            rows = corpus_clips(root, real_limit, eval_frac=0.05)
+            jobs += [(r["path"], "", f"corpus:{root.name}") for r in rows]
+            n += len(rows)
+            print(f"{len(rows)} clips from {root.name}")
+        if not n:
+            print(f"no audio under {CORPORA} — see the note above `corpus_clips`",
+                  file=sys.stderr)
 
     if "accent" in sources:
         # Deck lines read by voices that mispronounce Maltese. The label is the deck line
@@ -483,6 +572,262 @@ def stage_pseudo(shard: str) -> int:
     return 0
 
 
+# ── Cleaning the labels we already have ────────────────────────────────────
+# The teacher is distilled raw, errors and all. On the TTS half that is a waste: the line
+# is known, it was synthesised from that line, and the teacher still transcribes 5.3% of
+# it wrong — `qasira` as `għasira`, a geminate lost, an `x` read as a letter name. Every
+# one of those is a frame where the student is being taught the wrong character with the
+# teacher's full confidence behind it.
+#
+# Knowing the text does not tell us *when* each character was said, which is what a
+# frame-level target needs, so the answer is not a one-hot. It is the teacher's own
+# posteriors restricted to the alignments that spell the target: run CTC
+# forward-backward over the target lattice using the teacher's frames as emissions, and
+# the result keeps its timing and its confidence while every path that spells something
+# else is gone. Interpolating rather than replacing leaves a way to say "mostly trust the
+# text, a little trust the teacher".
+#
+# FLEURS keeps its raw posteriors: there is no label there to constrain to, and the
+# pseudo-labels `stage_pseudo` writes are the teacher's own argmax, so constraining to
+# them would be circular — it would sharpen the teacher's mistakes rather than remove
+# them.
+
+def ctc_occupancy(logprobs: np.ndarray, ids: list[int], blank: int):
+    """Per-frame occupancy over the *blank-extended* target, and that target.
+
+    `(T, 2L+1)` of posterior mass plus the extended symbol list, or `(None, None)` when
+    the target cannot fit the frames. `ctc_posteriors` sums this onto the vocabulary;
+    `stage_degeminate` wants the positions themselves, because "which half of the
+    doubled letter is this frame" is a question about position, not about symbol — both
+    halves are the same symbol, which is the entire difficulty."""
+    n_frames, v_size = logprobs.shape
+    ext = [blank]
+    for i in ids:
+        ext += [i, blank]
+    size = len(ext)
+    if not ids or n_frames < len(ids):
+        return None, None
+
+    # A path may jump two positions only where that does not merge equal tokens.
+    skip = np.zeros(size, dtype=bool)
+    for st in range(2, size):
+        skip[st] = ext[st] != blank and ext[st] != ext[st - 2]
+
+    neg = -np.inf
+    alpha = np.full((n_frames, size), neg)
+    alpha[0, 0] = logprobs[0, ext[0]]
+    if size > 1:
+        alpha[0, 1] = logprobs[0, ext[1]]
+    for t in range(1, n_frames):
+        prev = alpha[t - 1]
+        cur = prev.copy()
+        cur[1:] = np.logaddexp(cur[1:], prev[:-1])
+        shifted = np.full(size, neg)
+        shifted[2:] = np.where(skip[2:], prev[:-2], neg)
+        alpha[t] = np.logaddexp(cur, shifted) + logprobs[t, ext]
+
+    beta = np.full((n_frames, size), neg)
+    beta[n_frames - 1, size - 1] = 0.0
+    if size > 1:
+        beta[n_frames - 1, size - 2] = 0.0
+    for t in range(n_frames - 2, -1, -1):
+        nxt = beta[t + 1] + logprobs[t + 1, ext]
+        cur = nxt.copy()
+        cur[:-1] = np.logaddexp(cur[:-1], nxt[1:])
+        shifted = np.full(size, neg)
+        # Jumping from s to s+2 is allowed exactly where s+2 allows being jumped onto.
+        shifted[:-2] = np.where(skip[2:], nxt[2:], neg)
+        beta[t] = np.logaddexp(cur, shifted)
+
+    total = alpha[n_frames - 1, size - 1]
+    if size > 1:
+        total = np.logaddexp(total, alpha[n_frames - 1, size - 2])
+    if not np.isfinite(total):
+        return None, None
+    return np.exp(alpha + beta - total), ext            # (T, S), length S
+
+
+def ctc_posteriors(logprobs: np.ndarray, ids: list[int], blank: int) -> np.ndarray:
+    """Per-frame occupancy over the vocabulary, given that the audio spells `ids`.
+
+    Rows sum to 1. `None` when the target cannot fit the frames, which is the one case
+    where there is no distribution to be had."""
+    gamma, ext = ctc_occupancy(logprobs, ids, blank)
+    if gamma is None:
+        return None
+    out = np.zeros((logprobs.shape[0], logprobs.shape[1]), dtype=np.float32)
+    for st, sym in enumerate(ext):
+        out[:, sym] += gamma[:, st]
+    # Forward-backward is exact, so the rows are already normalised up to rounding.
+    return out / np.maximum(1e-12, out.sum(-1, keepdims=True))
+
+
+def stage_constrain(shard: str, alpha: float) -> int:
+    """Fold the known text into a shard's teacher posteriors, in place."""
+    meta_path = WORK / f"index_{shard}.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    vocab = json.loads((WORK / "vocab.json").read_text(encoding="utf-8"))
+    blank = vocab.get("<pad>", vocab.get("[PAD]"))
+    space = "|" if "|" in vocab else " "
+
+    path = WORK / f"post_{shard}.npy"
+    post = np.load(path, mmap_mode="r+")
+    off, done, skipped = 0, 0, 0
+    for it in meta["items"]:
+        n = it["frames"]
+        flat = (it.get("text") or "").strip()
+        source = it.get("source") or ""
+        # Only where the label is independent of the teacher. `stage_pseudo` fills
+        # FLEURS text from the teacher's own argmax; constraining to that would sharpen
+        # its mistakes rather than remove them.
+        if not flat or source.startswith("fleurs"):
+            off += n
+            skipped += 1
+            continue
+        ids = [vocab[space if ch == " " else ch] for ch in flat
+               if (space if ch == " " else ch) in vocab]
+        window = np.asarray(post[off:off + n], dtype=np.float32)
+        gamma = ctc_posteriors(window, ids, blank)
+        if gamma is None:
+            off += n
+            skipped += 1
+            continue
+        mixed = (1.0 - alpha) * np.exp(window) + alpha * gamma
+        mixed /= np.maximum(1e-12, mixed.sum(-1, keepdims=True))
+        post[off:off + n] = np.log(np.maximum(mixed, 1e-9)).astype(post.dtype)
+        off += n
+        done += 1
+    post.flush()
+    print(f"shard {shard}: {done} passes constrained at alpha {alpha}, {skipped} left raw")
+    return 0
+
+
+# ── The one thing the app cannot hear ──────────────────────────────────────
+# `kolox` for `kollox` scores 1.02 and is accepted. The student transcribed degeminated
+# audio *as* `kollox`, so its posteriors do not resolve consonant length at all — and the
+# README calls this the clearest thing the next round of training has to buy.
+#
+# `--margin-weight` looks like the fix and is not. Its `geminate lost` near-miss is a
+# perturbation of the *text*, scored against audio where the geminate was pronounced
+# correctly, so it teaches "do not credit `kolox` on audio of `kollox`". The app fails the
+# other way round: a learner genuinely says `kolox` and the model hears the geminate
+# anyway, because every one of the 1,494 lines it overfitted contains the doubled letter
+# and it has never once heard Maltese without one.
+#
+# So the contrast has to exist in the audio. It can, without recording anybody: the
+# teacher's posteriors already say which frames the second half of the doubled letter
+# occupies, so cutting exactly those frames out of the mel and the posteriors together
+# leaves a pass that sounds like a single consonant and is labelled as one. Nothing is
+# re-synthesised and the teacher is not run again.
+#
+#     python scripts/distill_stt.py degeminate --shard tts     # → shard tts_degem
+#     python scripts/distill_stt.py constrain  --shard tts_degem
+#
+# The second command is not optional if the posteriors are to mean anything: excising
+# frames leaves the teacher's remaining distribution describing audio it never saw, and
+# constraining it to the degeminated label is what makes it a target rather than a
+# guess.
+
+def _geminate_positions(ids: list[int], space: int) -> list[int]:
+    """Where a doubled letter sits, as the index of its second half.
+
+    A repeated space is not a geminate, and neither is a doubled letter that straddles
+    a word boundary."""
+    return [i for i in range(1, len(ids))
+            if ids[i] == ids[i - 1] and ids[i] != space]
+
+
+def stage_degeminate(shard: str, out_shard: str | None = None,
+                     limit: int | None = None) -> int:
+    """Derive degeminated copies of a shard's labelled passes, into a new shard."""
+    meta_path = WORK / f"index_{shard}.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    vocab = json.loads((WORK / "vocab.json").read_text(encoding="utf-8"))
+    blank = vocab.get("<pad>", vocab.get("[PAD]"))
+    space_ch = "|" if "|" in vocab else " "
+    space = vocab[space_ch]
+    inv = {i: t for t, i in vocab.items()}
+    out_shard = out_shard or f"{shard}_degem"
+
+    mel = np.load(WORK / f"mel_{shard}.npy", mmap_mode="r")
+    post = np.load(WORK / f"post_{shard}.npy", mmap_mode="r")
+
+    mels, posts, index = [], [], []
+    m_off = p_off = 0
+    skipped = 0
+    for item in meta["items"]:
+        n = item["frames"]
+        m_lo, p_lo = m_off, p_off
+        m_off += n * 2
+        p_off += n
+        flat = (item.get("text") or "").strip()
+        if not flat or (item.get("source") or "").startswith("fleurs"):
+            continue
+        ids = [vocab[space_ch if ch == " " else ch] for ch in flat
+               if (space_ch if ch == " " else ch) in vocab]
+        doubles = _geminate_positions(ids, space)
+        if not doubles:
+            continue
+
+        window = np.asarray(post[p_lo:p_lo + n], dtype=np.float32)
+        gamma, ext = ctc_occupancy(window, ids, blank)
+        if gamma is None:
+            skipped += 1
+            continue
+
+        # One geminate per derived pass, chosen by which is most confidently placed —
+        # cutting two at once compounds the alignment's error.
+        best, best_at = None, None
+        for i in doubles:
+            # Extended positions: the second half of the pair sits at 2i+1, and the
+            # blank it is obliged to be separated by at 2i.
+            span = gamma[:, 2 * i] + gamma[:, 2 * i + 1]
+            if best is None or span.max() > best:
+                best, best_at = span.max(), i
+        if best is None or best < 0.5:
+            skipped += 1
+            continue
+
+        # Frames the alignment hands to the second half and its separating blank.
+        owner = gamma.argmax(-1)
+        cut = np.flatnonzero((owner == 2 * best_at) | (owner == 2 * best_at + 1))
+        if cut.size == 0 or cut.size >= n - 4:
+            skipped += 1
+            continue
+        keep = np.setdiff1d(np.arange(n), cut, assume_unique=True)
+
+        # Mel is two rows a frame, so the kept frames map to interleaved pairs.
+        mel_keep = np.empty(keep.size * 2, dtype=np.int64)
+        mel_keep[0::2] = keep * 2
+        mel_keep[1::2] = keep * 2 + 1
+        mels.append(np.asarray(mel[m_lo:m_lo + n * 2])[mel_keep])
+        posts.append(np.asarray(post[p_lo:p_lo + n])[keep])
+
+        short = ids[:best_at] + ids[best_at + 1:]
+        text = "".join(inv[i] for i in short).replace(space_ch, " ")
+        index.append({"text": " ".join(text.split()), "source": "degem",
+                      "augment": item.get("augment", "identity"),
+                      "frames": int(keep.size)})
+        if limit and len(index) >= limit:
+            break
+
+    if not index:
+        print(f"shard {shard}: nothing to degeminate", file=sys.stderr)
+        return 1
+    np.save(WORK / f"mel_{out_shard}.npy", np.concatenate(mels))
+    np.save(WORK / f"post_{out_shard}.npy", np.concatenate(posts))
+    (WORK / f"index_{out_shard}.json").write_text(json.dumps(
+        {"vocab_size": meta["vocab_size"], "n_mels": meta.get("n_mels", N_MELS),
+         "items": index}), encoding="utf-8")
+    print(f"shard {shard}: {len(index)} degeminated passes → {out_shard} "
+          f"({skipped} skipped for an alignment that would not commit)")
+    print("  examples:")
+    for it in index[:3]:
+        print(f"    {it['text'][:60]!r}  ({it['frames']} frames)")
+    print(f"\nnow run:  python scripts/distill_stt.py constrain --shard {out_shard}")
+    return 0
+
+
 # ── The student ────────────────────────────────────────────────────────────
 
 # ── Training the model to do its actual job ────────────────────────────────
@@ -564,12 +909,19 @@ def _near_miss_ids(ids: list[int], space: int, rng, k: int) -> list[list[int]]:
     return out[:k]
 
 
-def build_student(vocab_size: int, width: int, blocks: int, kernel: int):
+def build_student(vocab_size: int, width: int, blocks: int, kernel: int,
+                  aux_at: int = 0):
     """QuartzNet-shaped: a strided stem, then depthwise-separable residual blocks.
 
     Convolution only — no attention anywhere. That is not a stylistic choice: WASM has
     no fast attention kernel and WebGPU is what an iPhone could not afford, so a stack
-    of convolutions is the only shape that runs everywhere this has to run."""
+    of convolutions is the only shape that runs everywhere this has to run.
+
+    `aux_at` hangs a second output off block `aux_at`, supervised exactly like the real
+    one. Deep supervision partway up a convolutional encoder is one of the few things
+    that buys accuracy for nothing at all: the head is dropped at export, so the shipped
+    graph is the same 0.53M parameters it was, byte for byte. `forward` deliberately
+    never touches it — that is what guarantees the traced ONNX cannot contain it."""
     import torch
     from torch import nn
 
@@ -594,10 +946,27 @@ def build_student(vocab_size: int, width: int, blocks: int, kernel: int):
             )
             self.blocks = nn.Sequential(*[Block(width, kernel) for _ in range(blocks)])
             self.head = nn.Conv1d(width, vocab_size, 1)
+            self.aux_at = int(aux_at)
+            self.aux_head = (nn.Conv1d(width, vocab_size, 1)
+                             if 0 < self.aux_at <= blocks else None)
+
+        def _trunk(self, mel):
+            x = self.stem(mel)
+            aux = None
+            for depth, block in enumerate(self.blocks, 1):
+                x = block(x)
+                if self.aux_head is not None and depth == self.aux_at:
+                    aux = torch.log_softmax(self.aux_head(x).transpose(1, 2), dim=-1)
+            return x, aux
 
         def forward(self, mel):                       # (B, 64, T) → (B, T/2, V)
-            x = self.blocks(self.stem(mel))
+            x, _ = self._trunk(mel)
             return torch.log_softmax(self.head(x).transpose(1, 2), dim=-1)
+
+        def forward_aux(self, mel):
+            """Both outputs, for training only. Never traced."""
+            x, aux = self._trunk(mel)
+            return torch.log_softmax(self.head(x).transpose(1, 2), dim=-1), aux
 
     return Student()
 
@@ -610,7 +979,10 @@ def param_count(model) -> int:
 
 def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 lr: float, kd_weight: float, tag: str,
-                margin_weight: float = 0.0, margin_k: int = 3) -> int:
+                margin_weight: float = 0.0, margin_k: int = 3,
+                aux_at: int = 0, aux_weight: float = 0.3,
+                ema_decay: float = 0.0, select: str = "dev",
+                select_n: int = 128, select_field: int = 24) -> int:
     import torch
     from torch import nn
 
@@ -684,10 +1056,37 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
           f"({len(keys) - len(dev_keys)}/{len(dev_keys)} distinct utterances)")
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
-    model = build_student(v_size, width, blocks, kernel).to(device)
+    model = build_student(v_size, width, blocks, kernel, aux_at=aux_at).to(device)
     n_par = param_count(model)
+    shipped = n_par - (0 if model.aux_head is None
+                       else sum(p.numel() for p in model.aux_head.parameters()))
     print(f"student: width={width} blocks={blocks} k={kernel} · "
-          f"{n_par / 1e6:.2f}M params · {n_par * 4 / 1e6:.1f}MB fp32")
+          f"{shipped / 1e6:.2f}M params · {shipped * 4 / 1e6:.1f}MB fp32")
+    if model.aux_head is not None:
+        print(f"  auxiliary CTC head after block {aux_at}, weight {aux_weight} · "
+              f"{n_par - shipped} extra parameters, none of them exported")
+
+    # ── Weight averaging ───────────────────────────────────────────────────
+    # Not the ensembling that was already tried and did nothing: that averaged the
+    # *posteriors* of independently-trained students and shipped three files. This
+    # averages one trajectory's weights into one file of the same size. The case for it
+    # is in the README — two checkpoints of identical architecture score 29% and 83% on
+    # the learner's voice, so the variance between runs dwarfs anything capacity does,
+    # and averaging along the path is the standard answer to exactly that.
+    ema = None
+    if ema_decay > 0:
+        ema = {k: v.detach().clone().float()
+               for k, v in model.state_dict().items()}
+        print(f"  EMA of the weights at decay {ema_decay}")
+
+    def ema_update():
+        with torch.no_grad():
+            for k, v in model.state_dict().items():
+                if ema[k].dtype.is_floating_point:
+                    ema[k].mul_(ema_decay).add_(v.detach().float(),
+                                                alpha=1 - ema_decay)
+                else:
+                    ema[k].copy_(v.detach())
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     steps = max(1, len(train_ix) // batch) * epochs
@@ -786,11 +1185,14 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
         # Length-bucketed so padding does not dominate: sort within large chunks.
         chunks = [order[i:i + batch * 16] for i in range(0, len(order), batch * 16)]
         order = [i for ch in chunks for i in sorted(ch, key=lambda k: offs[k][3])]
-        tot_kd = tot_ctc = tot_mg = n = 0
+        tot_kd = tot_ctc = tot_mg = tot_aux = n = 0
         for s in range(0, len(order) - batch + 1, batch):
             bx, by, blen, flat, tlen, kscale = batch_of(order[s:s + batch], augment=train)
             with torch.set_grad_enabled(train):
-                out = model(bx)                                # (B, T, V)
+                if model.aux_head is not None:
+                    out, aux = model.forward_aux(bx)            # (B, T, V) twice
+                else:
+                    out, aux = model(bx), None
                 keep = min(out.shape[1], by.shape[1])
                 out, by_ = out[:, :keep], by[:, :keep]
                 mask = (torch.arange(keep)[None, :] < blen[:, None]).to(device)
@@ -811,6 +1213,20 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 else:
                     ctc_loss = torch.zeros((), dtype=out.dtype)
                 loss = kd_weight * kd + (1 - kd_weight) * ctc_loss
+                # The same two terms on the intermediate output. The head is thrown
+                # away at export, so this costs the shipped model nothing.
+                if aux is not None:
+                    a = aux[:, :keep]
+                    a_kd = (by_.exp() * (by_ - a)).sum(-1)
+                    a_kd = (a_kd * mask * kscale[:, None]).sum() / mask.sum()
+                    if int(tlen.sum()) > 0:
+                        a_ctc = ctc(a.cpu().transpose(0, 1), flat.cpu(),
+                                    torch.clamp(blen, max=keep), tlen)
+                    else:
+                        a_ctc = torch.zeros((), dtype=a.dtype)
+                    aux_loss = kd_weight * a_kd + (1 - kd_weight) * a_ctc
+                    loss = loss + aux_weight * aux_loss
+                    tot_aux += float(aux_loss.detach())
                 if margin_weight and int(tlen.sum()) > 0:
                     mg = discriminate(out, torch.clamp(blen, max=keep),
                                       targets_of(order[s:s + batch]))
@@ -822,47 +1238,149 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
                     opt.step()
                     sched.step()
+                    if ema is not None:
+                        ema_update()
             tot_kd += float(kd.detach())
             tot_ctc += float(ctc_loss.detach())
             n += 1
-        return tot_kd / max(1, n), tot_ctc / max(1, n), tot_mg / max(1, n)
+        return (tot_kd / max(1, n), tot_ctc / max(1, n), tot_mg / max(1, n),
+                tot_aux / max(1, n))
+
+    def rank_accuracy(ix: list[int]) -> float:
+        """How often the true line is the best explanation of its own audio.
+
+        The app's question, and the one `constrained_ctc.py` reports as rank-1: score the
+        target and a field of other deck lines on the same posteriors with the same
+        `confidence + λ·prior`, and see whether the target wins.
+
+        This exists because dev loss does not answer it. The README's own four-size table
+        has KD sitting flat at 0.18 from about epoch 50 while the app-level numbers swing
+        fifty points between checkpoints of identical architecture — so selecting on the
+        loss is close to selecting at random on the metric that ships. Deliberately not
+        the near-miss field `discriminate` uses: the app ranks against other lines in the
+        script, not against perturbations of the answer.
+        """
+        pool = [t for t in {tuple(t) for t in targets if len(t) >= 3}]
+        if not pool or not ix:
+            return 0.0
+        pick = _random.Random(23)
+        sample = [i for i in ix if len(targets[i]) >= 3]
+        pick.shuffle(sample)
+        sample = sample[:select_n]
+        model.eval()
+        won = seen = 0
+        for s0 in range(0, len(sample), batch):
+            chunk_ix = sample[s0:s0 + batch]
+            bx, _by, blen, _flat, _tlen, _ks = batch_of(chunk_ix, augment=False)
+            with torch.no_grad():
+                out = model(bx).cpu()
+            for row, i in enumerate(chunk_ix):
+                nb = int(min(blen[row], out.shape[1]))
+                if nb < 4:
+                    continue
+                post = out[row, :nb]                          # (T, V)
+                truth = targets[i]
+                # A hypothesis longer than the audio has no alignment at all, and
+                # `ctc_none` carries `zero_infinity=True`, so its loss comes back as 0 —
+                # which then reads as the *best* possible fit rather than the worst.
+                # Measured: on 10 frames a 30-token hypothesis scores 2.681 where a
+                # 4-token one scores 1.151. Left in, the field would be won by whichever
+                # line was too long to say, and checkpoints would be chosen on that.
+                if len(truth) > nb:
+                    continue
+                field = [truth]
+                # Sampled per utterance, so one unlucky draw cannot decide the epoch.
+                # Bounded, because a short clip may simply not admit `select_field`
+                # alternatives that fit.
+                for _ in range(select_field * 20):
+                    if len(field) > select_field:
+                        break
+                    cand = list(pick.choice(pool))
+                    if cand != truth and len(cand) <= nb:
+                        field.append(cand)
+                if len(field) < 2:
+                    continue
+                rep = post[:, None, :].expand(nb, len(field), post.shape[1])
+                flat_f = torch.cat([torch.tensor(f, dtype=torch.long) for f in field])
+                tl = torch.tensor([len(f) for f in field], dtype=torch.long)
+                il = torch.full((len(field),), nb, dtype=torch.long)
+                nll = ctc_none(rep, flat_f, il, tl)            # (F,)
+                greedy = float(post.max(-1).values.sum())
+                conf = torch.exp((-nll - greedy) / max(1, nb))
+                prior = torch.tensor(
+                    [-0.5 * ((nb - (DUR_INTERCEPT + DUR_SLOPE * len(f)))
+                             / duration_sd(len(f))) ** 2 for f in field])
+                score = conf + DUR_WEIGHT * prior
+                won += int(torch.argmax(score) == 0)
+                seen += 1
+        return won / max(1, seen)
 
     out_dir = WORK / tag
     out_dir.mkdir(parents=True, exist_ok=True)
     if margin_weight:
         print(f"  discriminative term on: weight {margin_weight}, "
               f"{margin_k} near-misses per utterance")
-    best = float("inf")
+    if select == "rank":
+        print(f"  selecting on rank-1 against a field of {select_field}, "
+              f"{select_n} dev utterances a epoch")
+    best = -float("inf")
     for ep in range(1, epochs + 1):
         t0 = time.time()
-        kd, c, mg = run_epoch(train_ix, True)
-        dkd, dc, dmg = run_epoch(dev_ix, False)
+        kd, c, mg, ax = run_epoch(train_ix, True)
+        dkd, dc, dmg, dax = run_epoch(dev_ix, False)
+        # Both are printed whichever one selects, because the gap between them is the
+        # finding: a run where the loss improves while the rank does not is a run whose
+        # best-by-loss checkpoint is not its best checkpoint.
+        acc = rank_accuracy(dev_ix) if select == "rank" or epochs <= 1 else 0.0
+        score = acc if select == "rank" else -(dkd + dc + margin_weight * dmg)
         flag = ""
-        if dkd + dc + margin_weight * dmg < best:
-            best = dkd + dc + margin_weight * dmg
-            torch.save({"state": model.state_dict(), "width": width, "blocks": blocks,
-                        "kernel": kernel, "vocab_size": v_size}, out_dir / "student.pt")
+        if score > best:
+            best = score
+            payload = {"state": model.state_dict(), "width": width, "blocks": blocks,
+                       "kernel": kernel, "vocab_size": v_size, "aux_at": aux_at,
+                       "epoch": ep, "dev": dkd + dc, "rank1": acc}
+            if ema is not None:
+                payload["ema"] = {k: v.clone() for k, v in ema.items()}
+            torch.save(payload, out_dir / "student.pt")
             flag = "  ←"
         print(f"  ep {ep:>3}/{epochs}  kd {kd:.4f} ctc {c:.3f} │ "
               f"dev kd {dkd:.4f} ctc {dc:.3f}"
               + (f" mg {dmg:.3f}" if margin_weight else "")
+              + (f" aux {dax:.3f}" if aux_at else "")
+              + (f" │ rank-1 {acc:.1%}" if select == "rank" else "")
               + f"  {time.time() - t0:.0f}s{flag}", flush=True)
-    print(f"\nbest dev {best:.4f} → {out_dir / 'student.pt'}")
+    label = "rank-1" if select == "rank" else "dev"
+    print(f"\nbest {label} {abs(best):.4f} → {out_dir / 'student.pt'}")
     return 0
 
 
 # ── Stage 3: export ────────────────────────────────────────────────────────
 
-def stage_export(tag: str) -> int:
+def stage_export(tag: str, use_ema: bool = False) -> int:
     """Write the student in the layout `compare_stt.py` and `constrained_ctc.py`
     already read — the same `model.onnx` / `vocab.txt` / `config.json` triple the
     QuartzNet export uses — so both harnesses score it with no new code."""
     import torch
 
     ckpt = torch.load(WORK / tag / "student.pt", map_location="cpu", weights_only=False)
+    state = ckpt["state"]
+    if use_ema:
+        if "ema" not in ckpt:
+            print("this checkpoint carries no EMA weights — train with --ema-decay",
+                  file=sys.stderr)
+            return 2
+        state = ckpt["ema"]
+        print("exporting the averaged weights")
+
+    # Built without the auxiliary head and loaded without its weights, so there is no
+    # path by which deep supervision can reach the shipped file. `forward` never touched
+    # it anyway; this makes that structural rather than a property of the trace.
     model = build_student(ckpt["vocab_size"], ckpt["width"], ckpt["blocks"],
-                          ckpt["kernel"])
-    model.load_state_dict(ckpt["state"])
+                          ckpt["kernel"], aux_at=0)
+    dropped = [k for k in state if k.startswith("aux_head.")]
+    model.load_state_dict({k: v for k, v in state.items() if k not in dropped})
+    if dropped:
+        print(f"dropped the auxiliary head ({len(dropped)} tensors) — training only")
     model.eval()
 
     out = WORK / tag / "onnx"
@@ -900,7 +1418,8 @@ def stage_export(tag: str) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["teacher", "pseudo", "train", "export"])
+    ap.add_argument("stage", choices=["teacher", "pseudo", "constrain", "degeminate",
+                                      "train", "export"])
     ap.add_argument("--limit", type=int, default=None,
                     help="cap the number of deck lines (for a quick pass)")
     ap.add_argument("--real-limit", type=int, default=None,
@@ -919,9 +1438,36 @@ def main() -> int:
                     help="weight on the discriminative term; 0 disables it")
     ap.add_argument("--margin-k", type=int, default=3,
                     help="near-misses generated per utterance")
+    ap.add_argument("--aux-at", type=int, default=0,
+                    help="block to hang an intermediate CTC head off; 0 disables. The "
+                         "head is dropped at export, so it costs the shipped model "
+                         "nothing — try half the depth")
+    ap.add_argument("--aux-weight", type=float, default=0.3,
+                    help="weight on the intermediate head's loss")
+    ap.add_argument("--ema-decay", type=float, default=0.0,
+                    help="average the weights along the trajectory into one file of the "
+                         "same size; 0 disables. 0.999 is a usual starting point")
+    ap.add_argument("--select", choices=["dev", "rank"], default="dev",
+                    help="what makes a checkpoint the best one: dev loss, or rank-1 "
+                         "against a field of other lines — the question the app asks")
+    ap.add_argument("--select-n", type=int, default=128,
+                    help="dev utterances scored per epoch when --select rank")
+    ap.add_argument("--select-field", type=int, default=24,
+                    help="how many other lines to rank against, matching the app")
+    ap.add_argument("--ema", action="store_true",
+                    help="export the averaged weights rather than the last ones")
     ap.add_argument("--shard", default="tts", help="name for this teacher shard")
+    ap.add_argument("--out-shard", default=None,
+                    help="where degeminate writes; defaults to <shard>_degem")
+    ap.add_argument("--constrain-alpha", type=float, default=0.5,
+                    help="how far to pull the teacher's posteriors onto the known text; "
+                         "1.0 discards the teacher's own reading entirely")
     ap.add_argument("--sources", default="tts,real",
-                    help="which audio to run the teacher over: tts, real, accent")
+                    help="which audio to run the teacher over: tts, real, accent, "
+                         "corpus")
+    ap.add_argument("--corpus-name", default=None,
+                    help="one directory under data/corpora to ingest; all of them by "
+                         "default")
     args = ap.parse_args()
 
     if args.stage == "teacher":
@@ -932,13 +1478,20 @@ def main() -> int:
             return 2
         srcs = [x.strip() for x in args.sources.split(',') if x.strip()]
         return stage_teacher(args.limit, kinds, args.real_limit,
-                             args.shard, srcs)
+                             args.shard, srcs, args.corpus_name)
     if args.stage == "pseudo":
         return stage_pseudo(args.shard)
+    if args.stage == "constrain":
+        return stage_constrain(args.shard, args.constrain_alpha)
+    if args.stage == "degeminate":
+        return stage_degeminate(args.shard, args.out_shard, args.limit)
     if args.stage == "train":
         return stage_train(args.width, args.blocks, args.kernel, args.epochs,
-                           args.batch, args.lr, args.kd_weight, args.tag, args.margin_weight, args.margin_k)
-    return stage_export(args.tag)
+                           args.batch, args.lr, args.kd_weight, args.tag,
+                           args.margin_weight, args.margin_k,
+                           args.aux_at, args.aux_weight, args.ema_decay,
+                           args.select, args.select_n, args.select_field)
+    return stage_export(args.tag, args.ema)
 
 
 if __name__ == "__main__":

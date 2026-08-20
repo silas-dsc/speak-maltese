@@ -81,6 +81,26 @@ export function everyAnswer() {
   return [...out];
 }
 
+/** Every answer one dialogue accepts, deduplicated.
+
+    The field a spoken answer is ranked against is drawn from the whole script, which
+    treats `In-nanna tagħmel il-pastizzi` as an equally likely thing to have said in the
+    middle of a pharmacy scene. It is not, and the app knows it is not — so this exposes
+    the scene's own lines, which are the alternatives a learner might actually produce
+    here. Harder alternatives make ranking stricter, not looser, which is the safe
+    direction for a grader; see `FIELD_LOCAL` in `app.js` for why it is nonetheless off. */
+export function answersIn(did) {
+  const out = new Set();
+  for (const node of Object.values(get(did)?.nodes || {})) {
+    for (const a of node.accept || []) {
+      if (a.open) continue;
+      const mt = (a.mt || '').trim();
+      if (mt) out.add(mt);
+    }
+  }
+  return [...out];
+}
+
 export function present(did, nid) {
   const n = node(did, nid);
   if (!n) return null;

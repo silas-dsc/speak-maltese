@@ -222,17 +222,18 @@ What is actually available, checked rather than assumed:
 | MASRI-HEADSET / TUBE | 8h real, 25 speakers | LDC research licence | not on the Hub |
 | `MLRS/korpus_malti` | 0.22 GB | gated | **text, not speech** |
 | Common Voice | Maltese is tiny | CC0 | terms must be accepted by a person |
-| Global Recordings Network | 71.8 min, 4 files | **unverified** | downloaded to `data/corpora/grn_raw` |
+| Global Recordings Network | 71.8 min, 4 files | derivatives permitted (owner-confirmed) | downloaded to `data/corpora/grn_raw` |
 
 The Global Recordings archive is the only *real human* Maltese here that is not already
 in the shard, which is the category credited with taking the student from 102.5% to 74.6%
 fWER. It is also small: 71.8 minutes gross, less once the music interleaved with the
 narration is dropped, across two programmes — so a handful of narrators rather than the
 speaker diversity that matters. The teacher pass already discards passes it heard nothing
-in, so the music largely filters itself. **Its licence could not be verified**: both the
-terms and copyright pages return 403, and no statement about derivative works was found.
-Redistribution for the organisation's own purpose is encouraged; training a model is a
-derivative use that nothing reachable addresses. Treat it as unverified rather than cleared.
+in, so the music largely filters itself. On licence: both the terms and copyright
+pages return 403 to an automated fetcher, so this was **not** verified from the source here
+— the project owner checked and reports that derivative works are permitted. Recorded that
+way deliberately, because the provenance of a permission matters as much as the permission:
+if that turns out to be wrong, this row is where to look.
 
 The permissive audio is spent. FLEURS is in the shard already and everything substantial
 that remains restricts what can be shipped, so **this step is now a licensing decision

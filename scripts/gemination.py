@@ -194,7 +194,19 @@ def main() -> int:
         # Ordered by the margin the app decides on: the pairs it already gets wrong are
         # worth recording first, and the near-misses after them, because a prompt the
         # model handles comfortably cannot tell us anything when it is said wrong.
-        chosen = sorted(prompts)[:args.want]
+        # Prefer prompts the reader can actually say. Whoever records these is a learner,
+        # not a Maltese speaker — the app exists for exactly that person — so a prompt with
+        # no pronunciation guide is unusable however informative its margin would have
+        # been. Guided first, worst margin first within that.
+        from compare_stt import _guide
+
+        _en, guide = _guide()
+        guided = {mtext.normalise(k).lower().strip() for k, v in guide.items() if v}
+        chosen = sorted(prompts, key=lambda r: (r[3] not in guided, r[0]))[:args.want]
+        no_guide = sum(1 for r in chosen if r[3] not in guided)
+        if no_guide:
+            print(f"  note: {no_guide} of these have no pronunciation guide — a learner "
+                  f"cannot say them from the spelling alone")
         with args.write_prompts.open("w", encoding="utf-8", newline="") as fh:
             w = csv.DictWriter(fh, delimiter="\t",
                                fieldnames=["say", "intended", "halved", "margin", "heard_in"])

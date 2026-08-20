@@ -263,6 +263,16 @@ def record_errors(prompts: Path, device: str = ":default") -> None:
 
     out_dir = CLIPS / ERRORS
     out_dir.mkdir(parents=True, exist_ok=True)
+    en, say_as = _guide()
+    # `_guide` is keyed by the deck's own text; the prompt file stores the normalised
+    # lowercase form the scorer uses. Looking one up with the other silently finds nothing,
+    # which reads as "no guide exists" rather than as a mismatch.
+    def _key(x: str) -> str:
+        return text.normalise(x).lower().strip()
+    say_as = {_key(k): v for k, v in say_as.items()}
+    en = {_key(k): v for k, v in en.items()}
+    # Before the microphone opens, so nothing stalls mid-session waiting on a network call.
+    _ensure_audio([r["say"] for r in rows] + [r["intended"] for r in rows])
     lead = _input_lead(device)
     manifest = out_dir / "manifest.tsv"
     done = {}
@@ -278,7 +288,29 @@ def record_errors(prompts: Path, device: str = ":default") -> None:
             continue
         print(f"\n[{i}/{len(rows)}]  say it WRONG:  {row['say']}")
         print(f"          the real line is:  {row['intended']}")
-        print(f"          drop the doubled {row['halved']!r} — say it single, on purpose")
+        # The instruction, not the audio, is what to follow. Rendering the misspelling
+        # through TTS distinguishes it from the truth by only one to three percent of
+        # duration, and on two of twelve prompts the *halved* version came out longer —
+        # so the synthesiser is barely modelling the length contrast, and imitating it
+        # would be imitating noise. The audio is here to give a non-speaker the line at
+        # all; the single consonant has to be done deliberately.
+        print(f"          drop the doubled {row['halved']!r} — say that letter ONCE, short")
+        guide = say_as.get(row["intended"])
+        if guide:
+            print(f"          the real line sounds like:  {guide}")
+            print(f"          meaning: {en.get(row['intended'], '?')}")
+        print(f"          listen: the correct line, then a rough render of the error")
+        if not _play(row["intended"]):
+            print("          (no audio for the correct line — run prebuild_audio.py)")
+        time.sleep(0.4)
+        if not _play(row["say"]):
+            print(f"          ! no audio for {row['say']!r} — say it from the spelling, or "
+                  f"skip this prompt")
+        input("       Enter to hear the pair again, or arm the microphone with the next "
+              "Enter… ")
+        _play(row["intended"])
+        time.sleep(0.4)
+        _play(row["say"])
         input("       Enter to arm the microphone, then wait for 'speak now'… ")
         proc = subprocess.Popen(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -317,6 +349,45 @@ def record_errors(prompts: Path, device: str = ":default") -> None:
         print(f"! {quiet} unusable — delete the file and its manifest row, then re-run")
     print("  measure whether the grader catches them:\n"
           "    python scripts/gemination.py --models frontend/stt --errors")
+
+
+def _ensure_audio(lines: list[str]) -> int:
+    """Render any of these lines the audio cache does not already hold.
+
+    `_play` says why this matters: whoever reads these prompts may not speak Maltese, which
+    is the normal case for this app. For deck lines `prebuild_audio.py` has already done it.
+    A deliberately misspelled line has never been synthesised by anything, and it is the one
+    that has to be heard — nobody can produce `kolox` rather than `kollox` from a spelling
+    they cannot pronounce in the first place. Rendering the wrong spelling gives them the
+    error to imitate instead of a rule to apply.
+
+    Synthesised at the same voice and rate `_play` looks up, or the file would land under a
+    different cache key and play nothing."""
+    import asyncio
+
+    from backend import tts
+    from backend.config import AUDIO_CACHE, CFG
+
+    made = 0
+    todo = [ln for ln in dict.fromkeys(lines) if ln.strip() and not (
+        AUDIO_CACHE / f"{tts._cache_key(ln, CFG.azure_voice, 0.95, 'edge')}.mp3").exists()]
+    if not todo:
+        return 0
+    print(f"rendering {len(todo)} prompt(s) that have never been synthesised…")
+
+    async def go() -> int:
+        n = 0
+        for ln in todo:
+            try:
+                await tts.synthesize(ln, CFG.azure_voice, rate=0.95)
+                n += 1
+            except Exception as exc:  # noqa: BLE001 — one bad line must not lose the rest
+                print(f"  ! could not render {ln!r}: {exc}")
+        return n
+
+    made = asyncio.run(go())
+    print(f"  rendered {made}/{len(todo)}")
+    return made
 
 
 def _input_lead(device: str) -> float:

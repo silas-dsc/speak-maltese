@@ -293,6 +293,73 @@ def write_manifest(rows: list[dict], path: Path) -> None:
 FLEURS = DATA_DIR / "fleurs"
 REAL_EVAL_N = 150
 
+# ── Any Maltese audio at all ───────────────────────────────────────────────
+# FLEURS is 3,149 clips, and the README's own conclusion is that more real speech is the
+# lever with the largest measured effect — it took real-speech fWER from 102.5% to 74.6%,
+# which no amount of capacity did. FLEURS being a parquet dump of one dataset is an
+# accident of which corpus was reached for first, not a requirement, and the reason it
+# does not have to be a requirement is the pipeline's own design: the teacher labels
+# whatever it is given, so **a transcript is not needed for audio to be useful here**.
+#
+# That opens up sources that are otherwise unusable. VoxPopuli carries about 9,100 hours
+# of *unlabelled* Maltese from European Parliament plenaries — Maltese is absent from its
+# transcribed portion entirely, which is precisely why it tends to be skipped, and
+# precisely why it costs nothing here. The MASRI project at the University of Malta has
+# MASRI-HEADSET (8 hours, 25 speakers, close-mic) and MASRI-TUBE (the same speakers at
+# about two metres, so a different room and a different microphone), released for
+# research and academic use — check the licence before shipping anything trained on it.
+# Common Voice has Maltese too.
+#
+# So this takes a directory instead of a dataset. Drop audio in any format ffmpeg reads
+# under `data/corpora/<name>/`, optionally with a `manifest.tsv` of `file` and `text`
+# columns if transcripts happen to exist, and:
+#
+#     python scripts/distill_stt.py teacher --sources corpus --corpus-name voxpopuli
+#
+# Long recordings are cut to three seconds by `chunk`, which is what the app asks for
+# anyway, so a plenary session is as usable as a read sentence.
+
+CORPORA = DATA_DIR / "corpora"
+
+# What ffmpeg will decode without being asked twice.
+AUDIO_EXTS = (".wav", ".flac", ".mp3", ".m4a", ".ogg", ".opus", ".webm", ".mp4", ".aac")
+
+
+def corpus_clips(root: Path, limit: int | None = None,
+                 eval_frac: float = 0.0, want_eval: bool = False) -> list[dict]:
+    """Every audio file under `root`, with transcripts if any were supplied.
+
+    The split is by a hash of the path rather than by position, so adding files to a
+    corpus never moves an existing clip between training and evaluation — which is the
+    way a held-out set quietly stops being held out."""
+    import csv
+    import hashlib
+
+    if not root.exists():
+        return []
+
+    texts: dict[str, str] = {}
+    manifest = root / "manifest.tsv"
+    if manifest.exists():
+        with manifest.open(encoding="utf-8") as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                if row.get("file"):
+                    texts[row["file"]] = (row.get("text") or "").strip()
+
+    rows = []
+    for path in sorted(root.rglob("*")):
+        if path.suffix.lower() not in AUDIO_EXTS or not path.is_file():
+            continue
+        uid = str(path.relative_to(root))
+        if eval_frac > 0:
+            bucket = int(hashlib.md5(uid.encode("utf-8")).hexdigest()[:8], 16) % 1000
+            if (bucket < eval_frac * 1000) != want_eval:
+                continue
+        rows.append({"path": path, "uid": uid, "text": texts.get(uid, "")})
+        if limit is not None and len(rows) >= limit:
+            break
+    return rows
+
 
 def fleurs_split(eval_n: int = REAL_EVAL_N, train_limit: int | None = None):
     """Real speech, split so the evaluation half is never trained on.
@@ -315,7 +382,7 @@ def fleurs_split(eval_n: int = REAL_EVAL_N, train_limit: int | None = None):
 # ── Stage 1: features and teacher posteriors ───────────────────────────────
 
 def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None,
-                  shard: str, sources: list[str]) -> int:
+                  shard: str, sources: list[str], corpus_name: str | None = None) -> int:
     """Precompute once: the student's input and the teacher's answer, side by side.
 
     Both go into flat memmaps with an index, so training never touches audio or the
@@ -341,6 +408,23 @@ def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None
         train_rows, _held = fleurs_split(train_limit=real_limit)
         jobs += [(FLEURS / "clips" / r["file"], "", "fleurs") for r in train_rows]
         print(f"{len(train_rows)} real-speech clips")
+
+    if "corpus" in sources:
+        # Deliberately fed in with no text even where a manifest supplied one: a
+        # transcript from another corpus is not the deck line, and the CTC term exists to
+        # keep the *app's* sequences honest. `stage_pseudo` gives these a target from the
+        # teacher's own reading, the same as FLEURS.
+        roots = ([CORPORA / corpus_name] if corpus_name
+                 else sorted(d for d in CORPORA.glob("*") if d.is_dir()))
+        n = 0
+        for root in roots:
+            rows = corpus_clips(root, real_limit, eval_frac=0.05)
+            jobs += [(r["path"], "", f"corpus:{root.name}") for r in rows]
+            n += len(rows)
+            print(f"{len(rows)} clips from {root.name}")
+        if not n:
+            print(f"no audio under {CORPORA} — see the note above `corpus_clips`",
+                  file=sys.stderr)
 
     if "accent" in sources:
         # Deck lines read by voices that mispronounce Maltese. The label is the deck line
@@ -1365,7 +1449,11 @@ def main() -> int:
                     help="how far to pull the teacher's posteriors onto the known text; "
                          "1.0 discards the teacher's own reading entirely")
     ap.add_argument("--sources", default="tts,real",
-                    help="which audio to run the teacher over: tts, real, accent")
+                    help="which audio to run the teacher over: tts, real, accent, "
+                         "corpus")
+    ap.add_argument("--corpus-name", default=None,
+                    help="one directory under data/corpora to ingest; all of them by "
+                         "default")
     args = ap.parse_args()
 
     if args.stage == "teacher":
@@ -1376,7 +1464,7 @@ def main() -> int:
             return 2
         srcs = [x.strip() for x in args.sources.split(',') if x.strip()]
         return stage_teacher(args.limit, kinds, args.real_limit,
-                             args.shard, srcs)
+                             args.shard, srcs, args.corpus_name)
     if args.stage == "pseudo":
         return stage_pseudo(args.shard)
     if args.stage == "constrain":

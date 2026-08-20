@@ -414,3 +414,62 @@ def test_degeminating_a_shard_with_nothing_to_cut_says_so(tmp_path_factory):
     aligned_shard(work, texts=("malta", "hawn"))
     assert module.stage_degeminate("a") == 1
     assert not (work / "index_a_degem.json").exists()
+
+
+# ── Taking any Maltese audio, not one dataset ────────────────────────────────
+
+def test_the_corpus_ingester_finds_audio_and_ignores_everything_else(tmp_path):
+    module = load_distill()
+    root = tmp_path / "voxpopuli"
+    (root / "nested").mkdir(parents=True)
+    for name in ("a.wav", "b.flac", "nested/c.opus", "nested/d.mp3"):
+        (root / name).write_bytes(b"x")
+    for name in ("notes.txt", "cover.png", "manifest.tsv"):
+        (root / name).write_text("", encoding="utf-8")
+
+    rows = module.corpus_clips(root)
+    assert sorted(r["uid"] for r in rows) == [
+        "a.wav", "b.flac", "nested/c.opus", "nested/d.mp3"]
+    assert all(r["text"] == "" for r in rows)
+    assert module.corpus_clips(root, limit=2).__len__() == 2
+    assert module.corpus_clips(tmp_path / "absent") == []
+
+
+def test_the_corpus_ingester_reads_a_manifest_when_there_is_one(tmp_path):
+    module = load_distill()
+    root = tmp_path / "masri"
+    root.mkdir()
+    (root / "one.wav").write_bytes(b"x")
+    (root / "two.wav").write_bytes(b"x")
+    (root / "manifest.tsv").write_text(
+        "file\ttext\none.wav\tBonġu\n", encoding="utf-8")
+    got = {r["uid"]: r["text"] for r in module.corpus_clips(root)}
+    assert got == {"one.wav": "Bonġu", "two.wav": ""}
+
+
+def test_the_held_out_split_is_stable_when_the_corpus_grows(tmp_path):
+    """Splitting by position means every added file reshuffles the split and yesterday's
+    held-out clip is today's training clip. Hashing the path does not."""
+    module = load_distill()
+    root = tmp_path / "c"
+    root.mkdir()
+    for i in range(60):
+        (root / f"clip{i:03d}.wav").write_bytes(b"x")
+
+    def split():
+        train = {r["uid"] for r in module.corpus_clips(root, eval_frac=0.2)}
+        held = {r["uid"] for r in module.corpus_clips(root, eval_frac=0.2,
+                                                     want_eval=True)}
+        return train, held
+
+    train, held = split()
+    assert train and held
+    assert not (train & held), "a clip cannot be in both halves"
+    assert train | held == {f"clip{i:03d}.wav" for i in range(60)}
+
+    for i in range(60, 120):
+        (root / f"clip{i:03d}.wav").write_bytes(b"x")
+    train2, held2 = split()
+    # Every original clip stays on the side it started on.
+    assert held <= held2
+    assert train <= train2

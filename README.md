@@ -1092,6 +1092,32 @@ Degemination in the shard may still be worth doing, but it is now a 26-point pro
 than the blocker it was written up as, and `gemination.py` is the number to move. The
 aggregate app score will not show it either way, which is why it was never visible.
 
+Pushed further, λ buys more of it, and the curve says something the line-level sweep could
+not: that one weight is being asked to do two jobs at two length scales.
+
+| λ | geminate pairs won | learner accept, from the line sweep |
+|---|---|---|
+| 0.0 | 38% | 92% |
+| **0.1** | **74%** | **95%** |
+| 0.15 | 79% | 92% |
+| 0.3 | 83% | 72% |
+| 0.5 | 89% | — |
+
+Whole-line rivals want λ ≈ 0.1 and degeminated variants want λ ≈ 0.5, and the difference is
+paid in accepts: 0.3 already costs 23 points of them. A charge that scaled with *how much*
+shorter a hypothesis is, rather than one weight for every length difference, could serve
+both — the line-level sweep never saw this because its field holds whole deck lines, which
+differ from the target by many tokens rather than one.
+
+**What this measures, and what it does not.** Scoring two spellings against the same audio
+asks whether the model *can* hear consonant length. It does not ask whether a learner who
+drops the doubling is caught, because the app never ranks `kolox` against `kollox` — it
+scores the target the learner was asked for, so the real failure is `kolox` audio still
+passing as `kollox`. Measuring that needs recordings of deliberate mispronunciations, and
+every one of the 75 clips is an honest attempt. Discriminability is necessary for detection
+and not sufficient, and the gap between them is a recording task rather than a modelling
+one.
+
 #### Scoring each sound instead of the whole attempt
 
 The grader answers one question with one number, which is why three recordings are refused

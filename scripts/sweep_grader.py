@@ -110,8 +110,12 @@ def choose_field(rec: dict, params: dict, rng) -> list[dict]:
     rng.shuffle(glob)
     picked = local[:want_local]
     picked += glob[:max(0, size - len(picked))]
-    if len(picked) < size:                       # a thin script; take whatever is left
-        picked += local[len(picked):size]
+    if len(picked) < size:
+        # Top up from the local entries the share did not already claim. Indexing `local`
+        # by how many are picked instead would skip the ones between `want_local` and
+        # that count, and hand back a field short of `size` — and ranking against fewer
+        # alternatives is a different change wearing the same clothes.
+        picked += local[want_local:][:size - len(picked)]
     return picked[:size]
 
 
@@ -270,11 +274,14 @@ def collect(model: str, clips_dir: Path, seed: int, field_pool: int) -> list[dic
         print(f"  {i}/{len(rows)} {row['file']}", flush=True)
 
     # Negatives get paired with a real line, because the app always asks for one.
-    for neg in negatives:
+    for i, neg in enumerate(negatives):
         wave = read_clip(CLIPS / "negatives" / neg["file"])
         if wave is None or not wave.size:
             continue
-        flat = mtext.normalise(rows[0]["text"]).lower().strip()
+        # Cycled rather than fixed: the prior charges by length, so grading all 90
+        # negatives against one line would measure that line's token count as much as
+        # it measures the rule.
+        flat = mtext.normalise(rows[i % len(rows)]["text"]).lower().strip()
         rec = score(wave, flat, neg["kind"], neg["file"])
         if rec:
             records.append(rec)

@@ -285,6 +285,19 @@ def test_the_field_mix_honours_the_local_share(sw, cc):
     assert sum(e["local"] for e in half) == 5
 
 
+def test_the_top_up_uses_the_local_entries_the_share_did_not_claim(sw, cc):
+    """The case that catches indexing `local` by the count already picked: 8 local and 2
+    global, asking for 9 at a half-local share. The wrong slice skips two of the local
+    entries and returns 8."""
+    rec, _p, _t, _f, _b = make_record(cc, n_field=10)
+    for i, entry in enumerate(rec["field"]):
+        entry["local"] = i < 8
+    got = sw.choose_field(rec, dict(sw.DEPLOYED, field_size=9, field_local=0.5),
+                          np.random.default_rng(0))
+    assert len(got) == 9, "the field came back short of what was asked for"
+    assert len({id(e) for e in got}) == 9, "and without repeating an alternative"
+
+
 def test_a_thin_field_is_topped_up_rather_than_shrunk(sw, cc):
     """Ranking against fewer alternatives is a different change wearing the same
     clothes, so the field size has to hold even when the local pool cannot fill it."""

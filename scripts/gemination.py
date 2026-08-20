@@ -52,13 +52,93 @@ def degeminate(flat: str) -> list[tuple[str, str]]:
     return out
 
 
+def score_errors(model: str, clips_dir: Path) -> int:
+    """Does the grader catch a doubled consonant that was deliberately dropped?
+
+    This is the question the honest recordings cannot answer. Each clip here is a
+    mispronunciation, labelled with the line the speaker was *asked* for, so the grader is
+    being asked exactly what the app asks: is this that line? Every accept is a learner
+    told they were right when they were not.
+
+    Reported against the whole deck rather than a sampled field, so the number does not
+    move with a draw: the runner-up is the best any other line manages on the same audio."""
+    from constrained_ctc import confidence, encode, load, rank_score
+
+    from backend import dialogue
+    from make_negatives import read_clip
+
+    manifest = clips_dir / "errors" / "manifest.tsv"
+    if not manifest.exists():
+        print(f"no deliberate errors at {manifest}. Write prompts and record them:\n"
+              f"  python scripts/gemination.py --models {model} "
+              f"--write-prompts data/error_prompts.tsv\n"
+              f"  python scripts/compare_stt.py --record-errors data/error_prompts.tsv "
+              f"--input :3", file=sys.stderr)
+        return 1
+    with manifest.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+
+    logprobs_for, vocab, blank, space = load(model)
+    deck = [mtext.normalise(x).lower().strip() for x in dialogue.every_line()]
+    deck = [x for x in deck if x]
+
+    print(f"{model} · {len(rows)} deliberate mispronunciations\n")
+    print(f"  {'clip':12} {'conf':>7} {'floor':>6} {'field':>6}  said")
+    caught = 0
+    for row in rows:
+        wave = read_clip(clips_dir / "errors" / row["file"])
+        if wave is None:
+            continue
+        post = logprobs_for(wave)
+        want = mtext.normalise(row["text"]).lower().strip()
+        ids = encode(want, vocab, space)
+        if not ids or len(ids) > len(post):
+            continue
+        conf = confidence(post, ids, blank)
+        rank = rank_score(post, ids, blank)
+        best_rival = -float("inf")
+        for line in deck:
+            if line == want:
+                continue
+            rid = encode(line, vocab, space)
+            if rid and len(rid) <= len(post):
+                best_rival = max(best_rival, rank_score(post, rid, blank))
+        # The app's two conditions, reported apart: a floor that is too low and a field
+        # that is too weak want different fixes, and one label would hide which.
+        passes_floor = conf >= 0.35
+        wins_field = rank > best_rival + 0.02
+        accepted = passes_floor and wins_field
+        caught += not accepted
+        print(f"  {row['file']:12} {conf:7.3f} {'ok' if passes_floor else 'no':>6} "
+              f"{'ok' if wins_field else 'no':>6}  "
+              f"{'CAUGHT' if not accepted else 'passed as correct'}  {row['said']}")
+    n = len([r for r in rows if (clips_dir / 'errors' / r['file']).exists()])
+    if not n:
+        print("  no audio found for any prompt")
+        return 1
+    print(f"\n  caught {caught}/{n} ({caught / n * 100:.0f}%)")
+    print("  Every one not caught is a learner told they were right. This is the number")
+    print("  degemination in the shard has to move; the aggregate app score will not show it.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default="frontend/stt")
     ap.add_argument("--prompts", action="store_true",
                     help="list deliberate-error prompts worth recording, worst first")
+    ap.add_argument("--write-prompts", type=Path, default=None,
+                    help="write those prompts to a TSV the recorder can read")
+    ap.add_argument("--errors", action="store_true",
+                    help="score the deliberate mispronunciations instead of the honest clips")
+    ap.add_argument("--want", type=int, default=20,
+                    help="how many prompts to write; the marginal ones are the "
+                         "informative ones, so this takes the worst N")
     ap.add_argument("--clips-dir", type=Path, default=CLIPS)
     args = ap.parse_args()
+
+    if args.errors:
+        return score_errors(args.models, args.clips_dir)
 
     from constrained_ctc import confidence, encode, load, rank_score
     from make_negatives import read_clip
@@ -110,6 +190,26 @@ def main() -> int:
     if not total:
         print("  no recordings of lines containing a doubled consonant")
         return 1
+    if args.write_prompts:
+        # Ordered by the margin the app decides on: the pairs it already gets wrong are
+        # worth recording first, and the near-misses after them, because a prompt the
+        # model handles comfortably cannot tell us anything when it is said wrong.
+        chosen = sorted(prompts)[:args.want]
+        with args.write_prompts.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, delimiter="\t",
+                               fieldnames=["say", "intended", "halved", "margin", "heard_in"])
+            w.writeheader()
+            for margin, clip, letter, flat, short in chosen:
+                w.writerow({"say": short, "intended": flat, "halved": letter,
+                            "margin": f"{margin:.4f}", "heard_in": clip})
+        wrong = sum(1 for m, *_ in chosen if m < 0)
+        print(f"\n  {len(chosen)} prompts → {args.write_prompts} "
+              f"({wrong} the model gets wrong today)")
+        print(f"  record them with:\n"
+              f"    python scripts/compare_stt.py --record-errors {args.write_prompts} "
+              f"--input :3")
+        return 0
+
     if args.prompts:
         print("\n  Deliberate errors worth recording, the ones the model gets wrong first.")
         print("  Every clip in the set is an honest attempt, so nothing here measures")

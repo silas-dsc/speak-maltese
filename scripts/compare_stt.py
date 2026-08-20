@@ -238,6 +238,87 @@ def print_guide(n: int) -> None:
         print(f"    meaning: {en.get(line, '?')}\n")
 
 
+ERRORS = "errors"
+
+
+def record_errors(prompts: Path, device: str = ":default") -> None:
+    """Record deliberate mispronunciations, labelled with the line they were meant to be.
+
+    Every clip in `eval_clips` is an honest attempt, which makes one question unanswerable:
+    a learner who drops a doubled consonant — is that caught, or does the audio still pass
+    as the correct line? Scoring two spellings against one recording asks only whether the
+    model *can* hear the difference. Detection needs audio of the error itself.
+
+    So the prompt is the wrong spelling and the label is the right one, which is the whole
+    point and also the one thing the ordinary recorder cannot express: it pairs clip N with
+    deck line N by construction."""
+    if not shutil.which("ffmpeg"):
+        sys.exit("ffmpeg is required for --record-errors (brew install ffmpeg)")
+    with prompts.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    if not rows:
+        sys.exit(f"no prompts in {prompts} — write some with\n"
+                 f"  python scripts/gemination.py --models frontend/stt "
+                 f"--write-prompts {prompts}")
+
+    out_dir = CLIPS / ERRORS
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lead = _input_lead(device)
+    manifest = out_dir / "manifest.tsv"
+    done = {}
+    if manifest.exists():
+        with manifest.open(encoding="utf-8") as fh:
+            done = {r["file"]: r for r in csv.DictReader(fh, delimiter="\t")}
+
+    kept = list(done.values())
+    quiet = 0
+    for i, row in enumerate(rows, 1):
+        name = f"err_{i:03d}.wav"
+        if name in done:
+            continue
+        print(f"\n[{i}/{len(rows)}]  say it WRONG:  {row['say']}")
+        print(f"          the real line is:  {row['intended']}")
+        print(f"          drop the doubled {row['halved']!r} — say it single, on purpose")
+        input("       Enter to arm the microphone, then wait for 'speak now'… ")
+        proc = subprocess.Popen(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "avfoundation", "-i", device,
+             "-ar", "16000", "-ac", "1", str(out_dir / name)],
+            stdin=subprocess.PIPE,
+        )
+        time.sleep(lead)
+        print("       ▶ speak now, then Enter to stop")
+        input()
+        proc.communicate(b"q")
+
+        level = _peak(out_dir / name)
+        held = _duration(out_dir / name)
+        if held < 0.5:
+            quiet += 1
+            print(f"       ! only {held:.2f}s recorded — the input stalled, delete and redo")
+        elif level < 0.10:
+            quiet += 1
+            print(f"       ! too quiet to use (peak {level:.2f}) — delete and redo")
+        else:
+            print(f"       ok (peak {level:.2f})")
+        # `text` is what the grader will be asked to confirm, so it is the *intended*
+        # line. `said` records what was actually spoken, which is what makes the clip a
+        # negative rather than a recording with a typo in its label.
+        kept.append({"file": name, "text": row["intended"], "said": row["say"],
+                     "halved": row["halved"]})
+        with manifest.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, delimiter="\t",
+                               fieldnames=["file", "text", "said", "halved"])
+            w.writeheader()
+            w.writerows(kept)
+
+    print(f"\n✓ {len(kept)} deliberate errors in {out_dir}")
+    if quiet:
+        print(f"! {quiet} unusable — delete the file and its manifest row, then re-run")
+    print("  measure whether the grader catches them:\n"
+          "    python scripts/gemination.py --models frontend/stt --errors")
+
+
 def _input_lead(device: str) -> float:
     """Open the input once and measure how much of a take it swallows before samples flow.
 
@@ -737,6 +818,8 @@ def main() -> int:
                     help="show the microphones ffmpeg can see, then exit")
     ap.add_argument("--guide", type=int, metavar="N", default=None,
                     help="print the N lines to record, with pronunciation, then exit")
+    ap.add_argument("--record-errors", type=Path, default=None, metavar="PROMPTS",
+                    help="record deliberate mispronunciations from a prompt TSV")
     ap.add_argument("--trim", action="store_true",
                     help="cap silence at both ends of every clip (originals kept in "
                          "eval_clips/raw)")
@@ -768,6 +851,10 @@ def main() -> int:
         use_clips_dir(args.clips_dir)
     if args.synth:
         asyncio.run(synth(args.synth, args.voice))
+    if args.record_errors:
+        record_errors(args.record_errors, args.input)
+        return
+
     if args.trim:
         trim(*args.trim_pad)
         return

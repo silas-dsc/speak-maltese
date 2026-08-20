@@ -1109,6 +1109,20 @@ shorter a hypothesis is, rather than one weight for every length difference, cou
 both — the line-level sweep never saw this because its field holds whole deck lines, which
 differ from the target by many tokens rather than one.
 
+`--prompts` lists the halved spellings worth saying on purpose, ordered by the margin the
+app decides on, so the most informative recordings come first. The top of that list is
+worth noting: `kolox` for `kollox` still loses, at −0.029. The README's named example is
+inside the failing 26% — the prior did not fix *that* pair, it fixed the majority around it,
+which is a different claim from the one the 74% might suggest.
+
+The two clips at the very top, at −0.203 and −0.187, are `me_011` and `me_012` — two of the
+three recordings the grader refuses outright. Across the 35 clips containing a geminate, the
+ones refused at least once average −0.195 on their worst geminate and the 33 always accepted
+average +0.005. That is **n = 2**, and the third-worst clip is accepted every time, so it is
+a hypothesis and not a result: it may be that the hard refusals are the model failing to hear
+consonant length rather than anything about the utterance as a whole. The deliberate-error
+recordings would settle it, which is most of why they are worth making.
+
 **What this measures, and what it does not.** Scoring two spellings against the same audio
 asks whether the model *can* hear consonant length. It does not ask whether a learner who
 drops the doubling is caught, because the app never ranks `kolox` against `kollox` — it

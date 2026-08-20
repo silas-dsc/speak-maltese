@@ -55,6 +55,8 @@ def degeminate(flat: str) -> list[tuple[str, str]]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default="frontend/stt")
+    ap.add_argument("--prompts", action="store_true",
+                    help="list deliberate-error prompts worth recording, worst first")
     ap.add_argument("--clips-dir", type=Path, default=CLIPS)
     args = ap.parse_args()
 
@@ -71,6 +73,7 @@ def main() -> int:
     print(f"  {'clip':12} {'doubled':>7} {'truth':>8} {'halved':>8} {'margin':>8}"
           f" {'rank':>7}  line")
     wins = total = rank_wins = 0
+    prompts: list[tuple[float, str, str, str, str]] = []
     for row in rows:
         flat = mtext.normalise(row["text"]).lower().strip()
         variants = degeminate(flat)
@@ -98,12 +101,28 @@ def main() -> int:
             # shorter spelling for being short, which is the bias that favours it here.
             rank_won = r_true > r_short
             rank_wins += rank_won
+            # Ranked by the margin the app actually decides on, so the prompts that come
+            # first are the ones where a deliberate error would be most informative.
+            prompts.append((r_true - r_short, row["file"], letter, flat, short))
             print(f"  {row['file']:12} {letter!r:>7} {c_true:8.3f} {c_short:8.3f} "
                   f"{c_true - c_short:+8.3f} {'ok' if rank_won else 'LOST':>7}  "
                   f"{'' if won else '← halved wins  '}{flat}")
     if not total:
         print("  no recordings of lines containing a doubled consonant")
         return 1
+    if args.prompts:
+        print("\n  Deliberate errors worth recording, the ones the model gets wrong first.")
+        print("  Every clip in the set is an honest attempt, so nothing here measures")
+        print("  whether a learner who drops the doubling is *caught* — only whether the")
+        print("  model could tell if asked. Say the halved spelling on purpose and the")
+        print("  gap closes.\n")
+        for margin, clip, letter, flat, short in sorted(prompts):
+            state = "wrong now" if margin < 0 else "right now"
+            print(f"  {state}  margin {margin:+.3f}  say {short!r}")
+            print(f"                              for  {flat!r}  (halved {letter!r}, "
+                  f"heard in {clip})")
+        return 0
+
     print(f"\n  on confidence alone the true spelling wins {wins}/{total} "
           f"({wins / total * 100:.0f}%)")
     print(f"  on rank, as the app compares it:                {rank_wins}/{total} "

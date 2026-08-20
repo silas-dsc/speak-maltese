@@ -547,3 +547,48 @@ def test_trim_caps_silence_and_never_loses_the_original(tmp_path):
     finally:
         C.CLIPS, C.MANIFEST = before
     assert abs(again - 0.60) < 0.02, f"trimming must not compound, got {again:.2f}s"
+
+
+def test_segmentation_cuts_in_the_silence_not_the_word():
+    """A boundary in the wrong place teaches a syllable no word begins with.
+
+    Also guards the threshold's *shape*, which two wrong answers reached first. A fraction
+    of the median fails because the median frame of real course audio sits 36 to 39 dB below
+    the peak — more than half of each track is near-silence — so anchoring there anchors to
+    silence and every segment comes out at the maximum length. A percentile fixes that on
+    real audio and fails here: when silence is one large tight cluster the percentile falls
+    inside it, half the silent frames read as loud, and no pause is ever long enough. This
+    track is 51% silence on purpose, which is the shape the real material has."""
+    import sys
+
+    import numpy as np
+
+    sys.path.insert(0, "scripts")
+    import segment_audio as S
+
+    rng = np.random.default_rng(3)
+
+    def burst(secs):
+        return (rng.normal(0, 0.3, int(S.SR * secs))).astype(np.float32)
+
+    def hush(secs):
+        return (rng.normal(0, 0.0004, int(S.SR * secs))).astype(np.float32)
+
+    # Two utterances with a clear pause, inside a track that is mostly quiet — the shape
+    # the real material has.
+    wave = np.concatenate([hush(1.0), burst(1.4), hush(1.2), burst(1.6), hush(1.2)])
+    cuts = S.spans(wave)
+    assert len(cuts) == 2, f"expected two utterances, got {len(cuts)}: {cuts}"
+
+    for (a, b), want in zip(cuts, (1.0, 3.6)):
+        start = a / S.SR
+        assert abs(start - want) < 0.25, f"segment starts at {start:.2f}s, wanted ~{want}s"
+        assert 0.6 <= (b - a) / S.SR <= 3.0, f"segment is {(b - a) / S.SR:.2f}s long"
+
+    # The gap between them has to fall inside the pause, not inside either burst.
+    gap_start, gap_end = cuts[0][1] / S.SR, cuts[1][0] / S.SR
+    assert 2.2 < gap_start < 2.7 and 3.4 < gap_end < 3.8, (
+        f"the cut landed at {gap_start:.2f}-{gap_end:.2f}s, outside the pause")
+
+    # A track that is entirely speech must not have its quietest fifth called silence.
+    assert len(S.spans(burst(3.0))) == 1

@@ -509,6 +509,29 @@ export function rankScore(logprobs, frames, vocab, ids, blank, speech) {
     + DUR_WEIGHT * durationPrior(ids.length, speech === undefined ? frames : speech);
 }
 
+/** How spread out the field's scores are, as a sample standard deviation.
+
+    Reported because a margin is a distance, and a distance means nothing without a
+    scale: 0.006 of daylight is noise in a field spanning 0.4 and decisive in one
+    spanning 0.01 — and the scale moves with the speaker exactly as the absolute
+    confidence does, which is the thing ranking was introduced to escape.
+
+    Taken per utterance rather than accumulated across turns, so it needs no history and
+    has no cold start. The alternatives were all scored on this recording, which is
+    precisely the scale wanted. Two passes rather than the sum-of-squares shortcut: the
+    scores cluster tightly, and there `Σx² - (Σx)²/n` is a subtraction of two nearly
+    equal numbers and can come out negative. `app.js` decides what to do with the
+    result — see `MARGIN_SIGMAS`. */
+export function spread(values) {
+  if (!values || values.length < 2) return 0;
+  let sum = 0;
+  for (const v of values) sum += v;
+  const mean = sum / values.length;
+  let sq = 0;
+  for (const v of values) sq += (v - mean) * (v - mean);
+  return Math.sqrt(sq / (values.length - 1));
+}
+
 /* ── Decode ──────────────────────────────────────────────────────────────── */
 
 /** Merge repeated frames, *then* drop the blanks. The other order looks identical and
@@ -605,14 +628,17 @@ export async function transcribe(blob, { target = '', distractors = [] } = {}) {
        does not survive a change of speaker. */
     let best = -Infinity;
     let bestLine = '';
+    const field = [];
     for (const line of distractors) {
       if (!line || line === target) continue;
       const c = ranked(line);
       if (c > best) { best = c; bestLine = line; }
+      if (Number.isFinite(c)) field.push(c);
     }
     result.runnerUp = Number.isFinite(best) ? best : null;
     result.runnerUpLine = bestLine;
     result.wins = result.runnerUp === null || result.rank > result.runnerUp;
+    result.fieldSd = spread(field);
   }
   return result;
 }

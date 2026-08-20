@@ -515,6 +515,28 @@ def evaluate(dialogue_id: str, node_id: str, said: str, attempts: int = 0) -> di
     return out
 
 
+def answers_in(did: str) -> list[str]:
+    """Every answer one dialogue accepts, deduplicated.
+
+    The twin of `dialogue.answersIn` in the client, and here for the same reason the rest
+    of this module is duplicated: the field a spoken answer is ranked against is a graded
+    decision, and a graded decision that only one of the two engines can compute is a
+    decision that cannot be swept. `FIELD_LOCAL` in `app.js` is the switch this feeds."""
+    out, seen = [], set()
+    for d in all_dialogues():
+        if d.get("id") != did:
+            continue
+        for n in d.get("nodes", {}).values():
+            for a in n.get("accept", []):
+                if a.get("open"):
+                    continue
+                mt = (a.get("mt") or "").strip()
+                if mt and mt not in seen:
+                    seen.add(mt)
+                    out.append(mt)
+    return out
+
+
 def every_line() -> list[str]:
     """Every Maltese line the app can speak — used to pre-synthesise audio so a
     scripted turn never waits on text-to-speech."""

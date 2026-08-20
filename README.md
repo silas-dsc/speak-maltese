@@ -687,6 +687,30 @@ and the sweep that chose λ = 0.1 chose it against these constants — so the tw
 together or not at all. `fit_duration.py` is the instrument for moving them; it needs
 `data/eval_clips` and the negatives, which are not in the repository.
 
+#### Two more switches in the grader, and the same reason both are off
+
+`MIN_MARGIN = 0.02` is an absolute distance, which is the mistake the absolute confidence
+made one level up: a distance without a scale, where the scale moves with the speaker.
+Correct answers cleared their field by 0.06-0.43 and the one false accept by 0.006, and
+0.02 happens to separate those *on this speaker*. So `nanostt` now reports `fieldSd`, the
+spread of the 24 alternatives on the recording being graded — a scale measured where it
+applies, per utterance, needing no history and having no cold start — and `MARGIN_SIGMAS`
+would require the target to clear the runner-up by that many of them.
+
+`FIELD_LOCAL` is the second: draw part of the field from the scene being spoken rather
+than uniformly from the whole script, since `In-nanna tagħmel il-pastizzi` is not an
+equally likely thing to have said in the middle of a pharmacy scene. A more plausible
+field is a stricter test, which is the safe direction for a grader — but stricter means
+*fewer accepts*, and which ones is not something 25 recordings of one speaker can settle.
+It tops up from the global pool rather than replacing it, because a scene holds only a
+dozen or two answers and a field of twelve is a different change wearing the same clothes.
+
+Both are zero, so the deployed rule is exactly what the table above swept. Every constant
+in this block was priced against those 25 clips and 90 negatives, and these two have not
+been — the failure mode of guessing is a grader that has quietly become stricter, marking
+correct answers wrong and feeding that into the FSRS scheduler. `tests/test_scripts.py`
+pins both at zero for that reason.
+
 **One loose end, recorded rather than resolved.** The refit reproduces neither published
 number: this sample gives 50.13 + 4.0700 × tokens at sd 24.45, against the published
 28.28 + 1.8794 at sd 13.27. Halving the frame unit lines them up nearly exactly — slope
@@ -756,6 +780,69 @@ Worth recording, because each was the obvious next thing.
   curve is flat from 1MB to 10MB. Two identical-architecture checkpoints in this repo
   score 29% and 83% on the learner's voice, so the *recipe* swings the metric fifty points
   where capacity swings it none.
+
+#### Six levers built on that last sentence, none of them bigger
+
+If the recipe swings the metric fifty points and capacity swings it none, the recipe is
+where the work goes. These are in `distill_stt.py` and cost the shipped model nothing —
+the same 0.53M parameters, the same 2.1MB, the same 0.08s a clip. All are opt-in, and
+none has been run against the real corpus, which is not in this repository.
+
+**Deep supervision** (`--aux-at N --aux-weight W`). A second CTC head hangs off block N
+during training, taking the same KD and CTC terms as the real output, and is dropped at
+export. That is structural rather than incidental: `forward` never touches the head, the
+export builds the model without it and refuses its weights, and
+`tests/test_distill_student.py` reads the ONNX back and pins the live-against-exported
+parameter gap to exactly what BatchNorm folding removes — so a leak cannot hide inside a
+loose bound.
+
+**Weight averaging** (`--ema-decay 0.999`). Not the posterior ensembling above, which
+averaged independently-trained students and shipped three files for no gain. This
+averages one trajectory into one file of the same size, which is the standard answer to
+the variance the line above describes.
+
+**Choosing the checkpoint on the metric that ships** (`--select rank`). Dev KD sits flat
+at 0.18 from about epoch 50 while the app-level numbers swing fifty points, so selecting
+on the loss is close to selecting at random on rank-1. This scores a sample of dev
+utterances against a field of other deck lines every epoch — the app's question, with the
+app's `confidence + λ·prior` — and keeps the best. Both numbers print whichever one
+selects, because the gap between them is the finding.
+
+**Constraining the teacher to the text we already have** (`distill_stt.py constrain`). On
+the TTS half the line is known and was synthesised from it, and the teacher still gets
+5.3% of it wrong — each of those a frame teaching the wrong character with full
+confidence behind it. Knowing the text does not say *when* each character was said, so
+the target is not a one-hot: CTC forward-backward over the target lattice, using the
+teacher's own frames as emissions, keeps its timing and its confidence while every path
+spelling something else is gone. FLEURS keeps raw posteriors, because its pseudo-labels
+*are* the teacher's argmax and constraining to them would sharpen its mistakes rather
+than remove them. The forward-backward is checked against torch — a `ctc_loss` gradient
+is `softmax - posterior`, the same occupancies by another route — and agrees to 1e-7.
+
+**Making a geminate audible by its absence** (`distill_stt.py degeminate`). The README
+calls `kolox` scoring 1.02 against `kollox` the clearest thing the next round has to buy,
+and `--margin-weight` looks like the fix but is not: its `geminate lost` near-miss
+perturbs the *text* against audio where the geminate was pronounced, which teaches the
+converse of the app's failure. The model has never heard Maltese *without* a geminate,
+because all 1,494 overfitted lines have one. So cut it out of the audio — the alignment
+says which frames the second half occupies, and excising exactly those from mel and
+posteriors together leaves a pass that sounds like one consonant and is labelled as one.
+Nothing is re-synthesised and the teacher is not run again.
+
+**Any Maltese audio, not one dataset** (`--sources corpus`). FLEURS is 3,149 clips, and
+more real speech is the lever with the largest measured effect in this project. FLEURS
+arriving as a parquet dump was an accident of what got reached for first; the pipeline's
+own design is what makes it replaceable, because the teacher labels whatever it is handed
+and **a transcript is not needed for audio to be useful here**. That opens the sources
+normally skipped for Maltese: [VoxPopuli](https://aclanthology.org/2021.acl-long.80/)
+carries about 9,100 hours of unlabelled Maltese from Parliament plenaries and has no
+transcribed Maltese at all — which is exactly why it gets passed over, and exactly why it
+costs nothing here. The [MASRI project](https://github.com/UMSpeech/MASRI) at the
+University of Malta adds MASRI-HEADSET (8 hours, 25 speakers, close-mic) and MASRI-TUBE
+(the same speakers at about two metres, so a different room and microphone), under a
+research/academic licence worth reading first. Common Voice has Maltese too. Drop audio
+in any format ffmpeg reads under `data/corpora/<name>/`; `chunk` already cuts long
+recordings to three seconds, so a plenary session ingests as readily as a read sentence.
 
 ### When the audio cannot decide, ask the transcript the same question
 

@@ -129,10 +129,27 @@ def test_the_field_is_ranked_on_the_rank_and_the_floor_on_the_confidence():
     learner's twenty-five answers. Floor on `rank` and the bar for "is there speech here"
     starts moving with the length of whichever line was asked for."""
     app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
-    assert "r.rank > r.runnerUp + MIN_MARGIN" in app_js
+    assert "r.rank > r.runnerUp + need" in app_js
+    # `need` is the margin, and it must still bottom out at the swept constant however
+    # the per-field scaling is set.
+    assert "Math.max(MIN_MARGIN, MARGIN_SIGMAS * (r.fieldSd || 0))" in app_js
     assert "r.confidence >= MIN_CONFIDENCE" in app_js
     assert "r.confidence > r.runnerUp" not in app_js, (
         "the field is being ranked on the un-priored confidence again")
+
+
+def test_the_margin_and_the_field_are_unchanged_until_swept():
+    """`MARGIN_SIGMAS` and `FIELD_LOCAL` both change which answers are accepted, and
+    neither has been priced against the 25 recordings and 90 negatives that chose every
+    other constant in that block. At zero they are exactly the deployed rule: the margin
+    is `MIN_MARGIN` alone, and the field is drawn from the whole script as it always was.
+
+    Pinned because the failure mode is silent — a grader that has quietly become stricter
+    marks correct answers wrong and feeds that into the FSRS scheduler."""
+    app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert "const MARGIN_SIGMAS = 0;" in app_js
+    assert "const FIELD_LOCAL = 0;" in app_js
+    assert "const MIN_MARGIN = 0.02;" in app_js
 
 
 def test_the_floor_came_down_with_the_prior_and_not_alone():

@@ -858,6 +858,21 @@ async function transcribe(blob, target, scene) {
            though they had said it. */
         return { ...r, text: mtext.normalise(target), assessment: mtext.assess(target, target) };
       }
+      /* Passed the floor, lost the field — and the sounds are the ones this line asks
+         for. That is a learner who nearly said it, not audio that is not the line: the
+         floor cannot tell those apart (it admits 67% of time-reversed clips) and the
+         field cannot either (a near-miss is ranked behind an unrelated answer by a median
+         of 0.648). Per-sound scoring can, so it decides this middle case, and the credit
+         is the *near* one the app already has rather than a clean pass. */
+      if (flat && r.confidence >= MIN_CONFIDENCE
+          && Number.isFinite(r.gop) && r.gop >= nanostt.GOP_MIN) {
+        return {
+          ...r,
+          text: mtext.normalise(target),
+          assessment: mtext.assess(target, target),
+          nearSound: true,
+        };
+      }
       if (r.text.trim()) {
         // Grading is a few microseconds of string comparison, but it lives on the
         // server with the Maltese rules, so it is one small stateless request.
@@ -1618,7 +1633,7 @@ function drillBubble(role, mt, en, { extraClass = '', verdict = null, target = n
   return el;
 }
 
-async function answerDrill(said) {
+async function answerDrill(said, opts = {}) {
   said = (said || '').trim();
   if (!said || drill.busy) return;
   drill.busy = true;
@@ -1637,6 +1652,10 @@ async function answerDrill(said) {
     // The engine reports an unknown node in the body where the server reports it as
     // a 404; raising here puts both on the same path out.
     if (r.error) throw new Error(r.error);
+    /* An acoustic near-miss is credited the way `on_lead` is: the learner is not told
+       they were wrong, and they are not told they were clean either. Reusing that state
+       rather than adding a fourth keeps one meaning for the amber mark. */
+    if (opts.nearSound) r.on_lead = true;
     if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 
@@ -2511,7 +2530,7 @@ bindMic($('drillMic'), {
   onStatus: (s) => { $('drillStatus').textContent = s || 'Hold the mic and answer'; },
   onResult: async (res) => {
     if (!res.text) { toast('Nothing heard — try again'); return; }
-    await answerDrill(res.text);
+    await answerDrill(res.text, { nearSound: res.nearSound });
   },
 });
 

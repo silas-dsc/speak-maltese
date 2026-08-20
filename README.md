@@ -1063,6 +1063,48 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### A third verdict, decided per sound
+
+The grader had two answers and needed three. A learner who drops a doubled consonant passes
+the confidence floor and loses the field — measured on twenty deliberate mispronunciations,
+all twenty clear the floor and fourteen are ranked behind an unrelated answer by a median of
+0.648 — so the app called them wrong. The speaker's own judgement is that all twenty are
+close enough for a beginner.
+
+Neither existing signal can carry that verdict. The floor admits **67% of time-reversed
+clips**, so "cleared the floor" cannot mean "nearly right". The field is what wrongly
+refuses the near-miss in the first place. What separates them is whether the *sounds* are
+the ones the line asks for, which is what `gop.py` measures — and it separates learner
+speech from reversed speech by 93 points where the floor separates them by nothing.
+
+So: floor and field both pass → **correct**. Floor passes, field lost, GOP ≥ −2.29 →
+**close enough**, credited through the same `on_lead` state the app already had for a
+transcript-level near-miss, because one meaning per mark is worth more than a fourth colour.
+Otherwise **wrong**.
+
+| | correct | close enough | wrong |
+|---|---|---|---|
+| the learner's 75 honest recordings | 92% | 3% | 5% |
+| 20 deliberate mispronunciations | 25% | **75%** | **0%** |
+| time-reversed | 3% | 0% | **97%** |
+| hiss / silence | 0% | 0% | **100%** |
+
+`GOP_MIN` is load-bearing and a test guards it: it must credit no reversed clip, no noise,
+and still credit 85% of the learner's own correct recordings. A threshold safe because it
+refuses everything would make the verdict useless, so both halves are pinned.
+
+**What it cannot judge is level.** 45% of the −30 dB copies land in "close enough", because
+GOP is a ratio and a quiet copy comes back with the same mean top posterior as the original
+— −0.198 against −0.199. That is not a hole in the verdict but a job for a different part of
+the app: level is measurable from the waveform, and `capture.js` already looks at it. Asking
+a per-sound score to notice a quiet microphone is asking the wrong question of it.
+
+The implementation is duplicated in `frontend/nanostt.js` and `scripts/gop.py`, the way the
+duration constants are, and `tests/test_client_gop.py` pins them together — per-token
+scores, occupancies, the blamed sound, and both constants. Two log-space forward-backwards
+agree on easy inputs and part on the ones that matter, and this repository has already been
+bitten by a JS/Python split at the fourth decimal.
+
 #### Correction: the harness was ranking against lines nobody can say
 
 Every table in this section was first measured against `dialogue.every_line()`, which is a

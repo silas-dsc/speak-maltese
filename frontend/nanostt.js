@@ -380,6 +380,26 @@ export function encodeTarget(flat, tokToId, space = '▁') {
     emit one between tokens, and a repeated token *must* have one between its copies.
     That rule is why `irrid` and `irid` are different hypotheses here rather than the
     same one — the distinction greedy decoding throws away. */
+/** Ids *and* the readable tokens, mirroring `scripts/gop_encode.py`.
+
+    `encodeTarget` returns ids, which is all the ranking needs. Saying *which* sound was
+    wrong needs the grapheme to survive the encoding rather than be guessed back out of the
+    vocabulary afterwards. Deliberately the same mapping as `encodeTarget` — including
+    `space` being a vocabulary key — because a second, subtly different encoder would put
+    the two scores on different token sequences and nothing would say so. */
+export function encodeTargetTokens(flat, tokToId, space = '▁') {
+  const ids = [];
+  const toks = [];
+  for (const ch of flat) {
+    const tok = ch === ' ' ? space : ch;
+    if (tokToId.has(tok)) {
+      ids.push(tokToId.get(tok));
+      toks.push(ch === ' ' ? '␣' : ch);
+    }
+  }
+  return { ids, toks };
+}
+
 export function ctcLogp(logprobs, frames, vocab, ids, blank) {
   if (!ids.length) return NEG;
   const size = 2 * ids.length + 1;
@@ -434,6 +454,148 @@ export function targetConfidence(logprobs, frames, vocab, ids, blank) {
   const gap = (ctcLogp(logprobs, frames, vocab, ids, blank)
     - greedyLogp(logprobs, frames, vocab)) / Math.max(1, frames);
   return Math.exp(gap);
+}
+
+/* ── Which sound was wrong ─────────────────────────────────────────────────── */
+/* Port of `scripts/gop.py`. Goodness of Pronunciation, per target token, from the
+   alignment CTC already implies rather than from a forced one — a learner's timing is
+   exactly what a forced alignment gets wrong, and a soft occupancy does not have to
+   choose. See the module note there for the formula.
+
+   These constants are duplicated from `scripts/gop.py` on purpose, the same way the
+   duration constants are: the frontend cannot import Python, and a test pins the two
+   together so they cannot drift apart silently. */
+
+/* Graphemes whose score says nothing about the learner. Measured on 75 recordings that
+   are *correct*: `q` because the model cannot hear a glottal stop at all, and `g`/`h`/`'`
+   because `għ` is silent, so there is no sound to find and the model is right to fail.
+   Charging a learner for these is charging them for the model's blind spots. */
+export const GOP_IGNORE = new Set(["'", 'd', 'g', 'h', 'j', 'q', 'r', 'ż']);
+
+/* Below this, the sounds are not the ones the line asks for. Set where it holds 93% of
+   the learner's own recordings while refusing every time-reversed clip — the negative
+   the confidence floor is worst at, admitting 67% of them. */
+export const GOP_MIN = -2.29;
+
+/** Per-token frame occupancy, `(L × frames)` row-major. Null when the target cannot be
+    aligned at all. */
+export function occupancy(logprobs, frames, vocab, ids, blank) {
+  const L = ids.length;
+  if (!L || L > frames) return null;
+  const size = 2 * L + 1;
+  const ext = new Int32Array(size).fill(blank);
+  for (let i = 0; i < L; i += 1) ext[2 * i + 1] = ids[i];
+  const skip = new Uint8Array(size);
+  for (let s = 2; s < size; s += 1) {
+    skip[s] = ext[s] !== blank && ext[s] !== ext[s - 2] ? 1 : 0;
+  }
+
+  // Both matrices in full rather than a rolling row: the occupancy needs alpha and beta
+  // at the same frame, which a rolling forward pass has already thrown away.
+  const alpha = new Float64Array(frames * size).fill(NEG);
+  alpha[0] = logprobs[ext[0]];
+  if (size > 1) alpha[1] = logprobs[ext[1]];
+  for (let t = 1; t < frames; t += 1) {
+    const row = t * size, prev = row - size, base = t * vocab;
+    for (let s = 0; s < size; s += 1) {
+      let acc = alpha[prev + s];
+      if (s >= 1) acc = logaddexp(acc, alpha[prev + s - 1]);
+      if (s >= 2 && skip[s]) acc = logaddexp(acc, alpha[prev + s - 2]);
+      alpha[row + s] = acc + logprobs[base + ext[s]];
+    }
+  }
+
+  const beta = new Float64Array(frames * size).fill(NEG);
+  const last = (frames - 1) * size;
+  beta[last + size - 1] = 0;
+  if (size > 1) beta[last + size - 2] = 0;
+  for (let t = frames - 2; t >= 0; t -= 1) {
+    const row = t * size, nxt = row + size, base = (t + 1) * vocab;
+    for (let s = 0; s < size; s += 1) {
+      let acc = beta[nxt + s] + logprobs[base + ext[s]];
+      if (s + 1 < size) {
+        acc = logaddexp(acc, beta[nxt + s + 1] + logprobs[base + ext[s + 1]]);
+      }
+      if (s + 2 < size && skip[s + 2]) {
+        acc = logaddexp(acc, beta[nxt + s + 2] + logprobs[base + ext[s + 2]]);
+      }
+      beta[row + s] = acc;
+    }
+  }
+
+  const total = size > 1
+    ? logaddexp(alpha[last + size - 1], alpha[last + size - 2])
+    : alpha[last + size - 1];
+  const out = new Float64Array(L * frames);
+  if (!(total > NEG) || !Number.isFinite(total)) return out;
+  for (let i = 0; i < L; i += 1) {
+    const s = 2 * i + 1;
+    for (let t = 0; t < frames; t += 1) {
+      const v = alpha[t * size + s] + beta[t * size + s] - total;
+      out[i * frames + t] = Math.exp(Math.min(0, Math.max(-700, v)));
+    }
+  }
+  return out;
+}
+
+/** GOP per target token: the occupancy-weighted margin against the model's own choice.
+    Zero means "wherever this token sits, it was also what the model wanted". */
+export function tokenGop(logprobs, frames, vocab, ids, blank) {
+  const gam = occupancy(logprobs, frames, vocab, ids, blank);
+  const out = new Float64Array(ids.length);
+  if (!gam) return out;
+  const best = new Float64Array(frames);
+  let bestMax = -Infinity;
+  for (let t = 0; t < frames; t += 1) {
+    let m = -Infinity;
+    const base = t * vocab;
+    for (let v = 0; v < vocab; v += 1) {
+      const x = logprobs[base + v];
+      if (x > m) m = x;
+    }
+    best[t] = m;
+    if (m > bestMax) bestMax = m;
+  }
+  for (let i = 0; i < ids.length; i += 1) {
+    const tok = ids[i];
+    let mass = 0, acc = 0, tokMax = -Infinity;
+    for (let t = 0; t < frames; t += 1) {
+      const w = gam[i * frames + t];
+      const x = logprobs[t * vocab + tok];
+      mass += w;
+      acc += w * (x - best[t]);
+      if (x > tokMax) tokMax = x;
+    }
+    // Never aligned anywhere: score it on its best frame instead of dividing by zero.
+    out[i] = mass <= 1e-9 ? tokMax - bestMax : acc / mass;
+  }
+  return out;
+}
+
+/** One number for the attempt: the mean GOP over the tokens the model can be trusted on.
+    NaN when the line is made entirely of tokens in `GOP_IGNORE`, which is not a verdict —
+    callers must treat it as "no opinion" rather than as a failure. */
+export function gopScore(logprobs, frames, vocab, ids, toks, blank) {
+  const g = tokenGop(logprobs, frames, vocab, ids, blank);
+  let sum = 0, n = 0;
+  for (let i = 0; i < g.length; i += 1) {
+    if (toks && GOP_IGNORE.has(toks[i])) continue;
+    sum += g[i];
+    n += 1;
+  }
+  return n ? sum / n : NaN;
+}
+
+/** The worst-scoring token the learner can be told about, or null when there is nothing
+    worth saying. Skips the model's blind spots for the same reason the score does. */
+export function worstSound(logprobs, frames, vocab, ids, toks, blank) {
+  const g = tokenGop(logprobs, frames, vocab, ids, blank);
+  let worst = null, at = -1;
+  for (let i = 0; i < g.length; i += 1) {
+    if (toks && GOP_IGNORE.has(toks[i])) continue;
+    if (worst === null || g[i] < worst) { worst = g[i]; at = i; }
+  }
+  return worst === null ? null : { token: toks ? toks[at] : null, index: at, gop: worst };
 }
 
 /* ── How long should that have taken? ─────────────────────────────────────── */
@@ -635,6 +797,16 @@ export async function transcribe(blob, { target = '', distractors = [] } = {}) {
       if (c > best) { best = c; bestLine = line; }
       if (Number.isFinite(c)) field.push(c);
     }
+    /* Per-sound score, for the verdict between "correct" and "wrong". The floor and the
+       field both answer "is this the line"; this one answers "are these the sounds", which
+       is the question that separates a learner who nearly said it from audio that is not
+       the line at all. The floor cannot: it admits 67% of time-reversed speech. */
+    const { ids: gopIds, toks: gopToks } = encodeTargetTokens(target, parts.tokToId);
+    result.gop = gopIds.length
+      ? gopScore(d, outFrames, vocab, gopIds, gopToks, parts.blankId) : NaN;
+    result.worstSound = gopIds.length
+      ? worstSound(d, outFrames, vocab, gopIds, gopToks, parts.blankId) : null;
+
     result.runnerUp = Number.isFinite(best) ? best : null;
     result.runnerUpLine = bestLine;
     result.wins = result.runnerUp === null || result.rank > result.runnerUp;

@@ -129,6 +129,43 @@ def token_gop(post: np.ndarray, ids: list[int], blank: int) -> np.ndarray:
     return out
 
 
+# Duplicated in `frontend/nanostt.js` on purpose — the frontend cannot import Python —
+# and pinned together by `tests/test_client_gop.py`, the same arrangement the duration
+# constants use.
+
+# Graphemes whose score says nothing about the learner: `q` because the model cannot hear
+# a glottal stop at all, and `g`/`h`/`'` because `għ` is silent, so there is no sound to
+# find and the model is right to fail. Charging a learner for these charges them for the
+# model's blind spots. Measured on the 75 recordings that are correct.
+GOP_IGNORE = frozenset({"'", "d", "g", "h", "j", "q", "r", "ż"})
+
+# Below this the sounds are not the ones the line asks for. Set where it holds 93% of the
+# learner's own recordings while refusing every time-reversed clip — the negative the
+# confidence floor is worst at, admitting 67% of them.
+GOP_MIN = -2.29
+
+
+def gop_score(post: np.ndarray, ids: list[int], toks: list[str], blank: int) -> float:
+    """One number for the attempt: the mean over tokens the model can be trusted on.
+
+    NaN when the line is made entirely of ignored tokens. That is not a verdict and callers
+    must not read it as one — "no opinion" and "wrong" want opposite treatment."""
+    g = token_gop(post, ids, blank)
+    kept = [x for tok, x in zip(toks, g) if tok not in GOP_IGNORE]
+    return float(np.mean(kept)) if kept else float("nan")
+
+
+def worst_sound(post: np.ndarray, ids: list[int], toks: list[str],
+                blank: int) -> dict | None:
+    """The worst-scoring token worth telling the learner about, skipping blind spots."""
+    g = token_gop(post, ids, blank)
+    pairs = [(x, i) for i, (tok, x) in enumerate(zip(toks, g)) if tok not in GOP_IGNORE]
+    if not pairs:
+        return None
+    x, i = min(pairs)
+    return {"token": toks[i], "index": i, "gop": float(x)}
+
+
 def profile(rows: list[dict]) -> dict[str, dict]:
     """Per-grapheme GOP over *correct* recordings.
 

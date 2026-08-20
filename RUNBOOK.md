@@ -161,12 +161,18 @@ Read the table like this:
 - **`learner` wants to go up. Everything else wants to stay at zero.** A change that
   raises `learner` while moving `wrong-line` or any negative column is a trade, and the
   README's history is that such trades were declined.
-- **A one-clip difference is not a result.** Twenty-five clips means one clip is four
-  points, and the field is sampled — the README measures a four-point spread across seeds
-  with the prior on. Use `--seeds 5` and believe a change only if it wins on every seed.
+- **A one-clip difference is not a result.** With 75 clips one clip is 1.3 points, and the
+  field is sampled — the README measures a four-point spread across seeds with the prior
+  on. Use `--seeds 5` and believe a change only if it wins on every seed. Three of the
+  refused clips flip with the draw rather than with any setting, so a change that moves
+  only those has moved nothing.
 - **Check *why* a clip was refused, not just that it was.** `decide` reports `clear` and
   `passes_floor` separately, because a floor that is too high and a field that is too hard
   want opposite fixes.
+
+`--grid margin` and `--probe-loss` are already answered: loosening the margin buys no
+accepts at any value down to zero, and forgiving a ranked loss large enough to matter
+admits half of backwards speech. Both are recorded in the README; do not re-derive them.
 
 The one to be most careful with is `--grid frames`. Switching `DUR_FRAMES` to `speech`
 without refitting the constants is measured to be catastrophic — it charges a five-token

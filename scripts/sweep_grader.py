@@ -295,6 +295,12 @@ GRIDS = {
     "lambda": ("dur_weight", [0.0, 0.05, 0.1, 0.15, 0.3]),
     "floor": ("floor", [0.0, 0.2, 0.35, 0.45, 0.55, 0.65]),
     "sigmas": ("margin_sigmas", [0.0, 0.25, 0.5, 1.0, 2.0]),
+    # Loosening, which nobody had swept: every value of `sigmas` above zero makes the
+    # margin *stricter*, so the direction that could buy accepts had never been priced.
+    # 0.0 is as loose as this knob goes — `need` is a max against zero, so a negative
+    # min_margin is clamped away. Accepting a target the model ranks second is a
+    # different rule, not a smaller number; `--probe-loss` prices that separately.
+    "margin": ("min_margin", [0.0, 0.005, 0.01, 0.02, 0.04, 0.08]),
     "local": ("field_local", [0.0, 0.25, 0.5, 0.75]),
     "frames": ("dur_frames", ["total", "speech"]),
     "sdslope": ("dur_sd_slope", [0.0, 0.25, 0.5, 1.0]),
@@ -326,6 +332,61 @@ def report(records: list[dict], axis: str, values: list, seeds: int) -> None:
           "\n  one-clip difference is inside the seed spread — see the module note.")
 
 
+def probe_loss(records: list[dict], offsets: list[float], seeds: int = 5) -> None:
+    """Price accepting a target the model ranks second — leniency the app cannot express.
+
+    `min_margin` cannot go below zero: `need` is a max against `margin_sigmas * spread`,
+    so a negative value is clamped away, and sweeping it down to 0.0 buys no accepts at
+    all. The reason is in the deficits — the learner clips that lose, lose by 0.08 to 0.16,
+    which is four to eight times the margin. Reaching them means accepting a line the
+    model ranks below a rival, which is a different rule rather than a smaller number, so
+    it is priced here rather than offered as a setting.
+
+    A negative offset is the honest form of "be more lenient": how much of a loss are we
+    willing to forgive, and what comes through the door with it."""
+    print(f"\nprobing a forgiven loss — {len(records)} scored pairings, {seeds} field draws")
+    head = (f"  {'forgive':>12} {'learner':>12} {'wrong-line':>12} {'silence':>12} "
+            f"{'hiss':>12} {'quiet':>12} {'reversed':>12}")
+    print(head)
+    print("  " + "-" * (len(head) - 2))
+    for off in offsets:
+        params = dict(DEPLOYED)
+        # A negative `min_margin` survives here because this bypasses the max in decide().
+        hits: dict[str, list[int]] = {}
+        totals: dict[str, int] = {}
+        for seed in range(seeds):
+            rng = np.random.default_rng(seed)
+            got: dict[str, int] = {}
+            for rec in records:
+                kind = rec["kind"]
+                conf = confidence(rec["target"]["logp"], rec["greedy"],
+                                  rec["frames_total"])
+                field = choose_field(rec, params, rng)
+                target_rank = rank_of(rec["target"], rec, params)
+                if field:
+                    runner_up = max(rank_of(e, rec, params) for e in field)
+                    clear = target_rank > runner_up + off
+                else:
+                    clear = True
+                got[kind] = got.get(kind, 0) + int(clear and conf >= params["floor"])
+                totals[kind] = totals.get(kind, 0) + 1 if seed == 0 else totals[kind]
+            for kind, n in got.items():
+                hits.setdefault(kind, []).append(n)
+        cells = []
+        for kind in ("learner", "wrong-line", "silence", "hiss", "quiet", "reversed"):
+            if kind not in hits:
+                cells.append(f"{'-':>12}")
+                continue
+            mean = float(np.mean(hits[kind]))
+            of = totals[kind]
+            cells.append(f"{mean:.0f}/{of} ({mean / max(1, of) * 100:.0f}%)".rjust(12))
+        mark = "  <- deployed" if off == DEPLOYED["min_margin"] else ""
+        print(f"  {off:>12.3f} " + " ".join(cells) + mark)
+    print("\n  A negative number forgives a loss of that size. The learner clips that")
+    print("  lose need 0.08 to 0.16 forgiven, so read what the negatives do at those")
+    print("  offsets before reading the accept rate as good news.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default=None,
@@ -341,6 +402,8 @@ def main() -> int:
                     help="global alternatives cached per clip, so field_size and "
                          "field_local can vary without rescoring")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--probe-loss", action="store_true",
+                    help="price forgiving a target that the model ranks second")
     args = ap.parse_args()
 
     if args.models:
@@ -354,6 +417,10 @@ def main() -> int:
             print(f"no cache at {args.cache} — run once with --models", file=sys.stderr)
             return 2
         records = json.loads(args.cache.read_text(encoding="utf-8"))
+
+    if args.probe_loss:
+        probe_loss(records, [-0.20, -0.16, -0.12, -0.08, -0.04, 0.0, 0.02], args.seeds)
+        return 0
 
     axes = sorted(GRIDS) if args.grid == "all" else [args.grid]
     for name in axes:

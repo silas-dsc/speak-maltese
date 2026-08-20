@@ -1063,6 +1063,57 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### Leniency in the ranking, priced and declined
+
+`MIN_MARGIN = 0.02` had only ever been swept in the strict direction. Every value of
+`MARGIN_SIGMAS` above zero makes the margin *harder* to clear, so the direction that could
+buy accepts — a smaller margin, or none — had never been measured. On 75 recordings and
+190 negatives, across five field draws:
+
+| `min_margin` | learner | wrong-line | hiss | quiet | reversed |
+|---|---|---|---|---|---|
+| 0.0 | 71/75 (95%) | 46/524 (9%) | 4% | 10% | 10% |
+| 0.01 | 71/75 (95%) | 40/524 (8%) | 3% | 9% | 9% |
+| **0.02** | **71/75 (95%)** | **35/524 (7%)** | **2%** | **6%** | **6%** |
+| 0.04 | 70/75 (93%) | 25/524 (5%) | 1% | 4% | 4% |
+
+Loosening buys **nothing**: the same 71 clips at every value down to zero, while the
+negatives get worse in every column. The reason is in the deficits rather than the table.
+Of the clips the rule turns away, three lose to a rival by 0.08 to 0.16 — four to eight
+times the margin — so shrinking the margin cannot reach them. The other three *beat* the
+runner-up on average and are refused only on some field draws: they are seed-sensitive,
+not margin-sensitive, and a smaller margin does not make a draw kinder.
+
+Reaching the hard three means accepting a line the model ranks second, which is a
+different rule rather than a smaller number. `--probe-loss` prices it:
+
+| forgive a loss of | learner | wrong-line | reversed |
+|---|---|---|---|
+| 0.02 (deployed) | 94% | 7% | 7% |
+| 0.00 | 95% | 8% | 10% |
+| 0.08 | 97% | 22% | 27% |
+| 0.16 | 97% | 36% | 47% |
+
+Two learner clips cost three times the wrong-line rate and four times the reversed rate.
+At 0.16 — the forgiveness the worst clip needs — **nearly half of backwards speech is
+accepted as correct**. That is the end of the road for acoustic leniency, and it is why the
+leniency that did ship works on the transcript instead: the lead rule above compares what
+was said against what the *other* lines would need, which is information the ranking does
+not have.
+
+#### The clips that fail are the ones from the better microphone
+
+Of the six clips refused on at least one draw, five are from the first 25 — the desk
+recordings — and all three hard losses are. That is 20% of the desk half against 2% of the
+iPhone half, on a model that runs on the iPhone.
+
+The standing caveat on every number here has been that the recordings are clean desk
+takes and therefore optimistic. On this evidence the desk takes are the *harder* half, and
+the caveat points the wrong way. Three things are confounded and none can be separated on
+this sample: the microphone, the delivery (the iPhone takes carry 1.20s of speech against
+0.94s, which is slower), and the sentences, which do not overlap. Worth knowing before
+anyone reads a per-half comparison as a result about microphones.
+
 ## Where the recordings live
 
 `data/eval_clips/` is gitignored, and deliberately: it is audio, it does not diff, and one

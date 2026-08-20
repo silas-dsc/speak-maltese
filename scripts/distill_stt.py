@@ -24,6 +24,8 @@ attention, so it runs on WASM and needs no WebGPU, which was the other half of w
 made 200MB unusable on an iPhone.
 
     python scripts/distill_stt.py teacher     # mel + teacher posteriors → memmaps
+    python scripts/distill_stt.py constrain   # fold the known text into those posteriors
+    python scripts/distill_stt.py degeminate  # derive audio with a geminate removed
     python scripts/distill_stt.py train       # distil
     python scripts/distill_stt.py export      # ONNX, in the layout the eval harness reads
 
@@ -483,6 +485,262 @@ def stage_pseudo(shard: str) -> int:
         print("  examples:")
         for it in meta["items"][:3]:
             print(f"    {it['text'][:70]!r}")
+    return 0
+
+
+# ── Cleaning the labels we already have ────────────────────────────────────
+# The teacher is distilled raw, errors and all. On the TTS half that is a waste: the line
+# is known, it was synthesised from that line, and the teacher still transcribes 5.3% of
+# it wrong — `qasira` as `għasira`, a geminate lost, an `x` read as a letter name. Every
+# one of those is a frame where the student is being taught the wrong character with the
+# teacher's full confidence behind it.
+#
+# Knowing the text does not tell us *when* each character was said, which is what a
+# frame-level target needs, so the answer is not a one-hot. It is the teacher's own
+# posteriors restricted to the alignments that spell the target: run CTC
+# forward-backward over the target lattice using the teacher's frames as emissions, and
+# the result keeps its timing and its confidence while every path that spells something
+# else is gone. Interpolating rather than replacing leaves a way to say "mostly trust the
+# text, a little trust the teacher".
+#
+# FLEURS keeps its raw posteriors: there is no label there to constrain to, and the
+# pseudo-labels `stage_pseudo` writes are the teacher's own argmax, so constraining to
+# them would be circular — it would sharpen the teacher's mistakes rather than remove
+# them.
+
+def ctc_occupancy(logprobs: np.ndarray, ids: list[int], blank: int):
+    """Per-frame occupancy over the *blank-extended* target, and that target.
+
+    `(T, 2L+1)` of posterior mass plus the extended symbol list, or `(None, None)` when
+    the target cannot fit the frames. `ctc_posteriors` sums this onto the vocabulary;
+    `stage_degeminate` wants the positions themselves, because "which half of the
+    doubled letter is this frame" is a question about position, not about symbol — both
+    halves are the same symbol, which is the entire difficulty."""
+    n_frames, v_size = logprobs.shape
+    ext = [blank]
+    for i in ids:
+        ext += [i, blank]
+    size = len(ext)
+    if not ids or n_frames < len(ids):
+        return None, None
+
+    # A path may jump two positions only where that does not merge equal tokens.
+    skip = np.zeros(size, dtype=bool)
+    for st in range(2, size):
+        skip[st] = ext[st] != blank and ext[st] != ext[st - 2]
+
+    neg = -np.inf
+    alpha = np.full((n_frames, size), neg)
+    alpha[0, 0] = logprobs[0, ext[0]]
+    if size > 1:
+        alpha[0, 1] = logprobs[0, ext[1]]
+    for t in range(1, n_frames):
+        prev = alpha[t - 1]
+        cur = prev.copy()
+        cur[1:] = np.logaddexp(cur[1:], prev[:-1])
+        shifted = np.full(size, neg)
+        shifted[2:] = np.where(skip[2:], prev[:-2], neg)
+        alpha[t] = np.logaddexp(cur, shifted) + logprobs[t, ext]
+
+    beta = np.full((n_frames, size), neg)
+    beta[n_frames - 1, size - 1] = 0.0
+    if size > 1:
+        beta[n_frames - 1, size - 2] = 0.0
+    for t in range(n_frames - 2, -1, -1):
+        nxt = beta[t + 1] + logprobs[t + 1, ext]
+        cur = nxt.copy()
+        cur[:-1] = np.logaddexp(cur[:-1], nxt[1:])
+        shifted = np.full(size, neg)
+        # Jumping from s to s+2 is allowed exactly where s+2 allows being jumped onto.
+        shifted[:-2] = np.where(skip[2:], nxt[2:], neg)
+        beta[t] = np.logaddexp(cur, shifted)
+
+    total = alpha[n_frames - 1, size - 1]
+    if size > 1:
+        total = np.logaddexp(total, alpha[n_frames - 1, size - 2])
+    if not np.isfinite(total):
+        return None, None
+    return np.exp(alpha + beta - total), ext            # (T, S), length S
+
+
+def ctc_posteriors(logprobs: np.ndarray, ids: list[int], blank: int) -> np.ndarray:
+    """Per-frame occupancy over the vocabulary, given that the audio spells `ids`.
+
+    Rows sum to 1. `None` when the target cannot fit the frames, which is the one case
+    where there is no distribution to be had."""
+    gamma, ext = ctc_occupancy(logprobs, ids, blank)
+    if gamma is None:
+        return None
+    out = np.zeros((logprobs.shape[0], logprobs.shape[1]), dtype=np.float32)
+    for st, sym in enumerate(ext):
+        out[:, sym] += gamma[:, st]
+    # Forward-backward is exact, so the rows are already normalised up to rounding.
+    return out / np.maximum(1e-12, out.sum(-1, keepdims=True))
+
+
+def stage_constrain(shard: str, alpha: float) -> int:
+    """Fold the known text into a shard's teacher posteriors, in place."""
+    meta_path = WORK / f"index_{shard}.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    vocab = json.loads((WORK / "vocab.json").read_text(encoding="utf-8"))
+    blank = vocab.get("<pad>", vocab.get("[PAD]"))
+    space = "|" if "|" in vocab else " "
+
+    path = WORK / f"post_{shard}.npy"
+    post = np.load(path, mmap_mode="r+")
+    off, done, skipped = 0, 0, 0
+    for it in meta["items"]:
+        n = it["frames"]
+        flat = (it.get("text") or "").strip()
+        source = it.get("source") or ""
+        # Only where the label is independent of the teacher. `stage_pseudo` fills
+        # FLEURS text from the teacher's own argmax; constraining to that would sharpen
+        # its mistakes rather than remove them.
+        if not flat or source.startswith("fleurs"):
+            off += n
+            skipped += 1
+            continue
+        ids = [vocab[space if ch == " " else ch] for ch in flat
+               if (space if ch == " " else ch) in vocab]
+        window = np.asarray(post[off:off + n], dtype=np.float32)
+        gamma = ctc_posteriors(window, ids, blank)
+        if gamma is None:
+            off += n
+            skipped += 1
+            continue
+        mixed = (1.0 - alpha) * np.exp(window) + alpha * gamma
+        mixed /= np.maximum(1e-12, mixed.sum(-1, keepdims=True))
+        post[off:off + n] = np.log(np.maximum(mixed, 1e-9)).astype(post.dtype)
+        off += n
+        done += 1
+    post.flush()
+    print(f"shard {shard}: {done} passes constrained at alpha {alpha}, {skipped} left raw")
+    return 0
+
+
+# ── The one thing the app cannot hear ──────────────────────────────────────
+# `kolox` for `kollox` scores 1.02 and is accepted. The student transcribed degeminated
+# audio *as* `kollox`, so its posteriors do not resolve consonant length at all — and the
+# README calls this the clearest thing the next round of training has to buy.
+#
+# `--margin-weight` looks like the fix and is not. Its `geminate lost` near-miss is a
+# perturbation of the *text*, scored against audio where the geminate was pronounced
+# correctly, so it teaches "do not credit `kolox` on audio of `kollox`". The app fails the
+# other way round: a learner genuinely says `kolox` and the model hears the geminate
+# anyway, because every one of the 1,494 lines it overfitted contains the doubled letter
+# and it has never once heard Maltese without one.
+#
+# So the contrast has to exist in the audio. It can, without recording anybody: the
+# teacher's posteriors already say which frames the second half of the doubled letter
+# occupies, so cutting exactly those frames out of the mel and the posteriors together
+# leaves a pass that sounds like a single consonant and is labelled as one. Nothing is
+# re-synthesised and the teacher is not run again.
+#
+#     python scripts/distill_stt.py degeminate --shard tts     # → shard tts_degem
+#     python scripts/distill_stt.py constrain  --shard tts_degem
+#
+# The second command is not optional if the posteriors are to mean anything: excising
+# frames leaves the teacher's remaining distribution describing audio it never saw, and
+# constraining it to the degeminated label is what makes it a target rather than a
+# guess.
+
+def _geminate_positions(ids: list[int], space: int) -> list[int]:
+    """Where a doubled letter sits, as the index of its second half.
+
+    A repeated space is not a geminate, and neither is a doubled letter that straddles
+    a word boundary."""
+    return [i for i in range(1, len(ids))
+            if ids[i] == ids[i - 1] and ids[i] != space]
+
+
+def stage_degeminate(shard: str, out_shard: str | None = None,
+                     limit: int | None = None) -> int:
+    """Derive degeminated copies of a shard's labelled passes, into a new shard."""
+    meta_path = WORK / f"index_{shard}.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    vocab = json.loads((WORK / "vocab.json").read_text(encoding="utf-8"))
+    blank = vocab.get("<pad>", vocab.get("[PAD]"))
+    space_ch = "|" if "|" in vocab else " "
+    space = vocab[space_ch]
+    inv = {i: t for t, i in vocab.items()}
+    out_shard = out_shard or f"{shard}_degem"
+
+    mel = np.load(WORK / f"mel_{shard}.npy", mmap_mode="r")
+    post = np.load(WORK / f"post_{shard}.npy", mmap_mode="r")
+
+    mels, posts, index = [], [], []
+    m_off = p_off = 0
+    skipped = 0
+    for item in meta["items"]:
+        n = item["frames"]
+        m_lo, p_lo = m_off, p_off
+        m_off += n * 2
+        p_off += n
+        flat = (item.get("text") or "").strip()
+        if not flat or (item.get("source") or "").startswith("fleurs"):
+            continue
+        ids = [vocab[space_ch if ch == " " else ch] for ch in flat
+               if (space_ch if ch == " " else ch) in vocab]
+        doubles = _geminate_positions(ids, space)
+        if not doubles:
+            continue
+
+        window = np.asarray(post[p_lo:p_lo + n], dtype=np.float32)
+        gamma, ext = ctc_occupancy(window, ids, blank)
+        if gamma is None:
+            skipped += 1
+            continue
+
+        # One geminate per derived pass, chosen by which is most confidently placed —
+        # cutting two at once compounds the alignment's error.
+        best, best_at = None, None
+        for i in doubles:
+            # Extended positions: the second half of the pair sits at 2i+1, and the
+            # blank it is obliged to be separated by at 2i.
+            span = gamma[:, 2 * i] + gamma[:, 2 * i + 1]
+            if best is None or span.max() > best:
+                best, best_at = span.max(), i
+        if best is None or best < 0.5:
+            skipped += 1
+            continue
+
+        # Frames the alignment hands to the second half and its separating blank.
+        owner = gamma.argmax(-1)
+        cut = np.flatnonzero((owner == 2 * best_at) | (owner == 2 * best_at + 1))
+        if cut.size == 0 or cut.size >= n - 4:
+            skipped += 1
+            continue
+        keep = np.setdiff1d(np.arange(n), cut, assume_unique=True)
+
+        # Mel is two rows a frame, so the kept frames map to interleaved pairs.
+        mel_keep = np.empty(keep.size * 2, dtype=np.int64)
+        mel_keep[0::2] = keep * 2
+        mel_keep[1::2] = keep * 2 + 1
+        mels.append(np.asarray(mel[m_lo:m_lo + n * 2])[mel_keep])
+        posts.append(np.asarray(post[p_lo:p_lo + n])[keep])
+
+        short = ids[:best_at] + ids[best_at + 1:]
+        text = "".join(inv[i] for i in short).replace(space_ch, " ")
+        index.append({"text": " ".join(text.split()), "source": "degem",
+                      "augment": item.get("augment", "identity"),
+                      "frames": int(keep.size)})
+        if limit and len(index) >= limit:
+            break
+
+    if not index:
+        print(f"shard {shard}: nothing to degeminate", file=sys.stderr)
+        return 1
+    np.save(WORK / f"mel_{out_shard}.npy", np.concatenate(mels))
+    np.save(WORK / f"post_{out_shard}.npy", np.concatenate(posts))
+    (WORK / f"index_{out_shard}.json").write_text(json.dumps(
+        {"vocab_size": meta["vocab_size"], "n_mels": meta.get("n_mels", N_MELS),
+         "items": index}), encoding="utf-8")
+    print(f"shard {shard}: {len(index)} degeminated passes → {out_shard} "
+          f"({skipped} skipped for an alignment that would not commit)")
+    print("  examples:")
+    for it in index[:3]:
+        print(f"    {it['text'][:60]!r}  ({it['frames']} frames)")
+    print(f"\nnow run:  python scripts/distill_stt.py constrain --shard {out_shard}")
     return 0
 
 
@@ -1062,7 +1320,8 @@ def stage_export(tag: str, use_ema: bool = False) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["teacher", "pseudo", "train", "export"])
+    ap.add_argument("stage", choices=["teacher", "pseudo", "constrain", "degeminate",
+                                      "train", "export"])
     ap.add_argument("--limit", type=int, default=None,
                     help="cap the number of deck lines (for a quick pass)")
     ap.add_argument("--real-limit", type=int, default=None,
@@ -1100,6 +1359,11 @@ def main() -> int:
     ap.add_argument("--ema", action="store_true",
                     help="export the averaged weights rather than the last ones")
     ap.add_argument("--shard", default="tts", help="name for this teacher shard")
+    ap.add_argument("--out-shard", default=None,
+                    help="where degeminate writes; defaults to <shard>_degem")
+    ap.add_argument("--constrain-alpha", type=float, default=0.5,
+                    help="how far to pull the teacher's posteriors onto the known text; "
+                         "1.0 discards the teacher's own reading entirely")
     ap.add_argument("--sources", default="tts,real",
                     help="which audio to run the teacher over: tts, real, accent")
     args = ap.parse_args()
@@ -1115,6 +1379,10 @@ def main() -> int:
                              args.shard, srcs)
     if args.stage == "pseudo":
         return stage_pseudo(args.shard)
+    if args.stage == "constrain":
+        return stage_constrain(args.shard, args.constrain_alpha)
+    if args.stage == "degeminate":
+        return stage_degeminate(args.shard, args.out_shard, args.limit)
     if args.stage == "train":
         return stage_train(args.width, args.blocks, args.kernel, args.epochs,
                            args.batch, args.lr, args.kd_weight, args.tag,

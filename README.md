@@ -1099,6 +1099,17 @@ GOP is a ratio and a quiet copy comes back with the same mean top posterior as t
 the app: level is measurable from the waveform, and `capture.js` already looks at it. Asking
 a per-sound score to notice a quiet microphone is asking the wrong question of it.
 
+**Naming the sound was tried and is not shipped.** The obvious next step is to tell the
+learner *which* sound to fix, and `worstSound` names the weakest token — but it is not
+accurate enough to say out loud. On the twenty deliberate mispronunciations, where the
+altered consonant is known, the worst-scoring token *is* that consonant on 6 of the 15 where
+it could be named at all. Tightening the margin does not rescue it: precision sits at 32-36%
+from a 0.5 margin through to 3.0, so there is no threshold at which this becomes advice
+rather than a guess. Being told to fix a sound you said correctly is worse than being told
+nothing, and the same scores are good enough for the verdict above, which asks only whether
+the sounds are right rather than which one was not. `worstSound` stays exported and
+parity-tested, for diagnostics rather than for the learner.
+
 The implementation is duplicated in `frontend/nanostt.js` and `scripts/gop.py`, the way the
 duration constants are, and `tests/test_client_gop.py` pins them together — per-token
 scores, occupancies, the blamed sound, and both constants. Two log-space forward-backwards

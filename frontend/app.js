@@ -1681,6 +1681,15 @@ async function answerDrill(said, opts = {}) {
     // came to one of the listed answers.
     const freeLabel = r.frame_scored ? 'frame right'
       : (r.score >= dialogueEngine.CORRECT ? 'answer right' : 'close to an answer');
+    /* No per-sound hint here, and that is a measured decision rather than an omission.
+       `nanostt.worstSound` names the weakest token and it is not accurate enough to say
+       out loud: on twenty deliberate mispronunciations, where the sound that was changed is
+       known, the worst-scoring token *is* that sound on 6 of the 15 where it could be named
+       at all. Tightening the margin does not help — precision sits at 32-36% from a 0.5
+       margin all the way to 3.0 — so there is no threshold at which this becomes advice
+       rather than a guess, and being told to fix a sound you said correctly is worse than
+       being told nothing. The same scores are good enough to decide *whether* the sounds
+       are right, which is what the near-miss verdict above uses them for. */
     const verdictText = r.free
       ? (r.score >= 0.5
         ? `${freeLabel} · ${Math.round(r.score * 100)}%`
@@ -2530,7 +2539,9 @@ bindMic($('drillMic'), {
   onStatus: (s) => { $('drillStatus').textContent = s || 'Hold the mic and answer'; },
   onResult: async (res) => {
     if (!res.text) { toast('Nothing heard — try again'); return; }
-    await answerDrill(res.text, { nearSound: res.nearSound });
+    await answerDrill(res.text, {
+      nearSound: res.nearSound, worst: res.worstSound, gop: res.gop,
+    });
   },
 });
 

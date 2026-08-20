@@ -79,7 +79,7 @@ def score_errors(model: str, clips_dir: Path) -> int:
         rows = list(csv.DictReader(fh, delimiter="\t"))
 
     logprobs_for, vocab, blank, space = load(model)
-    deck = [mtext.normalise(x).lower().strip() for x in dialogue.every_line()]
+    deck = [mtext.normalise(x).lower().strip() for x in dialogue.accepted_lines()]
     deck = [x for x in deck if x]
 
     print(f"{model} · {len(rows)} deliberate mispronunciations\n")

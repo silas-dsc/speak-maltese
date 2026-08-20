@@ -240,7 +240,8 @@ def collect(model: str, clips_dir: Path, seed: int, field_pool: int) -> list[dic
         print("no negatives — run scripts/make_negatives.py first", file=sys.stderr)
 
     logprobs_for, vocab, blank, space = load(model)
-    every = [mtext.normalise(x).lower().strip() for x in dialogue.every_line()]
+    # Accepted answers, not every speakable line: see `dialogue.accepted_lines`.
+    every = [mtext.normalise(x).lower().strip() for x in dialogue.accepted_lines()]
     every = [x for x in every if x]
     rng = np.random.default_rng(seed)
 

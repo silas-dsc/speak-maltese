@@ -378,6 +378,19 @@ def _best_match(said: str, accepted: list[dict]) -> tuple[dict | None, float]:
 
 
 @lru_cache(maxsize=1)
+def accepted_lines() -> list[str]:
+    """Every line a learner could actually say, which is the only honest rival field.
+
+    `every_line` is a text-to-speech manifest: it holds the tutor's prompts and the
+    `correct`/`close`/`wrong` feedback strings as well as the answers, because all of them
+    have to be pre-synthesised. Ranking against it lets the app's own teaching lines
+    compete with the learner — measured, `kważi. ftakar: minn + il- jagħmlu mil…` beat a
+    learner's attempt by 1.167, and no learner has ever said that sentence. The app itself
+    ranks against `_rivals`; a harness that ranks against everything speakable is measuring
+    a harder problem than the one that ships."""
+    return [mt for _key, mt in _rivals()]
+
+
 def _rivals() -> tuple[tuple[str, str], ...]:
     """Every line the app accepts anywhere, each with its phonetic key.
 

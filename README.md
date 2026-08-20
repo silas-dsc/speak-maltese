@@ -1063,6 +1063,61 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### Correction: the harness was ranking against lines nobody can say
+
+Every table in this section was first measured against `dialogue.every_line()`, which is a
+**text-to-speech manifest**: it holds the tutor's prompts and the `correct`/`close`/`wrong`
+feedback strings as well as the answers, because all of them have to be pre-synthesised.
+445 of its 820 lines are not answers. The app ranks against `_rivals()` — accepted answers
+only — so the harness was measuring a harder problem than the one that ships, and one of
+the app's own teaching lines, `kważi. ftakar: minn + il- jagħmlu mil…`, was beating a
+learner's attempt by 1.167. `dialogue.accepted_lines()` now names the honest field and both
+harnesses use it.
+
+Corrected, at the deployed settings:
+
+| | contaminated field | accepted answers |
+|---|---|---|
+| learner | 71/75 (95%) | **70/75 (93%)** |
+| wrong-line | 35/524 (7%) | **16/525 (3%)** |
+| quiet | 6% | 4% |
+| reversed | 6% | 4% |
+
+The smaller field is *harder per rival*, which is why accepts went down as well as
+wrong-line: accepted answers are short and confusable with each other, where a tutor's
+sentence is long and easy to reject.
+
+What survives unchanged: every conclusion drawn from a *comparison*, because both sides were
+measured against the same field. Loosening the margin still buys nothing, the refit
+constants still lose at every λ, `DUR_FRAMES = "speech"` is still worse, and forgiving a
+ranked loss still admits half of all backwards speech (52% at −0.20 on the corrected field).
+λ = 0.1 is still the best value for accepts.
+
+What does not survive: two things this README previously recommended. Raising the floor to
+0.45 bought seven wrong-line rejections on the bad field and buys two on the good one.
+And the GOP gate, which cost two learner clips to take reversed from 6% to 0%, now costs
+three to take it from 3% to 0% — the deployed rule already rejects 97% of backwards speech,
+so the gate is no longer worth its price.
+
+#### What a beginner's mistake actually does
+
+Twenty deliberate mispronunciations, each a doubled consonant said single on purpose,
+labelled with the line the speaker was asked for. The speaker's own judgement is that all
+twenty are close enough for a beginner and should be marked correct.
+
+The grader accepts five of them. **All twenty clear the confidence floor** — 0.54 to 1.01 —
+so nothing here is rejected for sounding unclear. Fourteen are rejected because some *other
+accepted answer* explains the audio better, by a median of 0.648, and one because it fails
+the 0.02 margin while still ahead. That distinction decides what could be done about it:
+this is not a threshold that is set too tight, and lowering `MIN_MARGIN` cannot reach it,
+which is the same thing the margin sweep found from the other direction.
+
+It also reframes the degemination work. 6d exists to make the model *more* sensitive to
+consonant length. On the pedagogy stated above that is the wrong direction: a beginner who
+drops a geminate should be told they were close, not wrong, and the app already has a
+verdict for that. The measurement to move is no longer "catch the halved spelling" but
+"stop a near-miss from being ranked behind an unrelated answer".
+
 #### The prior had already half-solved gemination
 
 `kollox` and `kolox` differ by consonant length alone, and the recorded failure is that

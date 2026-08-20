@@ -176,8 +176,13 @@ DUR_SD = 13.27
 # name, and λ = 0.3 is measured above at 61% learner accept and 32% synthetic.
 #
 # Both directions are regressions, so the defaults below reproduce today's arithmetic
-# exactly and the switches wait for a joint sweep — `fit_duration.py --sweep` against
-# `data/eval_clips` and the negatives, neither of which lives in this repository.
+# exactly and the switches wait for a joint sweep over the constants *and* `DUR_WEIGHT`,
+# scored the way the tables above were: accept rate on a learner's recordings against
+# rejection of wrong lines, silence and noise. `fit_duration.py` fits the constants and
+# will say whether a candidate still charges a short rival enough; it does not sweep
+# `DUR_WEIGHT`, because that needs `data/eval_clips`, the 90 negatives and a loaded
+# model, and none of the three is in this repository. That harness does not exist yet
+# and is what a change here is waiting on.
 #
 # One loose end, recorded rather than resolved. Refitting reproduces neither published
 # number: this sample gives 50.13 + 4.0700 × tokens at sd 24.45 against the published

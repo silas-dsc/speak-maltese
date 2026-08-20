@@ -223,6 +223,7 @@ What is actually available, checked rather than assumed:
 | `MLRS/korpus_malti` | 0.22 GB | gated | **text, not speech** |
 | Common Voice | Maltese is tiny | CC0 | terms must be accepted by a person |
 | Global Recordings Network | 71.8 min, 4 files | derivatives permitted (owner-confirmed) | downloaded to `data/corpora/grn_raw` |
+| BDL *Learning Maltese for Foreigners* 1–4 | 516 tracks | audio free to use (printed licence note, owner-confirmed) | downloaded to `data/corpora/bdl_raw` |
 
 The Global Recordings archive is the only *real human* Maltese here that is not already
 in the shard, which is the category credited with taking the student from 102.5% to 74.6%
@@ -234,6 +235,19 @@ pages return 403 to an automated fetcher, so this was **not** verified from the 
 — the project owner checked and reports that derivative works are permitted. Recorded that
 way deliberately, because the provenance of a permission matters as much as the permission:
 if that turns out to be wrong, this row is where to look.
+
+The BDL course audio is the best domain match of anything here and the reason is what it
+is: native speakers talking *to foreigners*, so slow, clear, phrase-level, and in the same
+vocabulary the deck teaches. FLEURS is read news; this is someone teaching the exact
+register the app asks a learner to produce. 516 tracks across four books.
+
+Its licence needs stating carefully, because the website says the opposite of the truth.
+The page footer reads "© BDL Books, 2022. All rights reserved.", and the site terms reserve
+all intellectual property rights and forbid derivative works — but those terms govern *the
+site*. The audio is free to use under a licence note printed in the book, which the project
+owner has read and confirmed. **This was not verified from the web**, and anyone re-checking
+it will find the site's terms and reasonably conclude the opposite, so the printed note is
+the authority and this row is where that is recorded.
 
 The permissive audio is spent. FLEURS is in the shard already and everything substantial
 that remains restricts what can be shipped, so **this step is now a licensing decision

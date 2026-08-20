@@ -153,12 +153,12 @@ DUR_SD = 13.27
 # spans, and found two things worth acting on and one reason not to act yet.
 #
 #   * **The residual is not homoscedastic.** Binned by length, the residual sd runs
-#     2.5 frames at 4 tokens, 6.9 at 12, 24.0 at 20 and 37.9 at 26. One constant
+#     4.1 frames at 7 tokens, 6.8 at 12, 24.0 at 20 and 38.1 at 26. One constant
 #     cannot describe that, and `DUR_SD` is closest to right at about 16 tokens.
-#   * **The padding is not the problem.** `edge-tts` pads every render with 60.0
+#   * **The padding is not the problem.** `edge-tts` pads every render with 59.7
 #     output frames of silence at sd 3.7 — near enough constant that trimming it
-#     moves the intercept (50.13 → -9.31 on this sample) and leaves the residual
-#     where it was (24.45 → 24.85). Trimming was expected to reduce the spread on
+#     moves the intercept (50.13 → -9.10 on this sample) and leaves the residual
+#     where it was (24.45 → 24.90). Trimming was expected to reduce the spread on
 #     this corpus. It does not, because on synthesised audio there is no spread to
 #     reduce. `MediaRecorder` under a human thumb is a different matter, and that is
 #     the case `DUR_FRAMES = "speech"` exists for — untested, because the only

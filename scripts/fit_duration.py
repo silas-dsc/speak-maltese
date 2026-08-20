@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from backend import text as mtext  # noqa: E402
 from backend.config import AUDIO_CACHE, CFG, DATA_DIR  # noqa: E402
+from audio_io import read_audio  # noqa: E402
 from constrained_ctc import (  # noqa: E402
     DUR_INTERCEPT, DUR_SLOPE, DUR_SD, DUR_WEIGHT, SPEECH_DROP_DB,
     frame_energy, speech_span,
@@ -89,20 +90,12 @@ def encode(flat: str, vocab: dict[str, int]) -> list[int]:
 
 # ── Sources ────────────────────────────────────────────────────────────────
 
-def load_wave(path: Path) -> np.ndarray:
-    """Any cached render to mono 16kHz float, with no dependency the app does not have.
+def load_wave(path: Path) -> np.ndarray | None:
+    """Any cached render to mono 16kHz float, by whichever decoder is installed.
 
-    `soundfile` is imported here rather than at module scope so `tests/test_scripts.py`
-    can import this file with numpy alone, the way CI installs it."""
-    import soundfile as sf
-
-    data, rate = sf.read(str(path), dtype="float32", always_2d=True)
-    wave = data.mean(axis=1)
-    if rate != SR:
-        n = int(round(len(wave) * SR / rate))
-        wave = np.interp(np.arange(n) * rate / SR, np.arange(len(wave)),
-                         wave).astype(np.float32)
-    return np.ascontiguousarray(wave)
+    See `audio_io.read_audio`: either `soundfile` or the `faster_whisper` already in
+    `requirements.txt` will do, so fitting needs no install of its own."""
+    return read_audio(path, SR)
 
 
 def from_cache(drop_db: float, limit: int | None = None) -> list[dict]:
@@ -125,6 +118,8 @@ def from_cache(drop_db: float, limit: int | None = None) -> list[dict]:
             if not path.exists():
                 continue
             wave = load_wave(path)
+            if wave is None or wave.size < 400:
+                continue
             energy = frame_energy(wave)
             start, end = speech_span(energy, drop_db)
             rows.append({"tokens": len(ids),

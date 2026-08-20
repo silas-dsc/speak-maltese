@@ -658,8 +658,8 @@ length, on the same clips:
 tail from 96% of clips to 1%.
 
 **Trimming the silence does nothing here, which was not the expectation.** `edge-tts`
-pads every render with 60.0 output frames of silence at sd 3.7 — near enough constant
-that removing it moves the intercept (50.13 → −9.31) and leaves the residual where it
+pads every render with 59.7 output frames of silence at sd 3.7 — near enough constant
+that removing it moves the intercept (50.13 → −9.10) and leaves the residual where it
 was (24.45 → 24.90). The hypothesis was that padding is a variance source; on synthesised
 audio it is not, because there is no variance in it. `MediaRecorder` under a human thumb
 is the case where it should be, and there is no corpus here to show it, so
@@ -685,10 +685,11 @@ trap in one line: change the frame definition without refitting the constants an
 prior stops working almost entirely. A better-calibrated prior is not a better grader,
 and the sweep that chose λ = 0.1 chose it against these constants — so the two move
 together or not at all. `fit_duration.py` fits the constants and prices a candidate's
-charge on a short rival, which is half the instrument; the other half — sweeping
-`DUR_WEIGHT` against accept rate and the negatives, as every table above was scored —
-does not exist yet, and it needs
-`data/eval_clips` and the negatives, which are not in the repository.
+charge on a short rival; `scripts/sweep_grader.py` is the other half, sweeping
+`DUR_WEIGHT` and the floor against accept rate, wrong-line rejection and the negatives,
+the way every table above was scored. Both need `data/eval_clips`, which is not in the
+repository — `scripts/make_negatives.py` rebuilds the negatives once the recordings
+exist, and [`RUNBOOK.md`](RUNBOOK.md) is the order to do it in.
 
 #### Two more switches in the grader, and the same reason both are off
 

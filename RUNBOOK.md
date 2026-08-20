@@ -205,22 +205,39 @@ Consequence: the `frames` row in step 3 no longer needs a refit before being tru
 
 ---
 
-## 5. More real speech — the largest measured effect
+## 5. More speech — what actually exists, and what it costs
 
-Real speech took the student from 102.5% to 74.6% fWER, which no amount of capacity did.
-A transcript is not needed, because the teacher labels whatever it is handed:
+Real speech took the student from 102.5% to 74.6% fWER, which no amount of capacity did,
+so this remains the largest measured effect. **The command previously written here could
+not work:** `facebook/voxpopuli` on the Hub carries only its 16 labelled languages and no
+Maltese at all. VoxPopuli's unlabelled Maltese lives at `dl.fbaipublicfiles.com`, where the
+per-year paths 404 and only the flat `mt_2019.tar` answers.
 
-```bash
-mkdir -p data/corpora/voxpopuli        # drop any Maltese audio in, any format
-.venv/bin/python scripts/distill_stt.py teacher --sources corpus --corpus-name voxpopuli \
-    --real-limit 2000 --shard vox
-```
+What is actually available, checked rather than assumed:
 
-Start with `--real-limit` small. VoxPopuli holds about 9,100 hours of unlabelled Maltese
-and the teacher pass is the expensive part of this whole project; a first run should tell
-you the throughput before it tells you the accuracy. MASRI-HEADSET and MASRI-TUBE add 25
-real speakers close-mic and at two metres — read the research/academic licence before
-shipping anything trained on them.
+| source | size | licence | state |
+|---|---|---|---|
+| FLEURS `mt_mt` | 5.95 GB | CC-BY 4.0 | **already used** — the `real` shard is its 44,691 passes |
+| `MLRS/masri_synthetic` | 6.54 GB, 99h18m, **210 voices** | **CC-BY-NC-SA-4.0** | ungated, unused |
+| MASRI-HEADSET / TUBE | 8h real, 25 speakers | LDC research licence | not on the Hub |
+| `MLRS/korpus_malti` | 0.22 GB | gated | **text, not speech** |
+| Common Voice | Maltese is tiny | CC0 | terms must be accepted by a person |
+
+The permissive audio is spent. FLEURS is in the shard already and everything substantial
+that remains restricts what can be shipped, so **this step is now a licensing decision
+before it is a modelling one.**
+
+MASRI-SYNTHETIC is the one worth wanting. 210 distinct voices against the two the `tts`
+shard has now is exactly the axis the low-resource literature leans on — *Flavors of
+Moonshine* (arXiv 2509.02523) reaches within 3.2% of a 28× larger model on 19.6 hours of
+Ukrainian by mixing pseudo-labelled and speaker-diverse synthetic audio, and it names
+speaker diversity rather than volume as what the synthetic half contributes. Transcripts
+are included, so it can feed `constrain` as well as the teacher.
+
+The cost is CC-BY-NC-SA-4.0. NonCommercial and ShareAlike plausibly reach a model trained
+on it, and this app is published. **Do not run a teacher pass over it until someone decides
+that**, because the shard is what every later run inherits and the decision is not
+reversible by retraining alone.
 
 ---
 

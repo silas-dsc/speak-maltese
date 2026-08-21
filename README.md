@@ -1063,7 +1063,7 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
-#### The shipped model cannot be reproduced, which invalidates half of tonight's comparisons
+#### The shipped model was undocumented, not irreproducible
 
 Choosing the checkpoint on the learner's clips instead of a dev split was the obvious answer
 to the measurement fault above. `--save-every` snapshots every few epochs; each one is
@@ -1089,17 +1089,40 @@ postdate it. The shipped 2.1MB model was trained by an earlier version of this s
 defaults were 60 epochs with dev-loss selection and no EMA, and which had no augmentation
 constant at all. **Its recipe is recorded nowhere.**
 
-That has two consequences, and the second is the more serious.
+**Reproduced, and the recipe is this:**
 
-Every *absolute* comparison in this section is confounded. "This lever did not help" and "my
-recipe is worse than the shipped one" are indistinguishable while the shipped recipe cannot
-be reproduced, so the data results above should be read as *relative* — the MASRI ablation
-against the full run is sound because both share one recipe; either against the shipped model
-is not.
+```bash
+python scripts/distill_stt.py train --width 192 --blocks 10 --kernel 9 \
+    --epochs 60 --select dev            # no EMA, no rank selection
+python scripts/distill_stt.py export --tag <tag>
+```
 
-And the artefact the app depends on is unreproducible. If `frontend/stt/model.onnx` were
-lost, nothing in this repository would regenerate it. That is worth more attention than any
-accuracy point on this page.
+| run | recipe | rank-1 | pass | >near |
+|---|---|---|---|---|
+| **shipped** | the above | **85%** | **88%** | 29% |
+| reproduction, best by dev | the above | 84% | **88%** | **32%** |
+| reproduction, epoch 30 | the above | **85%** | **88%** | 28% |
+| 40 epochs, EMA + rank | | 83% | 87% | 29% |
+| the same, plus BDL and MASRI | | 81% | 85% | 25% |
+
+So the shipped model was never irreproducible — only undocumented, and the two are easy to
+confuse when a checkpoint carries no metadata. What could not be reproduced was the *result*,
+because every attempt used a recipe two points worse than the one that shipped.
+
+With the baseline recovered the two effects separate, and they had been tangled:
+
+* **EMA plus rank selection costs one to two points** — 83/87 against 84/88 on the same data.
+  6a's premise was not merely null; averaging the weights and selecting on rank made the
+  model slightly worse.
+* **The new native audio costs about two points** — 83/87 to 81/85 *within* the EMA recipe,
+  which is a fair comparison because both sides share it. The conclusion above survives; the
+  four-point figure it was first reported with does not, because that compared across recipes.
+
+The lesson is about bookkeeping rather than modelling. A checkpoint that records its
+architecture and not its recipe cannot be argued with, and every experiment run against it
+inherits an unknown offset. `student.pt` now carries epoch, dev loss and rank-1; the recipe
+above is written down; and the snapshots make the checkpoint choice visible instead of
+implicit.
 
 #### More Maltese made it worse, and the domain-matched hours did the damage
 

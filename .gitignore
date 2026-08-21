@@ -48,3 +48,4 @@ data/corpora/
 
 # Sweep cache — derived from gitignored audio.
 data/eval_clips/objective_cache.json
+data/eval_clips/duration_cache.json

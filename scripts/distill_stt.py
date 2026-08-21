@@ -382,7 +382,7 @@ def fleurs_split(eval_n: int = REAL_EVAL_N, train_limit: int | None = None):
 # ── Stage 1: features and teacher posteriors ───────────────────────────────
 
 def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None,
-                  shard: str, sources: list[str], corpus_name: str | None = None) -> int:
+                  shard: str, sources: list[str], corpus_name: str | None = None, corpus_text: bool = False) -> int:
     """Precompute once: the student's input and the teacher's answer, side by side.
 
     Both go into flat memmaps with an index, so training never touches audio or the
@@ -419,7 +419,13 @@ def stage_teacher(limit: int | None, augments: list[str], real_limit: int | None
         n = 0
         for root in roots:
             rows = corpus_clips(root, real_limit, eval_frac=0.05)
-            jobs += [(r["path"], "", f"corpus:{root.name}") for r in rows]
+            # The exception the reason above allows for: when the manifest's text *is*
+            # deck text. Recordings of a learner attempting a deck line are labelled with
+            # the line they were asked for, so the CTC term stays honest about the app's
+            # sequences — that is what makes them worth having. Opt-in, because getting it
+            # wrong feeds the model a foreign transcript as if it were the answer.
+            jobs += [(r["path"], r["text"] if corpus_text else "", f"corpus:{root.name}")
+                     for r in rows]
             n += len(rows)
             print(f"{len(rows)} clips from {root.name}")
         if not n:
@@ -1484,6 +1490,11 @@ def main() -> int:
     ap.add_argument("--sources", default="tts,real",
                     help="which audio to run the teacher over: tts, real, accent, "
                          "corpus")
+    ap.add_argument("--corpus-text", action="store_true",
+                    help="trust the corpus manifest's text as a CTC target. Only correct "
+                         "when that text is the deck line the speaker was asked for — a "
+                         "transcript from another corpus is not, which is why this is off "
+                         "by default")
     ap.add_argument("--corpus-name", default=None,
                     help="one directory under data/corpora to ingest; all of them by "
                          "default")
@@ -1497,7 +1508,7 @@ def main() -> int:
             return 2
         srcs = [x.strip() for x in args.sources.split(',') if x.strip()]
         return stage_teacher(args.limit, kinds, args.real_limit,
-                             args.shard, srcs, args.corpus_name)
+                             args.shard, srcs, args.corpus_name, args.corpus_text)
     if args.stage == "pseudo":
         return stage_pseudo(args.shard)
     if args.stage == "constrain":

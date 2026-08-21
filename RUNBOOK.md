@@ -205,6 +205,27 @@ Consequence: the `frames` row in step 3 no longer needs a refit before being tru
 
 ---
 
+## The corpus shards carry no CTC targets, on purpose
+
+Worth knowing before reading any result that used them. `stage_teacher` feeds corpus audio in
+with an empty text field even when the manifest supplies one, because a transcript from
+another corpus is not a deck line and the CTC term exists to keep the app's sequences honest.
+`stage_pseudo` is what gives those clips a target, from the teacher's own reading.
+
+So the 12.7 hours added to the shard — BDL, MASRI, GRN — contributed **knowledge
+distillation only**: frame-level posterior matching, no sequence supervision. That does not
+overturn the finding that they made the model worse, because both sides of that comparison
+shared the same treatment. It narrows it: what was measured is that 12.7h of *KD-only* native
+audio hurt. The same audio with pseudo-labelled targets is untested, and **MASRI's real
+transcripts were discarded** by this path when they could have been used.
+
+`--corpus-text` opts back in, and is only correct when the manifest's text really is the deck
+line the speaker was asked for — a learner's attempt at a known prompt, which is the one case
+the reasoning above allows. Used for the L2 shard, where the label is the line the speaker
+was asked for rather than what they managed to say.
+
+---
+
 ## 5. More speech — what actually exists, and what it costs
 
 Real speech took the student from 102.5% to 74.6% fWER, which no amount of capacity did,

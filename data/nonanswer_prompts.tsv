@@ -1,0 +1,41 @@
+say	intended	class	kind	detail
+say NOTHING — stay quiet for a couple of seconds, then stop	sew, mela.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	irrid nara tabib.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	kelma waħda.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	hemm is-sħab.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	għajnejja jweġġgħu.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	hi tgħix il-belt.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	tini l-melħ, jekk jogħġbok.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+say NOTHING — stay quiet for a couple of seconds, then stop	uġigħ ta' stonku.	reject	silence	say NOTHING — stay quiet for a couple of seconds, then stop
+just a hesitation — “ummm” or “er”, no words	il-ħanut ħdejn il-knisja.	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	hemm ħanut hemmhekk.	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	meta tasal?	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	nagħmel il-baħar kuljum.	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	grazzi tal-paċenzja.	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	ħa nieħu dan.	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	ix-xahar id-dieħel.	reject	filler	just a hesitation — “ummm” or “er”, no words
+just a hesitation — “ummm” or “er”, no words	kif tinkiteb?	reject	filler	just a hesitation — “ummm” or “er”, no words
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	minn fejn int?	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	x'inhu l-prezz?	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	minn qalbi.	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	xi tfisser din il-kelma?	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	għodwa t-tajba.	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	dawl aħdar.	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	naqra kuljum.	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+answer in ENGLISH — “I don't know”, “no idea”, whatever is honest	ninsab mitluf.	reject	english	answer in ENGLISH — “I don't know”, “no idea”, whatever is honest
+start the Maltese line and STOP after a syllable or two	per eżempju.	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	illum x'jum hu?	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	immur l-ajruport.	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	jien miżżewweġ.	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	fejn hu l-isptar?	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	ix-xemx qawwija.	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	tinkwetax.	reject	partial	start the Maltese line and STOP after a syllable or two
+start the Maltese line and STOP after a syllable or two	immur lejn il-baħar.	reject	partial	start the Maltese line and STOP after a syllable or two
+say something unrelated, in English — “hello”, “what's for lunch”	nixrob l-ilma.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	idejja kesħin.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	noħroġ mal-ħbieb.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	nifhem ftit.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	mejda għal tnejn.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	bonġu!	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	ftit melħ.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”
+say something unrelated, in English — “hello”, “what's for lunch”	noqgħod fi tas-sliema.	reject	offtopic	say something unrelated, in English — “hello”, “what's for lunch”

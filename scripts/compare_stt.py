@@ -243,6 +243,10 @@ ERRORS = "errors"
 # What to actually do, per kind of mistake. The generator emits a code; a person needs a
 # sentence. Kept here rather than in the prompt file so the wording can be fixed without
 # regenerating a set that has already been half recorded.
+# Prompts where `say` is an instruction rather than a line: nothing is rendered for them,
+# and for silence a quiet recording is the *correct* result rather than a failed take.
+NONANSWER = frozenset({"silence", "filler", "english", "partial", "offtopic"})
+
 HOW = {
     "geminate": "say that doubled letter ONCE, short",
     "ghajn": "sound the g in għ as a hard g — it should be silent",
@@ -253,6 +257,23 @@ HOW = {
     "dropped": "leave that word out — this is meant to be WRONG",
     "other": "say this different line instead — this is meant to be WRONG",
 }
+
+
+def _clip_tag(prompts: Path) -> str:
+    """The filename prefix for clips recorded from this prompt file.
+
+    A clip used to be named for its row number alone, so the first row of every prompt file
+    was `err_001.wav`. Recording a second set then skipped each row as already done and
+    printed the first set's total as its success line — a session of prompts asked for,
+    answered, and written nowhere. Skipping an existing clip is the resume path and cannot
+    tell "already recorded" from "another set's clip in the way", so the prompt file's own
+    name has to keep the sets apart. They still share one manifest, which is what the
+    scorer wants.
+
+    `error_prompts.tsv` and `error_prompts_200.tsv` are deliberately one set: 200 clips are
+    already on disk under `err_`, and renaming them would orphan them from the manifest
+    rows that describe them."""
+    return "err" if prompts.stem.startswith("error") else prompts.stem.split("_")[0]
 
 
 def record_errors(prompts: Path, device: str = ":default",
@@ -287,7 +308,10 @@ def record_errors(prompts: Path, device: str = ":default",
     say_as = {_key(k): v for k, v in say_as.items()}
     en = {_key(k): v for k, v in en.items()}
     # Before the microphone opens, so nothing stalls mid-session waiting on a network call.
-    _ensure_audio([r["say"] for r in rows] + [r["intended"] for r in rows])
+    # Only real lines are rendered: "say NOTHING" is an instruction, and synthesising it
+    # would spend a network call to produce audio nobody should imitate.
+    speakable = [r["say"] for r in rows if (r.get("kind") or "") not in NONANSWER]
+    _ensure_audio(speakable + [r["intended"] for r in rows])
     lead = _input_lead(device)
     manifest = out_dir / "manifest.tsv"
     done = {}
@@ -295,10 +319,11 @@ def record_errors(prompts: Path, device: str = ":default",
         with manifest.open(encoding="utf-8") as fh:
             done = {r["file"]: r for r in csv.DictReader(fh, delimiter="\t")}
 
+    tag = _clip_tag(prompts)
     kept = list(done.values())
     quiet = 0
     for i, row in enumerate(rows, 1):
-        name = f"err_{i:03d}.wav"
+        name = f"{tag}_{i:03d}.wav"
         if name in done:
             continue
         print(f"\n[{i}/{len(rows)}]  say it WRONG:  {row['say']}")
@@ -320,22 +345,32 @@ def record_errors(prompts: Path, device: str = ":default",
         # `other` prompt the intended line is a *different sentence* — unrelated by
         # construction — so it is delay rather than help, and 40 prompts of it is a wasted
         # quarter of an hour.
-        pair = not say_only and kind != "other"
-        print("          listen: the correct line, then a rough render of the error"
-              if pair else "          listen: just the line to say")
-        if pair:
+        nonanswer = kind in NONANSWER
+        pair = not say_only and kind != "other" and not nonanswer
+        if nonanswer:
+            # The line is played because being asked it is the situation being recorded —
+            # the learner hears the question and fails to answer it. There is nothing to
+            # imitate afterwards.
+            print("          listen: the line you are being asked for, then do the above")
+        else:
+            print("          listen: the correct line, then a rough render of the error"
+                  if pair else "          listen: just the line to say")
+        if pair or nonanswer:
             if not _play(row["intended"]):
                 print("          (no audio for the correct line — run prebuild_audio.py)")
             time.sleep(0.4)
-        if not _play(row["say"]):
+        if nonanswer:
+            pass
+        elif not _play(row["say"]):
             print(f"          ! no audio for {row['say']!r} — say it from the spelling, or "
                   f"skip this prompt")
         input("       Enter to hear it again, or arm the microphone with the next "
               "Enter… ")
-        if pair:
+        if pair or nonanswer:
             _play(row["intended"])
             time.sleep(0.4)
-        _play(row["say"])
+        if not nonanswer:
+            _play(row["say"])
         input("       Enter to arm the microphone, then wait for 'speak now'… ")
         proc = subprocess.Popen(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -350,7 +385,20 @@ def record_errors(prompts: Path, device: str = ":default",
 
         level = _peak(out_dir / name)
         held = _duration(out_dir / name)
-        if held < 0.5:
+        if kind == "silence":
+            # A silent recording is the point here, so the usual level check is inverted:
+            # what would spoil this clip is speech in it. Length still matters — a
+            # zero-length file is a stalled input, not a recorded silence.
+            if held < 0.5:
+                quiet += 1
+                print(f"       ! only {held:.2f}s recorded — the input stalled, redo")
+            elif level >= 0.15:
+                quiet += 1
+                print(f"       ! that has speech in it (peak {level:.2f}) — this one is "
+                      f"meant to be silent, redo")
+            else:
+                print(f"       ok, silent (peak {level:.2f})")
+        elif held < 0.5:
             quiet += 1
             print(f"       ! only {held:.2f}s recorded — the input stalled, delete and redo")
         elif level < 0.10:
@@ -374,7 +422,10 @@ def record_errors(prompts: Path, device: str = ":default",
             w.writeheader()
             w.writerows(kept)
 
-    print(f"\n✓ {len(kept)} deliberate errors in {out_dir}")
+    # Counted per set, not per manifest: "200 clips" after a 40-prompt session says nothing
+    # about whether the session recorded anything, which is how the last one went unnoticed.
+    mine = sum(1 for r in kept if r["file"].startswith(f"{tag}_"))
+    print(f"\n✓ {mine} clips from {prompts.name}, {len(kept)} in {out_dir} altogether")
     if quiet:
         print(f"! {quiet} unusable — delete the file and its manifest row, then re-run")
     print("  measure whether the grader catches them:\n"

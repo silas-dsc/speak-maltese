@@ -272,6 +272,36 @@ def test_every_recording_prompt_has_a_pronunciation_guide():
     assert not silent, f"nothing to listen to for: {silent}"
 
 
+def test_two_prompt_files_do_not_record_over_each_other(tmp_path):
+    """A clip was named for its row number alone, so the first row of any prompt file was
+    `err_001.wav`. Recording a second set therefore skipped every row as already done and
+    printed the first set's total as its success line — a whole session of prompts asked
+    for, answered, and written nowhere, with nothing on screen to say so.
+
+    The failure is silent by construction: skipping an existing clip is the resume path,
+    and it cannot tell "already recorded" from "a different set's clip in the way". So the
+    guard is that two prompt files never agree on a name."""
+    C = load("compare_stt")
+    from pathlib import Path
+
+    # Asking the module for the rule rather than restating it here: a test that carries its
+    # own copy of the formula goes on passing after the code stops using it.
+    def names(stem):
+        tag = C._clip_tag(Path(f"data/{stem}.tsv"))
+        return {f"{tag}_{i:03d}.wav" for i in range(1, 41)}
+
+    errors, nonanswers = names("error_prompts_200"), names("nonanswer_prompts")
+    assert not errors & nonanswers, (
+        "the deliberate-error and non-answer sets collide on "
+        f"{sorted(errors & nonanswers)[:3]} — the second set recorded will be skipped")
+
+    # And the original set keeps its own names, or the 200 clips already on disk are
+    # orphaned from the manifest rows that describe them. Both spellings of the error file
+    # are that one set.
+    assert names("error_prompts") == errors
+    assert "err_001.wav" in errors
+
+
 def test_every_turn_can_show_and_say_its_answer():
     """The drill offers **Show me**, which puts a model answer on screen and speaks
     it. Two ways for that to become a button that does nothing, both silent:

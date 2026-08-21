@@ -272,6 +272,33 @@ def test_every_recording_prompt_has_a_pronunciation_guide():
     assert not silent, f"nothing to listen to for: {silent}"
 
 
+def test_a_quiet_non_answer_is_kept_and_a_dead_input_is_not():
+    """A murmured "ummm" is quiet, and so is a sentence trailing off mid-word. Judging
+    those by the honest-attempt level check called 9 of the first 40 non-answers unusable —
+    4 of 8 fillers, 3 of 8 partials — every one a full-length recording of something
+    actually said. Level carries no information anyway: the recogniser normalises each mel
+    bin over the clip, so a uniform gain change cancels, and amplifying those 9 by 8x moved
+    confidence by at most 0.017 without reversing a verdict.
+
+    Pinned against what the recorded set actually measured, since these are the numbers the
+    thresholds were chosen from and a later tweak that swallows the quiet kinds again would
+    otherwise look harmless."""
+    C = load("compare_stt")
+
+    ROOM_TONE, QUIETEST_UMMM, QUIETEST_HONEST, LOUDEST_SILENCE = 0.005, 0.056, 0.149, 0.062
+
+    assert ROOM_TONE < C.QUIET_PEAK_NONANSWER < QUIETEST_UMMM, (
+        f"{C.QUIET_PEAK_NONANSWER} has to sit above room tone and below the quietest thing "
+        f"anyone said, or it throws away real non-answers or keeps dead air")
+    assert C.QUIET_PEAK <= QUIETEST_HONEST, (
+        "an honest attempt is asked for at full voice and its content has to be recognised, "
+        "so that threshold stays where the honest clips are")
+    assert C.QUIET_PEAK_NONANSWER < C.QUIET_PEAK, "the non-answer check must be the looser one"
+    assert LOUDEST_SILENCE < C.SPEECH_PEAK, (
+        "breath and room tone reached 0.062 on the silence prompts, so a check for speech "
+        "in them has to sit above that")
+
+
 def test_two_prompt_files_do_not_record_over_each_other(tmp_path):
     """A clip was named for its row number alone, so the first row of any prompt file was
     `err_001.wav`. Recording a second set therefore skipped every row as already done and

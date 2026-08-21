@@ -135,7 +135,7 @@ def bad_takes() -> list[tuple[str, str]]:
     out = []
     for row in _read_manifest("voice"):
         peak = _peak(CLIPS / row["file"])
-        if peak < 0.10:
+        if peak < QUIET_PEAK:
             out.append((row["file"], f"too quiet (peak {peak:.2f})"))
         elif peak >= 0.99:
             out.append((row["file"], f"clipping (peak {peak:.2f})"))
@@ -246,6 +246,24 @@ ERRORS = "errors"
 # Prompts where `say` is an instruction rather than a line: nothing is rendered for them,
 # and for silence a quiet recording is the *correct* result rather than a failed take.
 NONANSWER = frozenset({"silence", "filler", "english", "partial", "offtopic"})
+
+# An honest attempt is asked for at full voice, so 0.10 there is a fair nudge to move
+# closer. A non-answer is not: a murmured "ummm" and a sentence trailing off mid-word are
+# quiet by nature, and the first non-answer session called 9 of 40 unusable on that basis —
+# 4 of the 8 fillers and 3 of the 8 partials, every one of them a full-length recording of
+# something actually said.
+#
+# Level does not carry information here anyway. The recogniser normalises each mel bin over
+# the clip, so a uniform gain change cancels algebraically; amplifying those 9 clips 8x
+# moved confidence by at most 0.017 and reversed no verdict. What makes a clip unusable is
+# a dead input, not a quiet speaker. Measured on the set: room tone 0.005, the quietest
+# real "ummm" 0.056, the quietest honest attempt 0.149.
+QUIET_PEAK = 0.10        # honest attempts, where full voice is the instruction
+QUIET_PEAK_NONANSWER = 0.03   # above the noise floor, below anything anyone said
+# For a `silence` prompt quiet is the point and speech is what spoils it. The 8 recorded
+# silences reached 0.062 on breath and room tone alone, so the line has to sit above that
+# while still catching a word spoken into a slot meant to be empty.
+SPEECH_PEAK = 0.10
 
 HOW = {
     "geminate": "say that doubled letter ONCE, short",
@@ -392,7 +410,7 @@ def record_errors(prompts: Path, device: str = ":default",
             if held < 0.5:
                 quiet += 1
                 print(f"       ! only {held:.2f}s recorded — the input stalled, redo")
-            elif level >= 0.15:
+            elif level >= SPEECH_PEAK:
                 quiet += 1
                 print(f"       ! that has speech in it (peak {level:.2f}) — this one is "
                       f"meant to be silent, redo")
@@ -401,11 +419,15 @@ def record_errors(prompts: Path, device: str = ":default",
         elif held < 0.5:
             quiet += 1
             print(f"       ! only {held:.2f}s recorded — the input stalled, delete and redo")
-        elif level < 0.10:
+        elif level < (QUIET_PEAK_NONANSWER if nonanswer else QUIET_PEAK):
             quiet += 1
-            print(f"       ! too quiet to use (peak {level:.2f}) — delete and redo")
+            print(f"       ! nothing on the input (peak {level:.2f}) — delete and redo")
         else:
-            print(f"       ok (peak {level:.2f})")
+            # Said quietly is not said badly: the level is reported so a run of near-floor
+            # clips is visible, but a quiet non-answer is the realistic one and is kept.
+            print(f"       ok (peak {level:.2f})"
+                  + ("  (quiet, but level does not affect scoring)"
+                     if nonanswer and level < QUIET_PEAK else ""))
         # `text` is what the grader will be asked to confirm, so it is the *intended*
         # line. `said` records what was actually spoken, which is what makes the clip a
         # negative rather than a recording with a typo in its label.
@@ -581,12 +603,15 @@ def record(n: int, device: str = ":default") -> None:
         # 0.01 was far too lenient: a take at peak 0.03 passed it, sat 30dB under every
         # other clip, and was the single worst-scoring recording in the set — both Whisper
         # models hallucinated on it. Anything this far down is unusable, not merely quiet.
+        # This is the honest-attempt threshold and stays where it is: here the *content* has
+        # to be recognised, which is a stricter demand than a non-answer's, and full voice
+        # is what the prompt asks for. See QUIET_PEAK_NONANSWER for why the other set differs.
         if held < 0.5:
             # Not a quiet take — a take that never happened. Saying "too quiet" here
             # sends someone to the gain knob for a fault in the device handshake.
             quiet += 1
             print(f"       ! only {held:.2f}s recorded — the input stalled, --redo {i}")
-        elif level < 0.10:
+        elif level < QUIET_PEAK:
             quiet += 1
             print(f"       ! too quiet to use (peak {level:.2f}) — move closer or raise "
                   f"the input gain, then --redo {i}")

@@ -112,79 +112,90 @@ def build_cache():
     return recs
 
 
-recs = json.loads(CACHE.read_text()) if CACHE.exists() else build_cache()
-print(f"cached {len(recs)} clips")
+def main() -> int:
+    """Everything below runs a sweep, so it lives behind a call rather than at
+    import time. `test_script_imports` imports every script in this directory: a
+    module that loads a model and reads a cache while being imported fails wherever
+    onnxruntime or the audio is absent, which is CI.
+    """
+    recs = json.loads(CACHE.read_text()) if CACHE.exists() else build_cache()
+    print(f"cached {len(recs)} clips")
 
-GROUPS = ["honest", "honest_quiet", "near_miss", "wrong_mt",
-          "nonanswer", "noise", "reversed"]
-
-
-def accept_rates(floor, margin):
-    """Share of each group accepted, averaged over independent draws of the field."""
-    per = {g: [0.0, 0] for g in GROUPS}
-    for rec in recs:
-        if rec["group"] not in per:
-            continue
-        hits = 0
-        for seed in SEEDS:
-            rng = random.Random(seed)
-            pool = rec["rivals"]
-            drawn = rng.sample(pool, min(FIELD, len(pool))) if pool else []
-            best = max(drawn) if drawn else -float("inf")
-            hits += int(rec["conf"] >= floor and rec["target"] > best + margin)
-        per[rec["group"]][0] += hits / len(SEEDS)
-        per[rec["group"]][1] += 1
-    return {g: (v[0] / v[1] if v[1] else 0.0, v[1]) for g, v in per.items()}
+    GROUPS = ["honest", "honest_quiet", "near_miss", "wrong_mt",
+              "nonanswer", "noise", "reversed"]
 
 
-FLOORS = [0.00, 0.05, 0.10, 0.15, 0.25, 0.35, 0.45, 0.55]
-MARGINS = [-0.10, -0.05, 0.00, 0.02, 0.05, 0.10]
+    def accept_rates(floor, margin):
+        """Share of each group accepted, averaged over independent draws of the field."""
+        per = {g: [0.0, 0] for g in GROUPS}
+        for rec in recs:
+            if rec["group"] not in per:
+                continue
+            hits = 0
+            for seed in SEEDS:
+                rng = random.Random(seed)
+                pool = rec["rivals"]
+                drawn = rng.sample(pool, min(FIELD, len(pool))) if pool else []
+                best = max(drawn) if drawn else -float("inf")
+                hits += int(rec["conf"] >= floor and rec["target"] > best + margin)
+            per[rec["group"]][0] += hits / len(SEEDS)
+            per[rec["group"]][1] += 1
+        return {g: (v[0] / v[1] if v[1] else 0.0, v[1]) for g, v in per.items()}
 
-print(f"\nfield of {FIELD} sampled rivals, averaged over {len(SEEDS)} draws\n")
-grid = {}
-for floor in FLOORS:
-    for margin in MARGINS:
-        grid[(floor, margin)] = accept_rates(floor, margin)
 
-n = accept_rates(0.15, 0.02)
-print("  set sizes: " + ", ".join(f"{g} {n[g][1]}" for g in GROUPS) + "\n")
+    FLOORS = [0.00, 0.05, 0.10, 0.15, 0.25, 0.35, 0.45, 0.55]
+    MARGINS = [-0.10, -0.05, 0.00, 0.02, 0.05, 0.10]
 
-print("  honest accepted (want high) by floor x margin")
-print("  floor  " + "  ".join(f"{m:+.2f}" for m in MARGINS))
-for floor in FLOORS:
-    print(f"  {floor:5.2f}  " + "  ".join(
-        f"{grid[(floor, m)]['honest'][0] * 100:5.0f}" for m in MARGINS))
+    print(f"\nfield of {FIELD} sampled rivals, averaged over {len(SEEDS)} draws\n")
+    grid = {}
+    for floor in FLOORS:
+        for margin in MARGINS:
+            grid[(floor, margin)] = accept_rates(floor, margin)
 
-print("\n  non-answers admitted (want zero) by floor x margin")
-print("  floor  " + "  ".join(f"{m:+.2f}" for m in MARGINS))
-for floor in FLOORS:
-    print(f"  {floor:5.2f}  " + "  ".join(
-        f"{grid[(floor, m)]['nonanswer'][0] * 100:5.0f}" for m in MARGINS))
+    n = accept_rates(0.15, 0.02)
+    print("  set sizes: " + ", ".join(f"{g} {n[g][1]}" for g in GROUPS) + "\n")
 
-print("\n  silence and hiss admitted (want zero) by floor x margin")
-print("  floor  " + "  ".join(f"{m:+.2f}" for m in MARGINS))
-for floor in FLOORS:
-    print(f"  {floor:5.2f}  " + "  ".join(
-        f"{grid[(floor, m)]['noise'][0] * 100:5.0f}" for m in MARGINS))
+    print("  honest accepted (want high) by floor x margin")
+    print("  floor  " + "  ".join(f"{m:+.2f}" for m in MARGINS))
+    for floor in FLOORS:
+        print(f"  {floor:5.2f}  " + "  ".join(
+            f"{grid[(floor, m)]['honest'][0] * 100:5.0f}" for m in MARGINS))
 
-print("\n  objective = honest - lambda * (non-answers + hiss/silence admitted)")
-for lam in (1.0, 3.0, 10.0):
-    best = max(grid, key=lambda k: grid[k]["honest"][0]
-               - lam * (grid[k]["nonanswer"][0] + grid[k]["noise"][0]))
-    r = grid[best]
-    print(f"  lambda {lam:5.1f} -> floor {best[0]:.2f}, margin {best[1]:+.2f}  "
-          f"honest {r['honest'][0] * 100:.0f}%  near-miss {r['near_miss'][0] * 100:.0f}%  "
-          f"wrong-mt {r['wrong_mt'][0] * 100:.0f}%  "
-          f"non-answers {r['nonanswer'][0] * 100:.0f}%  "
-          f"hiss/silence {r['noise'][0] * 100:.0f}%  "
-          f"reversed {r['reversed'][0] * 100:.0f}%  "
-          f"quiet-correct {r['honest_quiet'][0] * 100:.0f}%")
+    print("\n  non-answers admitted (want zero) by floor x margin")
+    print("  floor  " + "  ".join(f"{m:+.2f}" for m in MARGINS))
+    for floor in FLOORS:
+        print(f"  {floor:5.2f}  " + "  ".join(
+            f"{grid[(floor, m)]['nonanswer'][0] * 100:5.0f}" for m in MARGINS))
 
-dep = grid[(0.15, 0.02)]
-print(f"\n  deployed (0.15, +0.02)      honest {dep['honest'][0] * 100:.0f}%  "
-      f"near-miss {dep['near_miss'][0] * 100:.0f}%  "
-      f"wrong-mt {dep['wrong_mt'][0] * 100:.0f}%  "
-      f"non-answers {dep['nonanswer'][0] * 100:.0f}%  "
-      f"hiss/silence {dep['noise'][0] * 100:.0f}%  "
-      f"reversed {dep['reversed'][0] * 100:.0f}%  "
-      f"quiet-correct {dep['honest_quiet'][0] * 100:.0f}%")
+    print("\n  silence and hiss admitted (want zero) by floor x margin")
+    print("  floor  " + "  ".join(f"{m:+.2f}" for m in MARGINS))
+    for floor in FLOORS:
+        print(f"  {floor:5.2f}  " + "  ".join(
+            f"{grid[(floor, m)]['noise'][0] * 100:5.0f}" for m in MARGINS))
+
+    print("\n  objective = honest - lambda * (non-answers + hiss/silence admitted)")
+    for lam in (1.0, 3.0, 10.0):
+        best = max(grid, key=lambda k: grid[k]["honest"][0]
+                   - lam * (grid[k]["nonanswer"][0] + grid[k]["noise"][0]))
+        r = grid[best]
+        print(f"  lambda {lam:5.1f} -> floor {best[0]:.2f}, margin {best[1]:+.2f}  "
+              f"honest {r['honest'][0] * 100:.0f}%  near-miss {r['near_miss'][0] * 100:.0f}%  "
+              f"wrong-mt {r['wrong_mt'][0] * 100:.0f}%  "
+              f"non-answers {r['nonanswer'][0] * 100:.0f}%  "
+              f"hiss/silence {r['noise'][0] * 100:.0f}%  "
+              f"reversed {r['reversed'][0] * 100:.0f}%  "
+              f"quiet-correct {r['honest_quiet'][0] * 100:.0f}%")
+
+    dep = grid[(0.15, 0.02)]
+    print(f"\n  deployed (0.15, +0.02)      honest {dep['honest'][0] * 100:.0f}%  "
+          f"near-miss {dep['near_miss'][0] * 100:.0f}%  "
+          f"wrong-mt {dep['wrong_mt'][0] * 100:.0f}%  "
+          f"non-answers {dep['nonanswer'][0] * 100:.0f}%  "
+          f"hiss/silence {dep['noise'][0] * 100:.0f}%  "
+          f"reversed {dep['reversed'][0] * 100:.0f}%  "
+          f"quiet-correct {dep['honest_quiet'][0] * 100:.0f}%")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

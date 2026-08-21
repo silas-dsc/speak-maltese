@@ -98,45 +98,56 @@ def build():
     return recs
 
 
-recs = json.loads(CACHE.read_text()) if CACHE.exists() else build()
-print(f"cached {len(recs)} clips\n")
+def main() -> int:
+    """Everything below runs a sweep, so it lives behind a call rather than at
+    import time. `test_script_imports` imports every script in this directory: a
+    module that loads a model and reads a cache while being imported fails wherever
+    onnxruntime or the audio is absent, which is CI.
+    """
+    recs = json.loads(CACHE.read_text()) if CACHE.exists() else build()
+    print(f"cached {len(recs)} clips\n")
 
 
-def rates(weight):
-    per = {g: [0.0, 0] for g in GROUPS}
-    for rec in recs:
-        if rec["group"] not in per:
-            continue
-        f = rec["frames"]
-        target = rec["conf"] + weight * prior(rec["tokens"], f)
-        scored = [c + weight * prior(t, f) for t, c in rec["rivals"]]
-        hits = 0
-        for seed in SEEDS:
-            rng = random.Random(seed)
-            drawn = rng.sample(scored, min(FIELD, len(scored))) if scored else []
-            best = max(drawn) if drawn else -float("inf")
-            hits += int(rec["conf"] >= FLOOR and target > best + MARGIN)
-        per[rec["group"]][0] += hits / len(SEEDS)
-        per[rec["group"]][1] += 1
-    return {g: (v[0] / v[1] if v[1] else 0.0, v[1]) for g, v in per.items()}
+    def rates(weight):
+        per = {g: [0.0, 0] for g in GROUPS}
+        for rec in recs:
+            if rec["group"] not in per:
+                continue
+            f = rec["frames"]
+            target = rec["conf"] + weight * prior(rec["tokens"], f)
+            scored = [c + weight * prior(t, f) for t, c in rec["rivals"]]
+            hits = 0
+            for seed in SEEDS:
+                rng = random.Random(seed)
+                drawn = rng.sample(scored, min(FIELD, len(scored))) if scored else []
+                best = max(drawn) if drawn else -float("inf")
+                hits += int(rec["conf"] >= FLOOR and target > best + MARGIN)
+            per[rec["group"]][0] += hits / len(SEEDS)
+            per[rec["group"]][1] += 1
+        return {g: (v[0] / v[1] if v[1] else 0.0, v[1]) for g, v in per.items()}
 
 
-WEIGHTS = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 2.0]
-print(f"floor {FLOOR}, margin {MARGIN:+.2f}, field of {FIELD}, {len(SEEDS)} draws")
-print("\n  weight" + "".join(f"{g:>11}" for g in GROUPS))
-out = {}
-for w in WEIGHTS:
-    r = out[w] = rates(w)
-    mark = "  <- deployed" if w == 0.1 else ""
-    print(f"  {w:5.2f} " + "".join(f"{r[g][0] * 100:10.0f}%" for g in GROUPS) + mark)
+    WEIGHTS = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 2.0]
+    print(f"floor {FLOOR}, margin {MARGIN:+.2f}, field of {FIELD}, {len(SEEDS)} draws")
+    print("\n  weight" + "".join(f"{g:>11}" for g in GROUPS))
+    out = {}
+    for w in WEIGHTS:
+        r = out[w] = rates(w)
+        mark = "  <- deployed" if w == 0.1 else ""
+        print(f"  {w:5.2f} " + "".join(f"{r[g][0] * 100:10.0f}%" for g in GROUPS) + mark)
 
-print("\n  want high: honest, near_miss.  want low: nonanswer, noise, reversed.")
-print("  relaxed about: wrong_mt.\n")
-for lam in (1.0, 3.0):
-    best = max(out, key=lambda w: out[w]["honest"][0] + out[w]["near_miss"][0]
-               - lam * (out[w]["nonanswer"][0] + out[w]["noise"][0]))
-    r = out[best]
-    print(f"  lambda {lam:4.1f} -> weight {best:.2f}: honest {r['honest'][0] * 100:.0f}%, "
-          f"near-miss {r['near_miss'][0] * 100:.0f}%, "
-          f"non-answers {r['nonanswer'][0] * 100:.0f}%, noise {r['noise'][0] * 100:.0f}%")
-print(f"\n  group sizes: " + ", ".join(f"{g} {out[0.1][g][1]}" for g in GROUPS))
+    print("\n  want high: honest, near_miss.  want low: nonanswer, noise, reversed.")
+    print("  relaxed about: wrong_mt.\n")
+    for lam in (1.0, 3.0):
+        best = max(out, key=lambda w: out[w]["honest"][0] + out[w]["near_miss"][0]
+                   - lam * (out[w]["nonanswer"][0] + out[w]["noise"][0]))
+        r = out[best]
+        print(f"  lambda {lam:4.1f} -> weight {best:.2f}: honest {r['honest'][0] * 100:.0f}%, "
+              f"near-miss {r['near_miss'][0] * 100:.0f}%, "
+              f"non-answers {r['nonanswer'][0] * 100:.0f}%, noise {r['noise'][0] * 100:.0f}%")
+    print(f"\n  group sizes: " + ", ".join(f"{g} {out[0.1][g][1]}" for g in GROUPS))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

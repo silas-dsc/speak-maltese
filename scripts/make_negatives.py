@@ -58,7 +58,10 @@ NEGATIVES = CLIPS / "negatives"
 # noise is not rejecting noise.
 NOISE_LEVELS = (0.005, 0.02, 0.05, 0.12, 0.30)
 
-# How far under the original a "too quiet to grade" copy sits.
+# Default attenuation for `attenuated`, which is no longer a negative generator: it is the
+# gain-invariance probe. Turning a clip down 30dB and getting the same verdict is the
+# property the feature normalisation is supposed to guarantee, and the harness test asserts
+# exactly that.
 QUIET_DB = -30.0
 
 # Enough silence and hiss clips to see a percentage, and one of each transform per clip.
@@ -152,8 +155,17 @@ def build(clips_dir: Path = CLIPS, out_dir: Path = NEGATIVES,
 
     for path, wave in waves:
         stem = path.stem
-        emit(f"neg_quiet_{stem}.wav", attenuated(wave), "quiet", path.name,
-             f"{QUIET_DB:g} dB")
+        # No `quiet` negatives. An attenuated copy of a correct answer is still the correct
+        # answer: the recogniser normalises each mel bin over the clip, so a uniform gain
+        # change shifts log-mel by a constant that per-bin mean subtraction removes exactly.
+        # Measured rather than assumed — amplifying the nine quietest real non-answers by 8x
+        # moved target confidence by at most 0.017 and reversed no verdict, and 93% of the
+        # 75 attenuated copies this used to emit were accepted, which is the invariance
+        # showing up as a 93% "failure" rate against a label that was wrong.
+        #
+        # Leaving them in was worse than useless. Any rule fitted against this set was being
+        # charged for accepting correct answers, which pushes every threshold in the strict
+        # direction for no reason — and they were 75 of 190 negatives, so the pull was large.
         emit(f"neg_reversed_{stem}.wav", reversed_clip(wave), "reversed", path.name,
              "time-reversed")
 

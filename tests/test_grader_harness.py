@@ -137,9 +137,13 @@ def test_the_set_is_built_from_the_recordings_and_counted(mn, tmp_path):
 
     rows = mn.build(clips, tmp_path / "negatives", seed=5)
     counts = mn.summarise(rows)
-    assert counts == {"silence": mn.N_SILENCE, "hiss": mn.N_NOISE,
-                      "quiet": 25, "reversed": 25}
-    assert len(rows) == 90, "the published count, which is what this reconstructs"
+    # No `quiet` kind: an attenuated copy of a correct answer is still the correct answer,
+    # and 75 of them were charging every fitted threshold for accepting correct speech.
+    # Asserted as an exact set so re-adding a kind has to be a deliberate edit here.
+    assert counts == {"silence": mn.N_SILENCE, "hiss": mn.N_NOISE, "reversed": 25}
+    # 65 for this 25-clip fixture: 20 silence + 20 hiss + one reversed per clip. Was 90
+    # while a second per-clip transform existed; see the comment above for why it went.
+    assert len(rows) == mn.N_SILENCE + mn.N_NOISE + 25
 
     # The manifest is the record, and it has to round-trip.
     again = mn.read_negatives(tmp_path / "negatives")
@@ -151,9 +155,9 @@ def test_the_set_is_built_from_the_recordings_and_counted(mn, tmp_path):
     original = mn.read_clip(clips / "me_001.wav")
     assert np.allclose(mn.read_clip(tmp_path / "negatives" / "neg_reversed_me_001.wav"),
                        original[::-1], atol=2e-4)
-    ratio = (mn.peak(mn.read_clip(tmp_path / "negatives" / "neg_quiet_me_001.wav"))
-             / mn.peak(original))
-    assert ratio == pytest.approx(10 ** -1.5, rel=0.05)
+    # The attenuated copy is no longer emitted, so there is nothing to check here for it.
+    # `attenuated` itself is still covered above — it survives as the gain-invariance probe.
+    assert not list((tmp_path / "negatives").glob("neg_quiet_*.wav"))
 
 
 def test_no_recordings_is_a_message_and_not_a_traceback(mn, tmp_path):

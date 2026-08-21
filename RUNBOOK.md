@@ -132,9 +132,11 @@ to TTS than to how the app will actually be used.
 .venv/bin/python scripts/make_negatives.py
 ```
 
-Writes 90 clips to `data/eval_clips/negatives/` — 20 digital silence, 20 white noise
-across five levels, and each recording both attenuated by 30 dB and time-reversed — plus a
-`manifest.tsv` recording exactly what was built.
+Writes 115 clips to `data/eval_clips/negatives/` — 20 digital silence, 20 white noise
+across five levels, and each recording time-reversed — plus a `manifest.tsv` recording
+exactly what was built. No attenuated copies: the recogniser normalises each mel bin over
+the clip, so a quieter copy of a correct answer is still the correct answer, and charging a
+fitted threshold for accepting one pushes every constant strict for no reason.
 
 Read the caveat it prints. The historical set's composition was never committed, so this
 is a reconstruction of a set of the same size and kinds, not the same set. **Percentages

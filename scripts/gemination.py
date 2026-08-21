@@ -112,7 +112,12 @@ def score_errors(model: str, clips_dir: Path) -> int:
         wins_field = rank > best_rival + 0.02
         accepted = passes_floor and wins_field
         caught += not accepted
-        cls = row.get("class", "accept")
+        # `.get("class", "accept")` is not the same thing: the column exists in every row
+        # written since it was added, and the 20 clips recorded before that have it present
+        # and empty. Those fell outside both tallies, so a report over 240 clips totalled
+        # 220 and said nothing about the other 20. They are geminate near-misses — a
+        # deliberately dropped doubled consonant, which is what `accept` means here.
+        cls = row.get("class") or "accept"
         if cls in tally:
             tally[cls][0] += int(accepted)
             tally[cls][1] += 1
@@ -130,6 +135,11 @@ def score_errors(model: str, clips_dir: Path) -> int:
         # aggregate number over both hides which way the rule is wrong.
         a_ok, a_n = tally["accept"]
         r_ok, r_n = tally["reject"]
+        # Said out loud, because the two percentages below are over whatever was classified
+        # and a clip quietly missing from both is invisible in them.
+        if a_n + r_n != n:
+            print(f"  ! {n - a_n - r_n} of {n} clips are in neither class and are not "
+                  f"counted below")
         print(f"  near-misses accepted:   {a_ok}/{a_n} "
               f"({a_ok / max(1, a_n) * 100:.0f}%) — higher is better")
         print(f"  wrong attempts refused: {r_n - r_ok}/{r_n} "

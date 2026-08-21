@@ -1227,6 +1227,27 @@ scored through `constrained_ctc.py` — the app's question, on the path that alr
 rather than a reimplementation inside the training loop where a mel mismatch would be
 invisible.
 
+**Corrected: most of that was the missing step, not the audio.** The corpus shards went in
+with empty text fields, so those 12.7 hours contributed posterior matching and no sequence
+supervision — `stage_pseudo` gives them targets from the teacher's own reading and had never
+been run. With targets:
+
+| run | rank-1 | pass | >near | other | hard |
+|---|---|---|---|---|---|
+| shipped | **85%** | **88%** | 29% | 0.367 | **13%** |
+| the 12.7h, no targets | 81% | 85% | 25% | 0.378 | 12% |
+| the 12.7h, pseudo-labelled | 84% | **88%** | **36%** | **0.353** | 17% |
+
+Three points of rank-1 and three of pass come back. It ties the shipped model on pass, sits
+one clip behind on rank-1, and is seven points better at ranking the true line above its
+near-misses. So the new audio is roughly *neutral* rather than harmful, and better on the
+axis the app's decision actually rests on. The regression reported above was mostly a step
+that had been skipped.
+
+It is still not shipped: one clip behind on rank-1, tied on pass, four points worse on
+near-miss admission. On the objective that matters here — accept the learner who said the
+line — it is a wash, and a wash is not worth swapping a model for.
+
 What would actually help is L2 Maltese: recordings of learners. There are now 95 of them in
 this repository — 75 honest attempts and 20 deliberate errors — which is enough to *measure*
 with and nowhere near enough to train on. That is a collection problem before it is a

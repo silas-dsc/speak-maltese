@@ -1195,6 +1195,23 @@ Otherwise **wrong**.
 and still credit 85% of the learner's own correct recordings. A threshold safe because it
 refuses everything would make the verdict useless, so both halves are pinned.
 
+**Cross-validated, because both thresholds were fitted on the clips they were reported
+against.** `GOP_IGNORE` is the graphemes scoring worst on those 75 recordings and `GOP_MIN`
+is the value that keeps 93% of them, so the numbers above are an upper bound on what a new
+speaker sees. `scripts/gop_cv.py` refits both on four fifths and reports the fifth:
+
+| | fitted on the same clips | held out |
+|---|---|---|
+| learner clips credited | 93% | **91%** |
+| reversed let in | 0% | **1.6%** |
+
+The threshold itself lands at −2.32 across folds, ranging −2.57 to −2.02, so the deployed
+−2.29 is inside the fold-to-fold spread rather than fitted to noise, and the ignore-set
+averages 9 graphemes against the 8 deployed. The verdict survives honest measurement; what
+does not survive is "no reversed clip is ever credited", which becomes about one in sixty.
+The held-out spread is 73-100% because a fifth of 75 clips is fifteen, where one clip is 6.7
+points — a wider set would narrow that, and is the cheapest thing more recording would buy.
+
 **What it cannot judge is level.** 45% of the −30 dB copies land in "close enough", because
 GOP is a ratio and a quiet copy comes back with the same mean top posterior as the original
 — −0.198 against −0.199. That is not a hole in the verdict but a job for a different part of

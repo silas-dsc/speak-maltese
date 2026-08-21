@@ -1639,7 +1639,21 @@ the 75 learner clips at 113 seconds, `clips/` trimmed and `raw/` as recorded, wi
 `mt-MT-GraceNeural` references, with a `kind` column separating the two. It is private
 because the learner half is one identifiable person's voice; the dataset card sets no
 licence for the same reason, and notes separately that the synthetic half is a commercial
-voice whose terms are Microsoft's. Restore it with a token that can read the dataset:
+voice whose terms are Microsoft's.
+
+And `errors/`, 240 clips of the learner **getting it wrong on purpose** — the set no
+amount of honest recording can substitute for, because scoring two spellings against one
+correct recording only asks whether the model *can* hear a difference, never whether it
+does. 200 deliberate mispronunciations (a halved geminate, `għ` as a hard g, `ħ` as a
+plain h, a dropped word, a different deck line) and 40 non-answers (silence, `ummm`,
+answering in English, trailing off mid-word, changing the subject). Its `manifest.tsv`
+travels inside the folder rather than at the root, because `class` is what makes the set
+usable — `accept` for a near-miss that should be credited, `reject` for one that should
+not — and a rule can only be judged on both directions at once. `kind` names the specific
+mistake, and `said` records what was actually spoken, which is what makes a clip a
+negative rather than a recording with a typo in its label.
+
+Restore it with a token that can read the dataset:
 
 ```bash
 .venv/bin/python -c "
@@ -1653,8 +1667,11 @@ for f in (d / 'clips').glob('*.wav'): shutil.copy2(f, out / f.name)
 for f in (d / 'raw').glob('*.wav'): shutil.copy2(f, out / 'raw' / f.name)
 (out / 'xvoice').mkdir(exist_ok=True)
 for f in (d / 'xvoice').glob('*.mp3'): shutil.copy2(f, out / 'xvoice' / f.name)
+(out / 'errors').mkdir(exist_ok=True)
+for f in (d / 'errors').iterdir(): shutil.copy2(f, out / 'errors' / f.name)
 shutil.copy2(d / 'manifest.tsv', out / 'manifest.tsv')
-print('restored', len(list(out.glob('me_*.wav'))), 'clips')"
+print('restored', len(list(out.glob('me_*.wav'))), 'clips and',
+      len(list((out / 'errors').glob('*.wav'))), 'deliberate errors')"
 ```
 
 One thing in that directory is **not** in the dataset, and does not need to be:

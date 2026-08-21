@@ -1063,6 +1063,37 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### Teaching the tolerance, versus stating it
+
+The 20 deliberate mispronunciations are the only real L2 Maltese in the project, and they are
+labelled with the line the speaker was *asked* for. Training on them says: audio of `kolox`
+**is** the line `kollox`. That is the tolerance the app is meant to give a beginner, learned
+rather than thresholded. Oversampled 40× — 20 clips is 0.15% of the shard and invisible
+otherwise — with each copy drawing its own augmentation, on the recovered recipe, scored on
+the 75 honest clips and 190 negatives it never sees.
+
+| | errors accepted | honest clips | >near | other | hard |
+|---|---|---|---|---|---|
+| shipped model | 5/20 | **85% / 88%** | 29% | 0.367 | **13%** |
+| + L2 training | 8/20 | 83% / 87% | **33%** | **0.334** | 16% |
+| **the three-way verdict** | **20/20** | **85% / 88%** | — | — | — |
+
+It worked, in the direction intended: acceptance of a beginner's near-miss rose 15 points,
+rival lines score lower, and the true line outranks its near-misses more often. It is also
+dominated. The verdict rule gets all twenty for nothing, keeps the honest clips intact, and
+does not cost the two clips this does.
+
+That is the same lesson as the rest of this section, arriving from the opposite direction: a
+2.1MB student distilled from a teacher that understands only native Maltese cannot be taught
+tolerance from 2.8 minutes of L2 audio as well as a decision rule can simply express it. The
+model is at its ceiling; the grader had slack. Everything shipped today came from the second
+observation and nothing from the first.
+
+Worth keeping for later rather than discarding: the discrimination columns moved the right
+way, which is what more of this data would compound. 20 clips bought 15 points of tolerance;
+the interesting question is what 200 would buy, and that is three hours of recording rather
+than a modelling idea.
+
 #### The shipped model was undocumented, not irreproducible
 
 Choosing the checkpoint on the learner's clips instead of a dev split was the obvious answer

@@ -1063,6 +1063,43 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### The floor was being paid for by learners who said it right
+
+200 deliberate mistakes were recorded to fit the grader's boundary: 120 near-misses that
+should be credited, and 80 wrong attempts — a word dropped, a different deck line — that
+should not. Until then the only wrong-side data was reversed speech, hiss and silence, none
+of which is a wrong *Maltese* attempt, so the threshold had a lower bound and no upper one.
+
+The first thing the set said was that the floor should go **up**: 0.35 to 0.55 buys 15 points
+of wrong-attempt refusal for 2 of honest and 2 of near-miss. The second thing, once the
+objective was stated properly, was that this is the wrong trade. The app's purpose is to
+credit a learner who said the line; the non-answers it has to refuse are silence, filler,
+"I don't know", English — not a learner who said a different real sentence.
+
+Measured against exactly those: 15 English and filler utterances against 12 deck lines each.
+
+| floor | honest correct | near-misses | silence | **English / filler refused** | wrong Maltese refused |
+|---|---|---|---|---|---|
+| **0.15** | **100%** | 96% | 100% | **96%** | 69% |
+| 0.35 | 97% | 96% | 100% | **96%** | 74% |
+| 0.55 | 95% | 94% | 100% | 97% | 89% |
+
+**The floor does nothing about non-answers.** They are refused 96% of the time at every value
+from 0.05 to 0.55, because what catches them is the *field* — an English mumble does not
+outrank the deck line it is being compared to. What the floor moves is honest recordings:
+three of the learner's own correct attempts, refused at 0.35 and accepted at 0.15.
+
+So the strictness was being paid for by learners who said the line correctly, and bought
+nothing against the cases it existed to guard. `MIN_CONFIDENCE` is 0.15. The cost is real and
+deliberate: refusal of wrong Maltese falls from 74% to 69%, and one hiss clip in twenty gets
+through. A beginner who nearly said the right thing matters more here than a beginner who
+said a different real sentence.
+
+The general lesson is about objectives rather than thresholds. Sweeping for balanced accuracy
+picked 0.55, and cross-validation agreed on every fold — the folds were unanimous about the
+wrong thing, because the objective handed to them weighted a class the app does not care
+about equally with one it does.
+
 #### Teaching the tolerance, versus stating it
 
 The 20 deliberate mispronunciations are the only real L2 Maltese in the project, and they are

@@ -61,7 +61,7 @@ DEPLOYED = {
     "dur_weight": DUR_WEIGHT,
     "dur_sd_slope": 0.0,
     "dur_frames": "total",
-    "floor": 0.35,
+    "floor": 0.15,   # see MIN_CONFIDENCE in frontend/app.js
     "min_margin": 0.02,
     "margin_sigmas": 0.0,
     "field_local": 0.0,
@@ -316,7 +316,7 @@ def collect(model: str, clips_dir: Path, seed: int, field_pool: int) -> list[dic
 
 GRIDS = {
     "lambda": ("dur_weight", [0.0, 0.05, 0.1, 0.15, 0.3]),
-    "floor": ("floor", [0.0, 0.2, 0.35, 0.45, 0.55, 0.65]),
+    "floor": ("floor", [0.0, 0.15, 0.2, 0.35, 0.45, 0.55, 0.65]),
     "sigmas": ("margin_sigmas", [0.0, 0.25, 0.5, 1.0, 2.0]),
     # Loosening, which nobody had swept: every value of `sigmas` above zero makes the
     # margin *stricter*, so the direction that could buy accepts had never been priced.

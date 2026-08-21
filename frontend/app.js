@@ -743,7 +743,18 @@ class Recorder {
 
    Reversed speech at 8% is unchanged and is not a regression; it has full speech energy
    and speech-like spectra, and nobody plays speech backwards at their phone. */
-const MIN_CONFIDENCE = 0.35;
+/* 0.15, not 0.35, because of what the floor turns out to be for.
+   Measured against the non-answers the app actually has to refuse — silence, "um", "I
+   don't know", English — the floor does nothing: they are refused 96% of the time at every
+   value from 0.05 to 0.55, because it is the *field* that catches them, not the threshold.
+   What the floor does move is honest recordings: 97% accepted at 0.35 and 100% at 0.15.
+   So the strictness was being paid for by learners who said the line correctly, and bought
+   nothing against the cases it was meant to guard.
+
+   It costs refusal of wrong *Maltese* — a word dropped, a different deck line — which
+   falls from 74% to 69%. That is the deliberate trade: a beginner saying nearly the right
+   thing matters more here than a beginner saying a different real sentence. */
+const MIN_CONFIDENCE = 0.15;
 
 /** How far ahead of the runner-up the target has to be. It changes nothing at this floor,
     and it costs nothing: correct answers clear their field by 0.06-0.43, where the one

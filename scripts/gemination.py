@@ -83,8 +83,11 @@ def score_errors(model: str, clips_dir: Path) -> int:
     deck = [x for x in deck if x]
 
     print(f"{model} · {len(rows)} deliberate mispronunciations\n")
-    print(f"  {'clip':12} {'conf':>7} {'floor':>6} {'field':>6}  said")
+    print(f"  {'clip':12} {'class':>7} {'conf':>7} {'floor':>6} {'field':>6}  said")
     caught = 0
+    # Two classes, graded in opposite directions: an `accept` clip is a beginner's near-miss
+    # and refusing it is the error; a `reject` clip is not the line and accepting it is.
+    tally = {"accept": [0, 0], "reject": [0, 0]}
     for row in rows:
         wave = read_clip(clips_dir / "errors" / row["file"])
         if wave is None:
@@ -105,20 +108,38 @@ def score_errors(model: str, clips_dir: Path) -> int:
                 best_rival = max(best_rival, rank_score(post, rid, blank))
         # The app's two conditions, reported apart: a floor that is too low and a field
         # that is too weak want different fixes, and one label would hide which.
-        passes_floor = conf >= 0.35
+        passes_floor = conf >= 0.15   # MIN_CONFIDENCE in frontend/app.js
         wins_field = rank > best_rival + 0.02
         accepted = passes_floor and wins_field
         caught += not accepted
-        print(f"  {row['file']:12} {conf:7.3f} {'ok' if passes_floor else 'no':>6} "
+        cls = row.get("class", "accept")
+        if cls in tally:
+            tally[cls][0] += int(accepted)
+            tally[cls][1] += 1
+        right = accepted if cls == "accept" else not accepted
+        print(f"  {row['file']:12} {cls:>7} {conf:7.3f} {'ok' if passes_floor else 'no':>6} "
               f"{'ok' if wins_field else 'no':>6}  "
-              f"{'CAUGHT' if not accepted else 'passed as correct'}  {row['said']}")
+              f"{'ok' if right else 'WRONG VERDICT'}  {row['said']}")
     n = len([r for r in rows if (clips_dir / 'errors' / r['file']).exists()])
     if not n:
         print("  no audio found for any prompt")
         return 1
-    print(f"\n  caught {caught}/{n} ({caught / n * 100:.0f}%)")
-    print("  Every one not caught is a learner told they were right. This is the number")
-    print("  degemination in the shard has to move; the aggregate app score will not show it.")
+    print()
+    if tally["reject"][1]:
+        # Two classes: report each in the direction that makes it a mistake, because one
+        # aggregate number over both hides which way the rule is wrong.
+        a_ok, a_n = tally["accept"]
+        r_ok, r_n = tally["reject"]
+        print(f"  near-misses accepted:   {a_ok}/{a_n} "
+              f"({a_ok / max(1, a_n) * 100:.0f}%) — higher is better")
+        print(f"  wrong attempts refused: {r_n - r_ok}/{r_n} "
+              f"({(r_n - r_ok) / max(1, r_n) * 100:.0f}%) — higher is better")
+        print("\n  A rule can only be judged on both. Accepting everything scores 100% on")
+        print("  the first line and 0% on the second, and so does the opposite.")
+    else:
+        print(f"  caught {caught}/{n} ({caught / n * 100:.0f}%)")
+        print("  Every one not caught is a learner told they were right. Only one class of")
+        print("  clip is present, so this cannot say whether the rule is too strict.")
     return 0
 
 

@@ -240,8 +240,23 @@ def print_guide(n: int) -> None:
 
 ERRORS = "errors"
 
+# What to actually do, per kind of mistake. The generator emits a code; a person needs a
+# sentence. Kept here rather than in the prompt file so the wording can be fixed without
+# regenerating a set that has already been half recorded.
+HOW = {
+    "geminate": "say that doubled letter ONCE, short",
+    "ghajn": "sound the g in għ as a hard g — it should be silent",
+    "hkbira": "say ħ as a plain English h, not from the throat",
+    "ie": "shorten ie to a plain i",
+    "zeta": "say ż as the z in zokkor, a ts sound",
+    "xin": "say x as s, not sh",
+    "dropped": "leave that word out — this is meant to be WRONG",
+    "other": "say this different line instead — this is meant to be WRONG",
+}
 
-def record_errors(prompts: Path, device: str = ":default") -> None:
+
+def record_errors(prompts: Path, device: str = ":default",
+                  say_only: bool = False) -> None:
     """Record deliberate mispronunciations, labelled with the line they were meant to be.
 
     Every clip in `eval_clips` is an honest attempt, which makes one question unanswerable:
@@ -288,28 +303,38 @@ def record_errors(prompts: Path, device: str = ":default") -> None:
             continue
         print(f"\n[{i}/{len(rows)}]  say it WRONG:  {row['say']}")
         print(f"          the real line is:  {row['intended']}")
-        # The instruction, not the audio, is what to follow. Rendering the misspelling
-        # through TTS distinguishes it from the truth by only one to three percent of
-        # duration, and on two of twelve prompts the *halved* version came out longer —
-        # so the synthesiser is barely modelling the length contrast, and imitating it
-        # would be imitating noise. The audio is here to give a non-speaker the line at
-        # all; the single consonant has to be done deliberately.
-        print(f"          drop the doubled {row['halved']!r} — say that letter ONCE, short")
+        # The instruction, not the audio, is what to follow where the two differ. For a
+        # halved geminate the rendering differs from the truth by one to three percent of
+        # duration — on two of twelve prompts the halved version came out *longer* — so
+        # imitating it would be imitating noise. For the other kinds the mistake is a
+        # different phoneme and the audio carries it.
+        kind = row.get("kind") or ("geminate" if row.get("halved") else "")
+        how = HOW.get(kind) or row.get("detail") or "say it as written above"
+        mark = "  ← should be WRONG" if row.get("class") == "reject" else ""
+        print(f"          {how}{mark}")
         guide = say_as.get(row["intended"])
         if guide:
             print(f"          the real line sounds like:  {guide}")
             print(f"          meaning: {en.get(row['intended'], '?')}")
-        print(f"          listen: the correct line, then a rough render of the error")
-        if not _play(row["intended"]):
-            print("          (no audio for the correct line — run prebuild_audio.py)")
-        time.sleep(0.4)
+        # Playing the intended line is help when the mistake is a sound inside it. On an
+        # `other` prompt the intended line is a *different sentence* — unrelated by
+        # construction — so it is delay rather than help, and 40 prompts of it is a wasted
+        # quarter of an hour.
+        pair = not say_only and kind != "other"
+        print("          listen: the correct line, then a rough render of the error"
+              if pair else "          listen: just the line to say")
+        if pair:
+            if not _play(row["intended"]):
+                print("          (no audio for the correct line — run prebuild_audio.py)")
+            time.sleep(0.4)
         if not _play(row["say"]):
             print(f"          ! no audio for {row['say']!r} — say it from the spelling, or "
                   f"skip this prompt")
-        input("       Enter to hear the pair again, or arm the microphone with the next "
+        input("       Enter to hear it again, or arm the microphone with the next "
               "Enter… ")
-        _play(row["intended"])
-        time.sleep(0.4)
+        if pair:
+            _play(row["intended"])
+            time.sleep(0.4)
         _play(row["say"])
         input("       Enter to arm the microphone, then wait for 'speak now'… ")
         proc = subprocess.Popen(
@@ -336,11 +361,16 @@ def record_errors(prompts: Path, device: str = ":default") -> None:
         # `text` is what the grader will be asked to confirm, so it is the *intended*
         # line. `said` records what was actually spoken, which is what makes the clip a
         # negative rather than a recording with a typo in its label.
+        # `class` decides what a correct grader does with the clip, so it has to survive
+        # into the recording's own manifest — otherwise the set is 200 clips with no record
+        # of which ones were supposed to be accepted.
         kept.append({"file": name, "text": row["intended"], "said": row["say"],
-                     "halved": row["halved"]})
+                     "halved": row.get("halved", ""),
+                     "class": row.get("class", "accept"), "kind": kind})
         with manifest.open("w", encoding="utf-8", newline="") as fh:
             w = csv.DictWriter(fh, delimiter="\t",
-                               fieldnames=["file", "text", "said", "halved"])
+                               fieldnames=["file", "text", "said", "halved",
+                                           "class", "kind"])
             w.writeheader()
             w.writerows(kept)
 
@@ -406,14 +436,28 @@ def _input_lead(device: str) -> float:
     and no audio at all means the device never started."""
     want = 3.0
     probe = CLIPS / ".probe.wav"
-    proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-f", "avfoundation", "-i", device,
-         "-ar", "16000", "-ac", "1", "-t", str(want), str(probe)],
-        capture_output=True, text=True,
-    )
-    if proc.returncode != 0 or not probe.exists():
-        sys.exit(f"could not record from {device}: {proc.stderr.strip() or 'no output'}\n"
+
+    def capture() -> tuple[int, str]:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "avfoundation", "-i", device,
+             "-ar", "16000", "-ac", "1", "-t", str(want), str(probe)],
+            capture_output=True, text=True,
+        )
+        return r.returncode, r.stderr
+    rc, err = capture()
+    # A cold Continuity session hands back silence rather than refusing: the phone is
+    # advertised as an input whenever it is nearby, but samples only flow once the session
+    # actually engages, and the first open is what engages it. Measured this morning, the
+    # first open of the same microphone lost about two seconds; a little later it lost 0.3.
+    # So a silent first capture means "not awake yet" far more often than "wrong device",
+    # and telling someone to pick another input is the wrong advice.
+    if rc == 0 and probe.exists() and _peak(probe) == 0.0:
+        print(f"{device} returned silence on the first open — waking it and trying again")
+        time.sleep(1.0)
+        rc, err = capture()
+    if rc != 0 or not probe.exists():
+        sys.exit(f"could not record from {device}: {err.strip() or 'no output'}\n"
                  f"run --list-inputs to see what this machine has, and check the "
                  f"microphone is granted under System Settings > Privacy & Security")
 
@@ -425,9 +469,14 @@ def _input_lead(device: str) -> float:
                  f"starting. If it is an iPhone over Continuity, wake and unlock the "
                  f"phone and try again; otherwise pick another --input.")
     if level == 0.0:
-        sys.exit(f"{device} produced pure silence, not even a noise floor — that is a "
-                 f"virtual device or a muted input, not a microphone. Run "
-                 f"--list-inputs and pick another --input.")
+        sys.exit(f"{device} produced pure silence twice, not even a noise floor.\n"
+                 f"  If it is an iPhone over Continuity: wake and unlock the phone, keep "
+                 f"it near the Mac, and check it says it is connected — the microphone is "
+                 f"advertised whenever the phone is nearby but only delivers once the "
+                 f"session engages.\n"
+                 f"  Otherwise this is a virtual device or a muted input rather than a "
+                 f"microphone: run --list-inputs and pick another --input. Note the "
+                 f"indices renumber whenever anything is plugged in or removed.")
 
     lead = max(0.5, (want - got) + 0.3)
     print(f"{device}: ready after {want - got:.2f}s, noise floor {level:.3f} — "
@@ -891,6 +940,9 @@ def main() -> int:
                     help="print the N lines to record, with pronunciation, then exit")
     ap.add_argument("--record-errors", type=Path, default=None, metavar="PROMPTS",
                     help="record deliberate mispronunciations from a prompt TSV")
+    ap.add_argument("--say-only", action="store_true",
+                    help="play only the line to say, never the intended one. Automatic for "
+                         "prompts whose mistake *is* a different line")
     ap.add_argument("--trim", action="store_true",
                     help="cap silence at both ends of every clip (originals kept in "
                          "eval_clips/raw)")
@@ -923,7 +975,7 @@ def main() -> int:
     if args.synth:
         asyncio.run(synth(args.synth, args.voice))
     if args.record_errors:
-        record_errors(args.record_errors, args.input)
+        record_errors(args.record_errors, args.input, args.say_only)
         return
 
     if args.trim:

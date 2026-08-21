@@ -153,12 +153,20 @@ def test_the_margin_and_the_field_are_unchanged_until_swept():
 
 
 def test_the_floor_came_down_with_the_prior_and_not_alone():
-    """0.35 is only safe because `rankScore` charges for an implausible length. Lowering
-    the floor without the prior admits hiss and buys nothing — measured, in the comment
-    beside it. So the two are pinned together here: if the prior ever goes, this fails."""
+    """The floor is only safe this low because `rankScore` charges for an implausible
+    length, and because the *field* is what refuses a non-answer rather than the threshold.
+
+    Measured against 15 English and filler non-answers — "um", "I don't know", "sorry,
+    what?" — against 12 deck lines each: they are refused 96% of the time at every floor
+    from 0.05 to 0.55. The floor moves honest recordings instead, from 97% accepted at 0.35
+    to 100% at 0.15. So the strictness was paid for by learners who said the line correctly
+    and bought nothing against the cases it was meant to guard.
+
+    Pinned together because the argument depends on both: without the prior and the field
+    doing the refusing, a floor this low would admit hiss."""
     app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
     nano_js = (ROOT / "frontend" / "nanostt.js").read_text(encoding="utf-8")
-    assert "const MIN_CONFIDENCE = 0.35;" in app_js
+    assert "const MIN_CONFIDENCE = 0.15;" in app_js
     assert "export function rankScore(" in nano_js
     assert "export function durationPrior(" in nano_js
 

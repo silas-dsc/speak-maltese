@@ -1063,6 +1063,47 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### More Maltese made it worse, and the domain-matched hours did the damage
+
+12.7 hours of new Maltese were collected, segmented and distilled: 3.78h of BDL course audio
+(native speakers teaching foreigners, so the app's own register), 7.93h of MASRI-SYNTHETIC
+across 210 voices, and 1.03h of Global Recordings narration. The teacher labelled the first
+two into shards of 39,510 and 15,993 passes, roughly doubling the training set to 130,074.
+
+| run | shards | rank-1 | pass | conf ✓ | near | hard |
+|---|---|---|---|---|---|---|
+| **deployed** | tts + real | **85%** | **88%** | 0.843 | 0.810 | 13% |
+| EMA + rank selection | tts + real | 83% | 87% | 0.869 | 0.845 | 12% |
+| every shard | + bdl + masri | 81% | 85% | 0.844 | 0.821 | 12% |
+| without MASRI | + bdl | 81% | 84% | 0.857 | 0.837 | 15% |
+
+Dropping MASRI changed nothing, so the regression is **BDL's** — the most domain-matched
+audio in the project, and the one predicted to punch above its hours. It is *native* speech
+in the app's register, and the model it produces is better at native Maltese phrases and
+worse at this learner's. The README's own ceiling claim says why: every Maltese recogniser
+available is trained on native speech, a learner's `għ` and `q` are not what any of them
+expect, and the 201MB teacher that labelled all of this marks only 25% of a learner's
+correct answers correct. Adding native hours moves the student toward that teacher, which is
+not the same as moving it toward the learner.
+
+**The selection metric was measuring the wrong thing, and adding data is what exposed it.**
+Dev rank-1 rose from 68.8% to 69.5% across these runs while the learner's rank-1 fell from
+85% to 81%. Those are not in tension by accident: `rank_accuracy` is computed on a dev split
+*of the training shards*, so doubling the shards with corpus speech redefined "best
+checkpoint" as "best at corpus speech" without anything in the output saying so. A proxy
+metric that silently changes meaning when the data changes is worse than a noisy one.
+
+`--save-every` therefore snapshots during training so each checkpoint can be exported and
+scored through `constrained_ctc.py` — the app's question, on the path that already ships,
+rather than a reimplementation inside the training loop where a mel mismatch would be
+invisible.
+
+What would actually help is L2 Maltese: recordings of learners. There are now 95 of them in
+this repository — 75 honest attempts and 20 deliberate errors — which is enough to *measure*
+with and nowhere near enough to train on. That is a collection problem before it is a
+modelling one, and every result above is a way of finding out that nothing else substitutes
+for it.
+
 #### A third verdict, decided per sound
 
 The grader had two answers and needed three. A learner who drops a doubled consonant passes

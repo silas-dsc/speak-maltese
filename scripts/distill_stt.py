@@ -982,7 +982,7 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 margin_weight: float = 0.0, margin_k: int = 3,
                 aux_at: int = 0, aux_weight: float = 0.3,
                 ema_decay: float = 0.0, select: str = "dev",
-                select_n: int = 128, select_field: int = 24) -> int:
+                select_n: int = 128, select_field: int = 24, save_every: int = 0) -> int:
     import torch
     from torch import nn
 
@@ -1343,6 +1343,22 @@ def stage_train(width: int, blocks: int, kernel: int, epochs: int, batch: int,
                 payload["ema"] = {k: v.clone() for k, v in ema.items()}
             torch.save(payload, out_dir / "student.pt")
             flag = "  ←"
+        # Snapshots, so the choice of checkpoint can be made on the metric that ships
+        # rather than on a dev split of the training shards. That distinction turned out
+        # to matter: adding 12.7h of native Maltese raised dev rank-1 from 68.8% to 69.5%
+        # and *lowered* the learner's own rank-1 from 85% to 81% — the selection metric
+        # had quietly become "best at corpus speech" when the corpus changed underneath
+        # it. Exporting and scoring each snapshot through `constrained_ctc.py` asks the
+        # app's question instead, and reuses the trusted scoring path rather than
+        # reimplementing feature extraction inside training, where a silent mismatch
+        # would be invisible.
+        if save_every and (ep % save_every == 0 or ep == epochs):
+            snap = {"state": model.state_dict(), "width": width, "blocks": blocks,
+                    "kernel": kernel, "vocab_size": v_size, "aux_at": aux_at,
+                    "epoch": ep, "dev": dkd + dc, "rank1": acc}
+            if ema is not None:
+                snap["ema"] = {k: v.clone() for k, v in ema.items()}
+            torch.save(snap, out_dir / f"snap_ep{ep:03d}.pt")
         print(f"  ep {ep:>3}/{epochs}  kd {kd:.4f} ctc {c:.3f} │ "
               f"dev kd {dkd:.4f} ctc {dc:.3f}"
               + (f" mg {dmg:.3f}" if margin_weight else "")
@@ -1452,6 +1468,9 @@ def main() -> int:
                          "against a field of other lines — the question the app asks")
     ap.add_argument("--select-n", type=int, default=128,
                     help="dev utterances scored per epoch when --select rank")
+    ap.add_argument("--save-every", type=int, default=0,
+                    help="also snapshot every N epochs, so the checkpoint can be chosen "
+                         "on the learner's own clips instead of a dev split")
     ap.add_argument("--select-field", type=int, default=24,
                     help="how many other lines to rank against, matching the app")
     ap.add_argument("--ema", action="store_true",
@@ -1490,7 +1509,8 @@ def main() -> int:
                            args.batch, args.lr, args.kd_weight, args.tag,
                            args.margin_weight, args.margin_k,
                            args.aux_at, args.aux_weight, args.ema_decay,
-                           args.select, args.select_n, args.select_field)
+                           args.select, args.select_n, args.select_field,
+                           args.save_every)
     return stage_export(args.tag, args.ema)
 
 

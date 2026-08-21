@@ -45,3 +45,6 @@ dist/
 # 7.5GB of downloaded training corpora — re-fetchable by the import scripts, and
 # MASRI-SYNTHETIC is CC-BY-NC-SA, which is not something to vendor into a public repo.
 data/corpora/
+
+# Sweep cache — derived from gitignored audio.
+data/eval_clips/objective_cache.json

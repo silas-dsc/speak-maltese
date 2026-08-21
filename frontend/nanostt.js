@@ -472,10 +472,21 @@ export function targetConfidence(logprobs, frames, vocab, ids, blank) {
    Charging a learner for these is charging them for the model's blind spots. */
 export const GOP_IGNORE = new Set(["'", 'd', 'g', 'h', 'j', 'q', 'r', 'ż']);
 
-/* Below this, the sounds are not the ones the line asks for. Set where it holds 93% of
-   the learner's own recordings while refusing every time-reversed clip — the negative
-   the confidence floor is worst at, admitting 67% of them. */
-export const GOP_MIN = -2.29;
+/* A token counts as wrong below this. Per token, not per utterance — see GOP_MIN. */
+export const GOP_BAD = -1.0;
+
+/* The share of a line's sounds that must not be wrong. 0.45 holds 95% of the learner's own
+   recordings out-of-sample while admitting 0.5% of time-reversed clips.
+
+   This replaced the mean GOP over the line, and the reason is stability rather than the
+   headline: averaging scored 91% and 1.6% with a threshold that moved between -2.02 and
+   -2.57 across folds, where counting moves by 0.006. A threshold that wanders half a unit
+   between splits of 75 clips belongs to those clips, not to Maltese.
+
+   Averaging also lets one catastrophic token drag down a line that was otherwise right, and
+   a single bad token happens in real speech — scoring on the worst token admits 53% of
+   backwards speech. How many sounds were wrong is the robust question. */
+export const GOP_MIN = 0.45;
 
 /** Per-token frame occupancy, `(L × frames)` row-major. Null when the target cannot be
     aligned at all. */
@@ -572,18 +583,21 @@ export function tokenGop(logprobs, frames, vocab, ids, blank) {
   return out;
 }
 
-/** One number for the attempt: the mean GOP over the tokens the model can be trusted on.
-    NaN when the line is made entirely of tokens in `GOP_IGNORE`, which is not a verdict —
-    callers must treat it as "no opinion" rather than as a failure. */
+/** One number for the attempt: the share of the line's sounds that are *not* wrong, over
+    the tokens the model can be trusted on. NaN when the line is made entirely of tokens in
+    `GOP_IGNORE`, which is not a verdict — callers must treat it as "no opinion" rather than
+    as a failure. */
 export function gopScore(logprobs, frames, vocab, ids, toks, blank) {
   const g = tokenGop(logprobs, frames, vocab, ids, blank);
-  let sum = 0, n = 0;
+  let ok = 0, n = 0;
   for (let i = 0; i < g.length; i += 1) {
-    if (toks && GOP_IGNORE.has(toks[i])) continue;
-    sum += g[i];
+    if (toks && (GOP_IGNORE.has(toks[i]) || toks[i] === '␣')) continue;
+    if (g[i] >= GOP_BAD) ok += 1;
     n += 1;
   }
-  return n ? sum / n : NaN;
+  // The share that are not wrong, so higher is still better and the callers comparing
+  // against GOP_MIN did not have to change direction.
+  return n ? ok / n : NaN;
 }
 
 /** The worst-scoring token the learner can be told about, or null when there is nothing

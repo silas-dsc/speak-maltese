@@ -139,10 +139,36 @@ def token_gop(post: np.ndarray, ids: list[int], blank: int) -> np.ndarray:
 # model's blind spots. Measured on the 75 recordings that are correct.
 GOP_IGNORE = frozenset({"'", "d", "g", "h", "j", "q", "r", "ż"})
 
-# Below this the sounds are not the ones the line asks for. Set where it holds 93% of the
-# learner's own recordings while refusing every time-reversed clip — the negative the
-# confidence floor is worst at, admitting 67% of them.
-GOP_MIN = -2.29
+# A token counts as wrong below this. Per token, not per utterance — see GOP_MIN.
+GOP_BAD = -1.0
+
+# The share of a line's sounds that must not be wrong. 0.45 holds 95% of the learner's own
+# recordings out-of-sample while admitting 0.5% of time-reversed clips.
+#
+# This replaced the mean GOP over the line, and the reason is the third column of the
+# cross-validation rather than the first two. Averaging scored 91% and 1.6% with a threshold
+# that moved between -2.02 and -2.57 across folds; counting scores 95% and 0.5% with one
+# that moves by 0.006. A threshold that wanders by half a unit between splits of 75 clips is
+# a property of those clips, and would not transfer to another speaker.
+#
+# Why counting wins: averaging lets one catastrophic token drag down a line that was
+# otherwise right, and a single bad token happens in genuine speech — which is why scoring
+# on the *worst* token collapses to admitting 53% of backwards speech. How many sounds were
+# wrong is the robust question; how wrong the worst one was is not.
+GOP_MIN = 0.45
+
+
+def score_tokens(gops, toks: list[str]) -> float:
+    """The line's score from per-token GOP values already computed.
+
+    Separate from `gop_score` so that anything working off a cache of per-token scores —
+    the cross-validation, the tests — uses this definition rather than restating it. A test
+    that reimplements the formula it guards stops guarding it the moment the formula
+    changes, which is exactly what happened when the mean became a count."""
+    kept = [x for tok, x in zip(toks, gops) if tok not in GOP_IGNORE and tok != "␣"]
+    if not kept:
+        return float("nan")
+    return float(np.mean([x >= GOP_BAD for x in kept]))
 
 
 def gop_score(post: np.ndarray, ids: list[int], toks: list[str], blank: int) -> float:
@@ -150,9 +176,7 @@ def gop_score(post: np.ndarray, ids: list[int], toks: list[str], blank: int) -> 
 
     NaN when the line is made entirely of ignored tokens. That is not a verdict and callers
     must not read it as one — "no opinion" and "wrong" want opposite treatment."""
-    g = token_gop(post, ids, blank)
-    kept = [x for tok, x in zip(toks, g) if tok not in GOP_IGNORE]
-    return float(np.mean(kept)) if kept else float("nan")
+    return score_tokens(token_gop(post, ids, blank), toks)
 
 
 def worst_sound(post: np.ndarray, ids: list[int], toks: list[str],

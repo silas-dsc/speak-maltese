@@ -1217,7 +1217,7 @@ Otherwise **wrong**.
 
 | | correct | close enough | wrong |
 |---|---|---|---|
-| the learner's 75 honest recordings | 92% | 3% | 5% |
+| the learner's 75 honest recordings | 92% | 5% | 3% |
 | 20 deliberate mispronunciations | 25% | **75%** | **0%** |
 | time-reversed | 3% | 0% | **97%** |
 | hiss / silence | 0% | 0% | **100%** |
@@ -1225,6 +1225,23 @@ Otherwise **wrong**.
 `GOP_MIN` is load-bearing and a test guards it: it must credit no reversed clip, no noise,
 and still credit 85% of the learner's own correct recordings. A threshold safe because it
 refuses everything would make the verdict useless, so both halves are pinned.
+
+**Count the wrong sounds, do not average them.** The score was first the mean GOP over the
+reliable tokens. Counting the share that are *not* wrong beats it, and the reason is
+stability rather than the headline:
+
+| | held-out kept | reversed let in | threshold across folds |
+|---|---|---|---|
+| mean GOP | 91% | 1.6% | −2.569 to −2.024 |
+| **share not wrong** | **95%** | **0.5%** | **−0.556 to −0.550** |
+
+The mean's threshold wanders by half a unit between splits of the same 75 clips, which makes
+it a property of those clips rather than of Maltese; the count's moves by 0.006. Averaging
+also lets one catastrophic token sink a line that was otherwise right — and a single bad
+token happens in genuine speech, which is why scoring on the *worst* token collapses to
+admitting 53% of backwards speech. How many sounds were wrong is the robust question; how
+wrong the worst one was is not. On the shipped verdict this moves two percent of the honest
+clips out of "wrong" and into "close enough" and changes nothing else.
 
 **Cross-validated, because both thresholds were fitted on the clips they were reported
 against.** `GOP_IGNORE` is the graphemes scoring worst on those 75 recordings and `GOP_MIN`

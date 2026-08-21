@@ -160,16 +160,17 @@ def test_the_threshold_credits_no_backwards_speech():
     against an opinion."""
     import json
 
-    from gop import GOP_IGNORE, GOP_MIN
+    from gop import GOP_MIN, score_tokens
 
     cache = ROOT / "data" / "eval_clips" / "gop_cache.json"
     if not cache.exists():
         pytest.skip("no gop cache; run scripts/gop.py --models frontend/stt")
     rows = json.loads(cache.read_text())
 
+    # The shipped definition, not a copy of it: this test previously restated the formula
+    # and so kept passing against a rule that no longer existed.
     def score(row):
-        kept = [g for t, g in zip(row["tokens"], row["gop"]) if t not in GOP_IGNORE]
-        return float(np.mean(kept)) if kept else float("nan")
+        return score_tokens(row["gop"], row["tokens"])
 
     credited = {}
     for row in rows:

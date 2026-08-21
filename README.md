@@ -1063,6 +1063,44 @@ The picture overall: **Maltese ASR fine-tunes are worth adopting, Maltese LLMs a
 ready**, which is why the tutor still points at EuroLLM-9B and the app carries its own
 rule-based `lint_fusion` safety net.
 
+#### The shipped model cannot be reproduced, which invalidates half of tonight's comparisons
+
+Choosing the checkpoint on the learner's clips instead of a dev split was the obvious answer
+to the measurement fault above. `--save-every` snapshots every few epochs; each one is
+exported and scored through `constrained_ctc.py`, which asks the app's question rather than a
+proxy. Eight snapshots over 40 epochs, same architecture and same shards as the shipped
+model:
+
+| epoch | rank-1 | pass | conf ✓ | other | near |
+|---|---|---|---|---|---|
+| 5 | 83% | 87% | 0.877 | 0.453 | 0.867 |
+| 15 | 83% | 87% | 0.871 | 0.409 | 0.851 |
+| 20 | 83% | 87% | 0.868 | 0.401 | 0.843 |
+| 40 | 81% | 85% | 0.845 | 0.366 | 0.818 |
+| **shipped** | **85%** | **88%** | 0.843 | 0.367 | 0.810 |
+
+Not one reaches it. And epoch 40 has essentially converged to the shipped model's
+calibration — 0.845/0.366/0.818 against 0.843/0.367/0.810 — while still scoring four points
+worse, so the difference is not a threshold or a temperature. It is a better-trained model.
+
+`data/distill/v2/student.pt` explains why it cannot be matched: it stores the architecture
+and nothing else. No epoch, no dev score, no rank-1, no averaged weights — those fields
+postdate it. The shipped 2.1MB model was trained by an earlier version of this script, whose
+defaults were 60 epochs with dev-loss selection and no EMA, and which had no augmentation
+constant at all. **Its recipe is recorded nowhere.**
+
+That has two consequences, and the second is the more serious.
+
+Every *absolute* comparison in this section is confounded. "This lever did not help" and "my
+recipe is worse than the shipped one" are indistinguishable while the shipped recipe cannot
+be reproduced, so the data results above should be read as *relative* — the MASRI ablation
+against the full run is sound because both share one recipe; either against the shipped model
+is not.
+
+And the artefact the app depends on is unreproducible. If `frontend/stt/model.onnx` were
+lost, nothing in this repository would regenerate it. That is worth more attention than any
+accuracy point on this page.
+
 #### More Maltese made it worse, and the domain-matched hours did the damage
 
 12.7 hours of new Maltese were collected, segmented and distilled: 3.78h of BDL course audio

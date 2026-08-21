@@ -1649,7 +1649,7 @@ async function answerDrill(said, opts = {}) {
   if (!said || drill.busy) return;
   drill.busy = true;
   $('drillInput').value = '';
-  drillBubble('user', said, '');
+  const saidBubble = drillBubble('user', said, '');
   drill.turns.push({ role: 'user', mt: said });
 
   let holdBusy = false;
@@ -1667,6 +1667,25 @@ async function answerDrill(said, opts = {}) {
        they were wrong, and they are not told they were clean either. Reusing that state
        rather than adding a fourth keeps one meaning for the amber mark. */
     if (opts.nearSound) r.on_lead = true;
+    /* Show the line that was credited, not the decode that earned the credit.
+       "Ma niflaħx" came back as `ma nifla` and scored 91% — correct, and printed as a
+       word with the ħ missing off the end. The transcript is the app's weakest output
+       (it is what the recogniser produces when asked the *harder* question it is not
+       built for), and once an answer has been graded against a listed line, that line
+       is both what the learner meant and the only spelling worth putting in front of
+       them. `matched_mt` is already computed — the score is how near they came to it.
+       Nothing about the verdict moves: this replaces text after grading, never before.
+
+       Not on an open question, and not when only the frame was scored: there the slot
+       is the learner's own name or town or age, and swapping in the nearest listed
+       answer would put words in their mouth rather than tidy their spelling. */
+    const credited = r.verdict === 'correct' || r.on_lead || r.moved_on;
+    if (credited && !r.free && !r.frame_scored && r.matched_mt && saidBubble) {
+      const line = saidBubble.querySelector('.mt');
+      if (line && mtext.normalise(r.matched_mt) !== mtext.normalise(said)) {
+        line.textContent = r.matched_mt;
+      }
+    }
     if (!r.advance) drill.attempts += 1;
     const ms = Math.round(performance.now() - t0);
 

@@ -193,6 +193,43 @@ def test_a_bubble_has_one_pair_of_controls_under_the_line_they_speak():
     assert "data-target-play" in target_block and "data-target-slow" in target_block
 
 
+def test_a_credited_answer_is_shown_as_the_line_it_was_credited_against():
+    """`Ma niflaħx` came back from the recogniser as `ma nifla`, scored 91%, and was
+    printed to the learner as a word with the ħ missing off the end. The transcript is
+    the app's weakest output — it is what the model produces when asked the harder
+    question it is not built for — so once an answer has been graded against a listed
+    line, that line is the spelling to show.
+
+    Checked by reading the source because `app.js` drives the DOM and cannot be imported,
+    which is why every app.js test in this file is written this way.
+
+    The three things that must not drift:
+      - it runs *after* grading, so no verdict depends on it
+      - open questions are exempt: the slot is the learner's own name or town or age
+      - frame-scored answers are exempt for the same reason
+    """
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    body = js.split("async function answerDrill(")[1].split("\nasync function ")[0]
+
+    assert "const saidBubble = drillBubble('user', said, '')" in body, (
+        "the bubble handle is needed to rewrite the line after grading")
+    assert "r.matched_mt" in body, "the matched line is what should be shown"
+
+    # After grading, not before: the rewrite must come after `evaluate`/`/api/drill/answer`
+    # returns, or it would be deciding what was said before anything had judged it.
+    graded = body.index("if (r.error) throw new Error(r.error)")
+    rewrite = body.index("line.textContent = r.matched_mt")
+    assert rewrite > graded, "the line may only be rewritten once the answer is graded"
+
+    # And the exemptions, which are the difference between tidying a spelling and
+    # putting words in someone's mouth.
+    guard = body[body.index("const credited ="):rewrite]
+    assert "!r.free" in guard, "an open question's answer is the learner's own"
+    assert "!r.frame_scored" in guard, "a frame score says nothing about the slot"
+    for state in ("r.verdict === 'correct'", "r.on_lead", "r.moved_on"):
+        assert state in guard, f"{state} is a credited answer and should be shown as one"
+
+
 def test_a_spoken_line_is_awaited_until_it_has_finished():
     """`speak()` resolved on `play()`, which returns as soon as playback *begins* — 10ms
     for a 2.59-second line, measured. So `await speak(reply)` in a drill turn waited for
